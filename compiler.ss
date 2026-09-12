@@ -1,29 +1,34 @@
 ;; compiler.ss
 
+
 (define tmp 0)
 
 (define (tmp-var)
   (let ((n tmp))
     (set! tmp (+ tmp 1))
-    (string-append "%t" (number->string n))))
+    (string-append "%tmp" (number->string n))))
 
-(define (compile-expr e dst)
+(define (compile-expr dst e)
   (cond
    ((integer? e)
     (list (list 'copy dst e)))
+
    ((pair? e)
     (case (car e)
-     ((+)
-      (let* ((x (tmp-var))
-             (y (tmp-var)))
-        (append
-         (compile-expr (cadr e) x)
-         (compile-expr (caddr e) y)
-         (list (list 'add dst x y)))))
-     (else (error 'cannot-compile))))
-   (else (error 'cannot-compile))))
+      ((+) (compile-binop 'add dst (cadr e) (caddr e)))
+      ((-) (compile-binop 'sub dst (cadr e) (caddr e)))
+      ((*) (compile-binop 'mul dst (cadr e) (caddr e)))
+      (else (error))))
 
+   (else (error))))
 
+(define (compile-binop cmd dst x y)
+  (let* ((tx (tmp-var))
+         (ty (tmp-var)))
+    (append
+     (compile-expr tx x)
+     (compile-expr ty y)
+     (list (list cmd dst tx ty)))))
 
 (define (emit xs)
   (for-each emit1 xs))
@@ -32,7 +37,6 @@
   (display "    # ")
   (display e)
   (newline)
-
   (case (car e)
     ((copy)
      (display "    ")
@@ -40,21 +44,22 @@
      (display " =l copy ")
      (display (caddr e))
      (newline))
-    ((add)
+    ((add sub mul)
      (display "    ")
      (display (cadr e))
-     (display " =l add ")
+     (display " =l ")
+     (display (car e))
+     (display " ")
      (display (caddr e))
      (display ", ")
      (display (cadddr e))
-     (newline)))
+     (newline))))
 
-  )
-
+(define expr '(* (+ 2 4) (- 8 1)))
 
 (display "export function w $main() {\n")
 (display "@start\n")
-(emit (compile-expr '(+ (+ 30 10) 2) "%x"))
-(display "    call $print_int(l %x)\n")
+(emit (compile-expr "%result" expr))
+(display "    call $print_int(l %result)\n")
 (display "    ret 0\n")
 (display "}\n")
