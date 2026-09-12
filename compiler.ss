@@ -95,13 +95,12 @@
     (else
      (error (list 'emit1 e)))))
 
-(define expr '(if (- 2 1)
-                  (* (+ 2 4) (- 8 1))
-                  (- 58 100)))
+(define (compile-program expr)
+  (display "export function w $main() {\n")
+  (display "@start\n")
+  (emit (compile-expr "%result" expr))
+  (display "    call $print_int(l %result)\n")
+  (display "    ret 0\n")
+  (display "}\n"))
 
-(display "export function w $main() {\n")
-(display "@start\n")
-(emit (compile-expr "%result" expr))
-(display "    call $print_int(l %result)\n")
-(display "    ret 0\n")
-(display "}\n")
+(compile-program (read))
