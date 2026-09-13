@@ -1,106 +1,136 @@
 ;; compiler.ss
 
+
 (define (generator prefix)
   (let ((n 0))
     (lambda ()
       (set! n (+ n 1))
       (string-append prefix (number->string n)))))
 
+
 (define tmp-var (generator "%tmp"))
+
 
 (define new-label (generator "@label"))
 
-(define (join . xs)
-  (apply append
-         (map (lambda (x)
-                (if (and (pair? x) (symbol? (car x)))
-                    (list x)
-                    x))
-              xs)))
 
-(define (compile-expr dst e)
+(define (seq . xs)
+  (cons 'seq xs))
+
+
+(define (compile-expr dst env expr)
   (cond
-   ((integer? e)
-    (list (list 'copy dst e)))
+   ((integer? expr)
+    (list 'copy dst expr))
 
-   ((pair? e)
-    (case (car e)
-      ((+) (compile-binop 'add dst (cadr e) (caddr e)))
-      ((-) (compile-binop 'sub dst (cadr e) (caddr e)))
-      ((*) (compile-binop 'mul dst (cadr e) (caddr e)))
-      ((if) (compile-if dst (cadr e) (caddr e) (cadddr e)))
+   ((pair? expr)
+    (case (car expr)
+      ((+)   (apply compile-binop dst env 'add (cdr expr)))
+      ((-)   (apply compile-binop dst env 'sub (cdr expr)))
+      ((*)   (apply compile-binop dst env 'mul (cdr expr)))
+      ((if)  (apply compile-if    dst env (cdr expr)))
+      ((let) (apply compile-let   dst env (cdr expr)))
       (else (error))))
+
+   ((symbol? expr)
+    (let ((p (assq expr env)))
+      (if p
+          (list 'copy dst (cdr p))
+          (error 'undefined expr))))
 
    (else (error))))
 
-(define (compile-binop cmd dst x y)
+
+(define (compile-binop dst env cmd x y)
   (let* ((tx (tmp-var))
          (ty (tmp-var)))
-    (join
-     (compile-expr tx x)
-     (compile-expr ty y)
-     (list cmd dst tx ty))))
+    (seq (compile-expr tx env x)
+         (compile-expr ty env y)
+         (list cmd dst tx ty))))
 
-(define (compile-if dst test-expr true-expr false-expr)
-  (let ((true-label0 (new-label))
-        (true-label (new-label))
+
+(define (compile-if dst env test-expr true-expr false-expr)
+  (let ((true-label0  (new-label))
+        (true-label   (new-label))
         (false-label0 (new-label))
-        (false-label (new-label))
-        (join-label (new-label))
-        (test-var (tmp-var))
-        (true-var (tmp-var))
+        (false-label  (new-label))
+        (join-label   (new-label))
+        (test-var  (tmp-var))
+        (true-var  (tmp-var))
         (false-var (tmp-var)))
-    (join
-     (compile-expr test-var test-expr)
+    (seq
+     (compile-expr test-var env test-expr)
      (list 'jnz test-var true-label0 false-label0)
 
      (list 'label true-label0)
-     (compile-expr true-var true-expr)
+     (compile-expr true-var env true-expr)
      (list 'label true-label)
      (list 'jmp join-label)
 
      (list 'label false-label0)
-     (compile-expr false-var false-expr)
+     (compile-expr false-var env false-expr)
      (list 'label false-label)
 
      (list 'label join-label)
      (list 'phi dst true-label true-var false-label false-var))))
 
 
-(define (emit xs)
-  (for-each emit1 xs))
 
-(define (emit1 e)
+
+(define (extend-env var val env0)
+  (cons (cons var val) env0))
+
+
+(define (compile-let dst env bindings expr)
+  (let loop ((bindings bindings)
+             (code '())
+             (new-env env))
+    (if (null? bindings)
+        (seq (apply seq (reverse code))
+             (compile-expr dst new-env expr))
+        (let ((var (tmp-var)))
+          (loop (cdr bindings)
+                (cons (compile-expr var env (cadar bindings)) code)
+                (extend-env (caar bindings) var new-env))))))
+
+
+(define (emit expr)
   (define (p . x)
     (for-each display x)
     (newline))
   (define (pi . x)
     (display "    ")
-    (for-each display x)
-    (newline))
+    (apply p x))
 
-  (case (car e)
-    ((copy)
-     (pi (cadr e) " =l copy " (caddr e)))
-    ((add sub mul)
-     (pi (cadr e) " =l " (car e) " " (caddr e) ", " (cadddr e)))
-    ((label)
-     (p (cadr e)))
-    ((jmp)
-     (pi "jmp " (cadr e)))
-    ((jnz)
-     (pi "jnz " (cadr e) ", " (caddr e) ", " (cadddr e)))
-    ((phi)
-     (pi (list-ref e 1) " =l phi " (list-ref e 2) " " (list-ref e 3) ", " (list-ref e 4) " " (list-ref e 5)))
-    (else
-     (error (list 'emit1 e)))))
+  (unless (null? expr)
+    (case (car expr)
+      ((seq)
+       (for-each emit (cdr expr)))
+      ((copy)
+       (pi (cadr expr) " =l copy " (caddr expr)))
+      ((add sub mul)
+       (pi (cadr expr) " =l " (car expr) " " (caddr expr) ", " (cadddr expr)))
+      ((label)
+       (p (cadr expr)))
+      ((jmp)
+       (pi "jmp " (cadr expr)))
+      ((jnz)
+       (pi "jnz " (cadr expr) ", " (caddr expr) ", " (cadddr expr)))
+      ((phi)
+       (pi (list-ref expr 1) " =l phi "
+           (list-ref expr 2) " " (list-ref expr 3) ", "
+           (list-ref expr 4) " " (list-ref expr 5)))
+      (else
+       (error (list 'emit expr))))))
+
 
 (define (compile-program expr)
   (display "export function w $main() {\n")
   (display "@start\n")
-  (emit (compile-expr "%result" expr))
+  (emit (compile-expr "%result" '() expr))
   (display "    call $print_int(l %result)\n")
   (display "    ret 0\n")
   (display "}\n"))
+
 
 (compile-program (read))

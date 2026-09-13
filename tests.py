@@ -16,6 +16,11 @@ class RunnerTests(unittest.TestCase):
             "(if 0 11 22)": "22",
             "(if 1 11 22)": "11",
             "(if 1 (if 0 33 44) 55)": "44",
+            "(let () 42)": "42",
+            "(let ((x 40)) (+ x 2))": "42",
+            "(let ((x 10)) (let ((x 20) (y x)) (+ x y)))": "30",
+            "(let ((x 10) (y 20)) (let ((x y) (y x)) (- x y)))": "10",
+            "(let ((x (if 1 40 0)) (y (if 0 0 2))) (+ x y))": "42",
         }
 
         for expression, expected in cases.items():
