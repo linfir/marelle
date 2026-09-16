@@ -19,6 +19,17 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertEqual(result.stdout, expected)
 
+    def assert_compile_error(self, program, expected):
+        result = subprocess.run(
+            ["csi", "-s", ROOT / "compiler.ss"],
+            cwd=ROOT,
+            input=program,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(expected, result.stderr)
+
     def test_atomic_top_level_expressions(self):
         cases = {
             "0": "0",
@@ -61,11 +72,24 @@ class RunnerTests(unittest.TestCase):
             "(define (add x y) (+ x y)) (add 20 22)": "42",
             "(define (square x) (* x x)) (square 7)": "49",
             "(define (square x) (* x x)) (+ 1 (square (+ (square 2) 1)))": "26",
+            "(define (fact n) (if (= n 0) 1 (* n (fact (- n 1))))) (fact 5)": "120",
+            "(define (even n) (if (= n 0) 1 (odd (- n 1)))) " "(define (odd n) (if (= n 0) 0 (even (- n 1)))) (even 10)": "1",
+            "(define (main) 42) (main)": "42",
         }
 
         for program, expected in cases.items():
             with self.subTest(program=program):
                 self.assert_expression_output(program, expected)
+
+    def test_named_function_errors(self):
+        cases = {
+            "(define (f) 1) (define (f) 2) (f)": "redefinition-not-allowed",
+            "(define (f x) x) (f)": "function-call-invalid-arity",
+        }
+
+        for program, expected in cases.items():
+            with self.subTest(program=program):
+                self.assert_compile_error(program, expected)
 
 
 if __name__ == "__main__":

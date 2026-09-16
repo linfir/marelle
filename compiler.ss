@@ -8,10 +8,9 @@
       (string-append prefix (number->string n)))))
 
 
-(define genvar (generator "%tmp"))
-
-
+(define genvar   (generator "%tmp"))
 (define genlabel (generator "@label"))
+(define genfn    (generator "$f"))
 
 
 (define (seq . xs)
@@ -24,24 +23,24 @@
                     xs))))
 
 
-(define (compile-expr dst env expr)
+(define (compile-expr dst env fenv expr)
   (cond
    ((integer? expr)
     (list 'copy dst expr))
 
    ((and (pair? expr) (symbol? (car expr)))
     (case (car expr)
-      ((+)   (apply compile-binop dst env 'add   (cdr expr)))
-      ((-)   (apply compile-binop dst env 'sub   (cdr expr)))
-      ((*)   (apply compile-binop dst env 'mul   (cdr expr)))
-      ((=)   (apply compile-binop dst env 'ceql  (cdr expr)))
-      ((<)   (apply compile-binop dst env 'csltl (cdr expr)))
-      ((>)   (apply compile-binop dst env 'csgtl (cdr expr)))
-      ((<=)  (apply compile-binop dst env 'cslel (cdr expr)))
-      ((>=)  (apply compile-binop dst env 'csgel (cdr expr)))
-      ((if)  (apply compile-if    dst env (cdr expr)))
-      ((let) (apply compile-let   dst env (cdr expr)))
-      (else  (apply compile-call  dst env expr))))
+      ((+)   (apply compile-binop dst env fenv 'add   (cdr expr)))
+      ((-)   (apply compile-binop dst env fenv 'sub   (cdr expr)))
+      ((*)   (apply compile-binop dst env fenv 'mul   (cdr expr)))
+      ((=)   (apply compile-binop dst env fenv 'ceql  (cdr expr)))
+      ((<)   (apply compile-binop dst env fenv 'csltl (cdr expr)))
+      ((>)   (apply compile-binop dst env fenv 'csgtl (cdr expr)))
+      ((<=)  (apply compile-binop dst env fenv 'cslel (cdr expr)))
+      ((>=)  (apply compile-binop dst env fenv 'csgel (cdr expr)))
+      ((if)  (apply compile-if    dst env fenv (cdr expr)))
+      ((let) (apply compile-let   dst env fenv (cdr expr)))
+      (else  (apply compile-call  dst env fenv expr))))
 
    ((symbol? expr)
     (let ((var (env-lookup env expr)))
@@ -52,36 +51,42 @@
    (else (error (list 'compile-expr expr)))))
 
 
-(define (compile-define name params body)
-  (let ((env (map (lambda (var) (cons var (genvar))) params)))
-    (list 'function name (map cdr env)
+(define (compile-function name params fenv body)
+  (let ((env (map (lambda (var)
+                    (cons var (genvar)))
+                  params)))
+    (list 'function (list-ref (assq name fenv) 1) (map cdr env)
           (seq (list 'label "@start")
-               (compile-expr "%result" env body)
+               (compile-expr "%result" env fenv body)
                (list 'return "%result")))))
 
 
-(define (compile-call dst env name . args)
-  (define (f x)
-    (let ((tmp (genvar)))
-      (cons tmp (compile-expr tmp env x))))
+(define (compile-call dst env fenv name . args)
+  (let ((info (assoc name fenv)))
+    (unless info
+      (error (list 'undefined-function name)))
+    (unless (= (length args) (list-ref info 2))
+      (error (list 'function-call-invalid-arity)))
 
-  (let ((alist (map f args)))
-    (let ((vars (map car alist))
-          (bodies (map cdr alist)))
-      (seq (apply seq bodies)
-           (list 'call dst name vars)))))
+    (let ((alist (map (lambda (x)
+                        (let ((tmp (genvar)))
+                          (cons tmp (compile-expr tmp env fenv x))))
+                      args)))
+      (let ((vars (map car alist))
+            (bodies (map cdr alist)))
+        (seq (apply seq bodies)
+             (list 'call dst (list-ref info 1) vars))))))
 
 
-
-(define (compile-binop dst env cmd x y)
+(define (compile-binop dst env fenv cmd x y)
   (let* ((tx (genvar))
          (ty (genvar)))
-    (seq (compile-expr tx env x)
-         (compile-expr ty env y)
+    (seq (compile-expr tx env fenv x)
+         (compile-expr ty env fenv y)
          (list cmd dst tx ty))))
 
 
-(define (compile-if dst env test-expr true-expr false-expr)
+(define (compile-if dst env fenv test-expr true-expr false-expr)
   (let ((true-label0  (genlabel))
         (true-label   (genlabel))
         (false-label0 (genlabel))
@@ -91,25 +96,23 @@
         (true-var  (genvar))
         (false-var (genvar)))
     (seq
-     (compile-expr test-var env test-expr)
+     (compile-expr test-var env fenv test-expr)
      (list 'jnz test-var true-label0 false-label0)
 
      (list 'label true-label0)
-     (compile-expr true-var env true-expr)
+     (compile-expr true-var env fenv true-expr)
      (list 'label true-label)
      (list 'jmp join-label)
 
      (list 'label false-label0)
-     (compile-expr false-var env false-expr)
+     (compile-expr false-var env fenv false-expr)
      (list 'label false-label)
 
      (list 'label join-label)
      (list 'phi dst true-label true-var false-label false-var))))
 
 
-
-
-(define (extend-env var val env0)
+(define (extend-env env0 var val)
   (cons (cons var val) env0))
 
 
@@ -120,17 +123,25 @@
         #f)))
 
 
-(define (compile-let dst env bindings expr)
+(define (compile-let dst env fenv bindings expr)
   (let loop ((bindings bindings)
              (code '())
              (new-env env))
     (if (null? bindings)
         (seq (apply seq (reverse code))
-             (compile-expr dst new-env expr))
+             (compile-expr dst new-env fenv expr))
         (let ((var (genvar)))
           (loop (cdr bindings)
-                (cons (compile-expr var env (cadar bindings)) code)
-                (extend-env (caar bindings) var new-env))))))
+                (cons (compile-expr var env fenv (cadar bindings)) code)
+                (extend-env new-env (caar bindings) var))))))
+
+
+;; x must be a non-empty list
+(define (split-last x)
+  (let loop ((x x) (acc '()))
+    (if (null? (cdr x))
+        (cons (reverse acc) (car x))
+        (loop (cdr x) (cons (car x) acc)))))
 
 
 (define (display-args xs)
@@ -142,8 +153,7 @@
       (display "l ")
       (display (car xs))
       (loop #f (cdr xs))))
-  (display ")")
-  )
+  (display ")"))
 
 
 (define (emit expr)
@@ -164,7 +174,7 @@
          (if (eq? name 'main)
              (display "export function w $main () {\n")
              (begin
-               (display "function l $")
+               (display "function l ")
                (display name)
                (display " ")
                (display-args vars)
@@ -175,7 +185,7 @@
       ((call)
        (display "    ")
        (display (cadr expr))
-       (display " =l call $")
+       (display " =l call ")
        (display (caddr expr))
        (display-args (cadddr expr))
        (newline))
@@ -202,21 +212,41 @@
        (error (list 'emit expr))))))
 
 
-(define (compile-program expr)
-  (define (main expr)
+(define (compile-program program)
+  (define (emit-main fenv expr)
     (display "export function w $main() {\n")
     (display "@start\n")
-    (emit (compile-expr "%result" '() expr))
+    (emit (compile-expr "%result" '() fenv expr))
     (display "    call $print_int(l %result)\n")
     (display "    ret 0\n")
     (display "}\n"))
 
-  (map (lambda (x)
-         (if (and (pair? x)
-                  (eq? (car x) 'define))
-             (emit (compile-define (caadr x) (cdadr x) (caddr x)))
-             (main x)))
-       expr))
+  (define (emit-def fenv expr)
+    (emit (compile-function (caadr expr) (cdadr expr) fenv (caddr expr))))
+
+  (define (scan defs)
+    (let loop ((defs defs)
+               (fenv '()))
+      (if (null? defs)
+          fenv
+          (let ((def (car defs)))
+            (unless (and (pair? def)
+                         (eq? (car def) 'define))
+              (error 'not-a-def))
+            (let ((fn (genfn))
+                  (name (caadr def))
+                  (args (cdadr def)))
+              (when (assq name fenv)
+                (error 'redefinition-not-allowed))
+              (loop (cdr defs)
+                    (cons (list name fn (length args)) fenv)))))))
+
+  (let* ((program2 (split-last program))
+         (defs (car program2))
+         (expr (cdr program2))
+         (fenv (scan defs)))
+    (for-each (lambda (x) (emit-def fenv x)) defs)
+    (emit-main fenv expr)))
 
 
 (define (read-all)
