@@ -1,2 +1,4 @@
+CFLAGS ?= -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow
+
 runtime.o: runtime.c
-	$(CC) $(CFLAGS) -O2 -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<

@@ -31,7 +31,7 @@ def main():
 
         with ssa.open("w") as output:
             run(
-                ["csi", "-s", ROOT / "compiler.ss"],
+                ["scheme", "--script", ROOT / "compiler.ss"],
                 input=source,
                 text=True,
                 stdout=output,
