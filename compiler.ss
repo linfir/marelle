@@ -7,20 +7,12 @@
   (cons (cons k v) alist))
 
 
-;; almost like map, but with left-to-right evaluation order
-(define (my-map f lst)
-  (let loop ((acc '())
-             (lst lst))
-    (if (null? lst)
-        (reverse acc)
-        (loop (cons (f (car lst)) acc) (cdr lst)))))
-
-
 ;; x must be a non-empty list
 (define (split-last x)
-  (let loop ((x x) (acc '()))
+  (let loop ((x x)
+             (acc '()))
     (if (null? (cdr x))
-        (cons (reverse acc) (car x))
+        (values (reverse acc) (car x))
         (loop (cdr x) (cons (car x) acc)))))
 
 
@@ -30,6 +22,15 @@
       (if (eof-object? x)
           (reverse acc)
           (loop (cons x acc))))))
+
+
+(define (add acc . xs)
+  (let loop ((acc acc)
+             (xs xs))
+    (if (null? xs)
+        acc
+        (loop (cons (car xs) acc)
+              (cdr xs)))))
 
 ;; ----------------------------------------------------------------------------
 
@@ -44,21 +45,6 @@
 (define gen-label (generator "@label"))
 (define gen-proc  (generator "$proc"))
 
-(define (seq . xs)
-  (cons 'seq
-        (apply append
-               (map (lambda (x)
-                      (if (and (pair? x) (eq? (car x) 'seq))
-                          (cdr x)
-                          (list x)))
-                    xs))))
-
-
-(define (with-code instructions compiled)
-  (cons (car compiled)
-        (seq (apply seq instructions)
-             (cdr compiled))))
-
 
 (define (encode-immediate? x)
   (cond
@@ -71,13 +57,17 @@
 
 (define *special-forms* '(if let))
 
-
-(define (compile-expr env expr)
+;; compile expr
+;;   env is an alist of pairs (symbol . variable)
+;;   code is a reversed list of instructions
+;; returns (values dst updated-code) or throw an error
+(define (compile-expr env expr code)
   (cond
    ((encode-immediate? expr)
     => (lambda (x)
          (let ((tmp (gen-var)))
-           (cons tmp (list 'copy tmp x)))))
+           (values tmp
+                   (cons (list 'copy tmp x) code)))))
 
    ((null? expr)
     (error 'compile-expr "invalid form" expr))
@@ -89,87 +79,98 @@
          (not (assq (car expr) env)))
     (case (car expr)
       ((if)
-       (if (= (length expr) 4)
-           (apply compile-if (my-map (lambda (e) (compile-expr env e)) (cdr expr)))
-           (error 'compile-expr "invalid arity for if")))
+       (unless (= (length expr) 4)
+         (error 'compile-expr "invalid arity for if"))
+       (compile-if env (list-ref expr 1) (list-ref expr 2) (list-ref expr 3) code))
 
       ((let)
-       (if (= (length expr) 3)
-           (compile-let env (cadr expr) (caddr expr))
-           (error 'compile-expr "invalid arity for let")))
+       (unless (= (length expr) 3)
+         (error 'compile-expr "invalid arity for let"))
+       (compile-let env (list-ref expr 1) (list-ref expr 2) code))
 
       (else
        (error 'compile-expr "unimplemented special form" expr))))
 
    ((and (list? expr)
          (not (null? expr)))
-    (let* ((pairs (my-map (lambda (e) (compile-expr env e)) expr))
-           (vars (map car pairs))
-           (codes (map cdr pairs)))
-      (with-code codes (compile-call (car vars) (cdr vars)))))
+    (compile-call env expr code))
 
    ((symbol? expr)
     (let ((x (assq expr env)))
       (if x
-          (cons (cdr x) (seq))
+          (values (cdr x) code)
           (error 'compile-expr "unknown symbol" expr))))
 
    (else
     (error 'compile-expr "unknown form" expr))))
 
 
-(define (compile-call f args)
-  (let* ((a (gen-var))
-         (b (gen-var)))
-    (cons b
-          (seq (list 'call a "$check_procedure" f (length args))
-               (cons* 'call b a args)))))
+(define (compile-exprs env exprs code)
+  (let loop ((exprs exprs)
+             (code code)
+             (vars '()))
+    (if (null? exprs)
+        (values (reverse vars) code)
+        (let-values (((x code) (compile-expr env (car exprs) code)))
+          (loop (cdr exprs) code (cons x vars))))))
 
 
-(define (compile-if test true false)
+(define (compile-if env test-expr true-expr false-expr code)
   (let* ((label-true-start  (gen-label))
          (label-true-end    (gen-label))
          (label-false-start (gen-label))
          (label-false-end   (gen-label))
          (label-phi         (gen-label))
-         (dst (gen-var)))
-    (cons dst
-          (seq
-           (cdr test)
-           (list 'test (car test) label-true-start label-false-start)
+         (dst               (gen-var)))
+    (let*-values (((test-var code)
+                   (compile-expr env test-expr code))
+                  ((true-var code)
+                   (compile-expr env true-expr
+                                 (add code
+                                      (list 'test test-var label-true-start label-false-start)
+                                      (list 'label label-true-start))))
+                  ((false-var code)
+                   (compile-expr env false-expr
+                                 (add code
+                                      (list 'label label-true-end)
+                                      (list 'jmp label-phi)
+                                      (list 'label label-false-start)))))
+      (values dst
+              (add code
+                   (list 'label label-false-end)
+                   (list 'jmp label-phi)
+                   (list 'label label-phi)
+                   (list 'phi dst label-true-end true-var label-false-end false-var))))))
 
-           (list 'label label-true-start)
-           (cdr true)
-           (list 'label label-true-end)
-           (list 'jmp label-phi)
 
-           (list 'label label-false-start)
-           (cdr false)
-           (list 'label label-false-end)
-           (list 'jmp label-phi)
-
-           (list 'label label-phi)
-           (list 'phi dst label-true-end (car true) label-false-end (car false))))))
-
-
-(define (compile-let env bindings expr)
+(define (compile-let env bindings expr code)
   (let loop ((bindings bindings)
              (new-env env)
-             (code-lst '()))
+             (code code))
     (if (null? bindings)
-        (with-code code-lst (compile-expr new-env expr))
+        (compile-expr new-env expr code)
         (let ((k (caar bindings))
               (v (cadar bindings)))
-          (let ((c (compile-expr env v)))
+          (let-values (((dst code) (compile-expr env v code)))
             (loop (cdr bindings)
-                  (acons k (car c) new-env)
-                  (cons (cdr c) code-lst)))))))
+                  (acons k dst new-env)
+                  code))))))
+
+
+(define (compile-call env form code)
+  (let-values (((vars code) (compile-exprs env form code)))
+    (let* ((a (gen-var))
+           (b (gen-var)))
+      (values b
+              (add code
+                   (list 'call a "$check_procedure" (car vars) (- (length vars) 1))
+                   (cons* 'call b a (cdr vars)))))))
 
 ;; ----------------------------------------------------------------------------
 
 ;; Convert a list of elements s.t.
 ;;   (define (foo x y) (+ x y)) ---> (foo "$proc42" (x y) (+ x y))
-(define (scan-defines defs)
+(define (scan-defs defs)
   (let loop ((acc '())
              (defs defs))
     (if (null? defs)
@@ -178,45 +179,54 @@
           (unless (and (list? form)
                        (not (null? form))
                        (eq? (car form) 'define))
-            (error 'scan-defines "non define form in define position"))
+            (error 'scan-defs "non define form in define position"))
           (let ((name (caadr form))
                 (args (cdadr form))
                 (body (caddr form)))
             (when (assq name acc)
-              (error 'scan-defines "define: redefinition not allowed"))
+              (error 'scan-defs "define: redefinition not allowed"))
             (loop (cons (list name (gen-proc) args body) acc)
                   (cdr defs)))))))
 
 
-;; What about a (define define 42) ?
+(define (compile-defs env defs top)
+  (if (null? defs)
+      top
+      (let ((proc (list-ref (car defs) 1))
+            (args (list-ref (car defs) 2))
+            (body (list-ref (car defs) 3)))
+        (let* ((vars (map (lambda (_) (gen-var)) args))
+               (env-fn (append (map cons args vars) env)))
+          (let-values (((ret code-fn) (compile-expr env-fn body '())))
+            (compile-defs env
+                          (cdr defs)
+                          (cons (cons* 'function proc vars
+                                       (reverse (cons (list 'ret ret) code-fn)))
+                                top)))))))
+
+
+(define (compile-main env expr top)
+  (let-values (((ret code) (compile-expr env expr '())))
+    (cons (cons 'main (reverse (cons (list 'ret ret) code)))
+          top)))
+
+
+;; TODO: what about a (define define 42) ?
 (define (compile-program env program)
   (when (null? program)
     (error 'compile-program "empty program"))
 
-  (let* ((split (split-last program))
-         (defs  (scan-defines (car split)))
-         (expr  (cdr split))
-         (env2  (append (map (lambda (x) (cons (car x) (cadr x))) defs)
-                        env)))
-    (seq
-     (cons 'seq
-           (map (lambda (def)
-                  (let ((name (list-ref def 0))
-                        (proc (list-ref def 1))
-                        (args (list-ref def 2))
-                        (body (list-ref def 3)))
-                    (let* ((vars (my-map (lambda (_) (gen-var)) args))
-                           (env3 (append (map cons args vars) env2))
-                           (c (compile-expr env3 body)))
-                      (list 'function proc vars
-                            (seq (cdr c)
-                                 (list 'ret (car c)))))))
-                defs))
-     (list 'main
-           (let ((c (compile-expr env2 expr)))
-             (seq (cdr c) (list 'ret (car c))))))))
+  (let-values (((defs expr) (split-last program)))
+    (let* ((defs (scan-defs defs))
+           (env (append (map (lambda (x) (cons (car x) (cadr x))) defs) env))
+           (top (compile-defs env defs '()))
+           (top (compile-main env expr top)))
+      (reverse top))))
 
 ;; ----------------------------------------------------------------------------
+
+(define (emit-proc proc arity fn)
+  (printf "data ~a = align 8 { l $procedure_type, l ~a, l ~a }\n" proc arity fn))
 
 (define (emit expr)
   (define (p . x)
@@ -230,31 +240,27 @@
   (unless (null? expr)
     (case (car expr)
       ((main)
-       (let ((body (cadr expr)))
-         (printf "export function l $entry() {\n")
-         (emit (list 'label "@start"))
-         (emit body)
+       (let ((body (cdr expr)))
+         (display "export function l $entry() {\n")
+         (display "@start\n")
+         (for-each emit body)
          (display "}\n\n")))
 
       ((function)
-       (let ((name (list-ref expr 1))
-             (vars (list-ref expr 2))
-             (body (list-ref expr 3)))
+       (let ((name (cadr expr))
+             (vars (caddr expr))
+             (body (cdddr expr)))
+         (emit-proc name (length vars) (string-append name "_fn"))
          (printf "function l ~a_fn(~{l ~a~^, ~}) {\n" name vars)
-         (emit (list 'label "@start"))
-         (emit body)
-         (display "}\n")
-         (emit-proc name (length vars) (string-append name "_fn"))))
+         (display "@start\n")
+         (for-each emit body)
+         (display "}\n\n")))
 
       ((copy)
        (pi (cadr expr) " =l copy " (caddr expr)))
 
       ((call)
-       (printf "    ~a =l call ~a(~{l ~a~^, ~})\n"
-               (cadr expr) (caddr expr) (cdddr expr)))
-
-      ((seq)
-       (for-each emit (cdr expr)))
+       (printf "    ~a =l call ~a(~{l ~a~^, ~})\n" (cadr expr) (caddr expr) (cdddr expr)))
 
       ((ret)
        (pi "ret " (cadr expr)))
@@ -271,24 +277,21 @@
          (pi "jnz " v ", " (caddr expr) ", " (cadddr expr))))
 
       ((phi)
-       (pi (list-ref expr 1) " =l phi "
-           (list-ref expr 2) " " (list-ref expr 3) ", "
-           (list-ref expr 4) " " (list-ref expr 5)))
+       (printf "    ~a =l phi ~a ~a, ~a ~a\n"
+               (list-ref expr 1) (list-ref expr 2) (list-ref expr 3)
+               (list-ref expr 4) (list-ref expr 5)))
 
       (else
        (error 'emit "unknown instruction " expr)))))
 
-
-(define (emit-proc proc arity fn)
-  (printf "data ~a = align 8 { l $procedure_type, l ~a, l ~a }\n" proc arity fn))
-
-                                        ; ----------------------------------------------------------------------------
+;; ----------------------------------------------------------------------------
 
 (define *env* '())
 
+
 (define (define-c-proc name c-name arity)
   (let ((proc (gen-proc)))
-    (printf "data ~a = align 8 { l $procedure_type, l ~a, l $~a }\n" proc arity c-name)
+    (emit-proc proc arity (string-append "$" c-name))
     (set! *env* (acons name proc *env*))))
 
 
@@ -303,5 +306,4 @@
 (define-c-proc '>=  "int_geq" 2)
 
 
-
-(emit (compile-program *env* (read-all)))
+(for-each emit (compile-program *env* (read-all)))
