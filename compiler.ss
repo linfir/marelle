@@ -41,9 +41,23 @@
       (string-append prefix (number->string n)))))
 
 
-(define gen-var   (generator "%tmp"))
-(define gen-label (generator "@label"))
-(define gen-proc  (generator "$proc"))
+(define gen-proc (generator "$proc"))
+
+
+(define-record-type compile-expr-context
+  (fields gen-var gen-label))
+
+
+(define (new-expr-context)
+  (make-compile-expr-context (generator "%tmp") (generator "@label")))
+
+
+(define (fresh-var ctx)
+  ((compile-expr-context-gen-var ctx)))
+
+
+(define (fresh-label ctx)
+  ((compile-expr-context-gen-label ctx)))
 
 
 (define (encode-immediate? x)
@@ -61,11 +75,11 @@
 ;;   env is an alist of pairs (symbol . variable)
 ;;   code is a reversed list of instructions
 ;; returns (values dst updated-code) or throw an error
-(define (compile-expr env expr code)
+(define (compile-expr ctx env expr code)
   (cond
    ((encode-immediate? expr)
     => (lambda (x)
-         (let ((tmp (gen-var)))
+         (let ((tmp (fresh-var ctx)))
            (values tmp
                    (cons (list 'copy tmp x) code)))))
 
@@ -81,19 +95,19 @@
       ((if)
        (unless (= (length expr) 4)
          (error 'compile-expr "invalid arity for if"))
-       (compile-if env (list-ref expr 1) (list-ref expr 2) (list-ref expr 3) code))
+       (compile-if ctx env (list-ref expr 1) (list-ref expr 2) (list-ref expr 3) code))
 
       ((let)
        (unless (= (length expr) 3)
          (error 'compile-expr "invalid arity for let"))
-       (compile-let env (list-ref expr 1) (list-ref expr 2) code))
+       (compile-let ctx env (list-ref expr 1) (list-ref expr 2) code))
 
       (else
        (error 'compile-expr "unimplemented special form" expr))))
 
    ((and (list? expr)
          (not (null? expr)))
-    (compile-call env expr code))
+    (compile-call ctx env expr code))
 
    ((symbol? expr)
     (let ((x (assq expr env)))
@@ -105,32 +119,34 @@
     (error 'compile-expr "unknown form" expr))))
 
 
-(define (compile-exprs env exprs code)
+(define (compile-exprs ctx env exprs code)
   (let loop ((exprs exprs)
              (code code)
              (vars '()))
     (if (null? exprs)
         (values (reverse vars) code)
-        (let-values (((x code) (compile-expr env (car exprs) code)))
+        (let-values (((x code) (compile-expr ctx env (car exprs) code)))
           (loop (cdr exprs) code (cons x vars))))))
 
 
-(define (compile-if env test-expr true-expr false-expr code)
-  (let* ((label-true-start  (gen-label))
-         (label-true-end    (gen-label))
-         (label-false-start (gen-label))
-         (label-false-end   (gen-label))
-         (label-phi         (gen-label))
-         (dst               (gen-var)))
+(define (compile-if ctx env test-expr true-expr false-expr code)
+  (let* ((label-true-start  (fresh-label ctx))
+         (label-true-end    (fresh-label ctx))
+         (label-false-start (fresh-label ctx))
+         (label-false-end   (fresh-label ctx))
+         (label-phi         (fresh-label ctx))
+         (test-result       (fresh-var ctx))
+         (dst               (fresh-var ctx)))
     (let*-values (((test-var code)
-                   (compile-expr env test-expr code))
+                   (compile-expr ctx env test-expr code))
                   ((true-var code)
-                   (compile-expr env true-expr
+                   (compile-expr ctx env true-expr
                                  (add code
-                                      (list 'test test-var label-true-start label-false-start)
+                                      (list 'cnel test-result test-var (encode-immediate? #f))
+                                      (list 'jnz test-result label-true-start label-false-start)
                                       (list 'label label-true-start))))
                   ((false-var code)
-                   (compile-expr env false-expr
+                   (compile-expr ctx env false-expr
                                  (add code
                                       (list 'label label-true-end)
                                       (list 'jmp label-phi)
@@ -143,24 +159,24 @@
                    (list 'phi dst label-true-end true-var label-false-end false-var))))))
 
 
-(define (compile-let env bindings expr code)
+(define (compile-let ctx env bindings expr code)
   (let loop ((bindings bindings)
              (new-env env)
              (code code))
     (if (null? bindings)
-        (compile-expr new-env expr code)
+        (compile-expr ctx new-env expr code)
         (let ((k (caar bindings))
               (v (cadar bindings)))
-          (let-values (((dst code) (compile-expr env v code)))
+          (let-values (((dst code) (compile-expr ctx env v code)))
             (loop (cdr bindings)
                   (acons k dst new-env)
                   code))))))
 
 
-(define (compile-call env form code)
-  (let-values (((vars code) (compile-exprs env form code)))
-    (let* ((a (gen-var))
-           (b (gen-var)))
+(define (compile-call ctx env form code)
+  (let-values (((vars code) (compile-exprs ctx env form code)))
+    (let* ((a (fresh-var ctx))
+           (b (fresh-var ctx)))
       (values b
               (add code
                    (list 'call a "$check_procedure" (car vars) (- (length vars) 1))
@@ -194,10 +210,11 @@
       top
       (let ((proc (list-ref (car defs) 1))
             (args (list-ref (car defs) 2))
-            (body (list-ref (car defs) 3)))
-        (let* ((vars (map (lambda (_) (gen-var)) args))
+            (body (list-ref (car defs) 3))
+            (ctx (new-expr-context)))
+        (let* ((vars (map (lambda (_) (fresh-var ctx)) args))
                (env-fn (append (map cons args vars) env)))
-          (let-values (((ret code-fn) (compile-expr env-fn body '())))
+          (let-values (((ret code-fn) (compile-expr ctx env-fn body '())))
             (compile-defs env
                           (cdr defs)
                           (cons (cons* 'function proc vars
@@ -206,9 +223,10 @@
 
 
 (define (compile-main env expr top)
-  (let-values (((ret code) (compile-expr env expr '())))
-    (cons (cons 'main (reverse (cons (list 'ret ret) code)))
-          top)))
+  (let ((ctx (new-expr-context)))
+    (let-values (((ret code) (compile-expr ctx env expr '())))
+      (cons (cons 'main (reverse (cons (list 'ret ret) code)))
+            top))))
 
 
 ;; TODO: what about a (define define 42) ?
@@ -271,10 +289,11 @@
       ((jmp)
        (pi "jmp " (cadr expr)))
 
-      ((test)
-       (let ((v (gen-var)))
-         (pi v " =l cnel " (cadr expr) ", 2")
-         (pi "jnz " v ", " (caddr expr) ", " (cadddr expr))))
+      ((cnel)
+       (printf "    ~a =l cnel ~a, ~a\n" (list-ref expr 1) (list-ref expr 2) (list-ref expr 3)))
+
+      ((jnz)
+       (printf "    jnz ~a, ~a, ~a\n" (list-ref expr 1) (list-ref expr 2) (list-ref expr 3)))
 
       ((phi)
        (printf "    ~a =l phi ~a ~a, ~a ~a\n"
