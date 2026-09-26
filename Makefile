@@ -1,4 +1,13 @@
 CFLAGS ?= -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 
-runtime.o: runtime.c
+tmp/runtime.o: tmp/runtime-c.o tmp/runtime-asm.o
+	$(LD) -r -o $@ $^
+
+tmp/runtime-c.o: runtime.c | tmp
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+tmp/runtime-asm.o: runtime.s | tmp
+	$(CC) -c -o $@ $<
+
+tmp:
+	mkdir -p $@

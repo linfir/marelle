@@ -100,10 +100,10 @@ static void print_obj(value x) {
     }
 }
 
-value entry(void);
+value scheme_main_stub(void);
 
 int main(void) {
-    value v = entry();
+    value v = scheme_main_stub();
     print_obj(v);
     return 0;
 }

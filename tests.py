@@ -10,7 +10,7 @@ from run import PipelineFailure, build_runtime, run_pipeline
 
 ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
-STAGES = {"compiler", "qbe", "cc", "executable", "result"}
+STAGES = {"compiler", "cc", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 EXPECTATION_FIELDS = {"stage", "exit", *OUTPUT_FIELDS}
 

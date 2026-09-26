@@ -39,7 +39,6 @@ def run_pipeline(source, *, build=True):
 
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
-        ssa = work / "out.ssa"
         assembly = work / "out.s"
         executable = work / "out"
 
@@ -48,10 +47,9 @@ def run_pipeline(source, *, build=True):
             ["scheme", "--script", ROOT / "compiler.ss"],
             input=source,
         )
-        ssa.write_text(compiler.stdout)
+        assembly.write_text(compiler.stdout)
 
-        run_stage("qbe", ["qbe", "-o", assembly, ssa])
-        run_stage("cc", ["cc", "-o", executable, assembly, ROOT / "runtime.o"])
+        run_stage("cc", ["cc", "-o", executable, assembly, ROOT / "tmp" / "runtime.o"])
         return run_stage("executable", [executable])
 
 
