@@ -17,7 +17,7 @@
   (export program->asm print-asm)
   (import (chezscheme)
           (only (utils) round-up-even)
-          (only (frontend) encode-immediate))
+          (only (ir) encode-immediate))
 
 
   (define arg-regs '(rdi rsi rdx rcx r8 r9))
