@@ -1,6 +1,13 @@
 (library (utils)
-  (export acons split-last read-all round-up-even)
+  (export acons split-last read-all round-up-even proc-counter)
   (import (chezscheme))
+
+
+  (define proc-counter
+    (let ((n 0))
+      (lambda ()
+        (set! n (+ n 1))
+        n)))
 
 
   (define (acons k v alist)

@@ -37,7 +37,7 @@
 
 
 (let ((tops (append (reverse *prelude*)
-                    (cpl-program *env* (read-all)))))
+                    (program->ir *env* (read-all)))))
   (if (member "--ir" (command-line-arguments))
       (print-ir tops)
       (for-each print-asm (program->asm tops))))

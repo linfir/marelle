@@ -1,15 +1,8 @@
 (library (frontend)
-  (export proc-counter cpl-program)
+  (export program->ir)
   (import (chezscheme)
           (utils)
           (ir))
-
-
-  (define proc-counter
-    (let ((n 0))
-      (lambda ()
-        (set! n (+ n 1))
-        n)))
 
 
   (define-record-type expr-context
@@ -51,11 +44,11 @@
          (not (assq (car expr) env))))
 
 
-  ;; cpl expr
+  ;; compile expr in value position
   ;;   env is an alist of pairs (symbol . variable)
   ;;   code is accumulated in ctx
   ;; returns dst or throw an error
-  (define (cpl-expr ctx env expr)
+  (define (compile-value ctx env expr)
     (cond
      ((immediate? expr)
       (let ((tmp (fresh-var ctx)))
@@ -63,142 +56,136 @@
         tmp))
 
      ((number? expr)
-      (error 'cpl-expr "unsupported number" expr))
+      (error 'compile-value "unsupported number" expr))
 
      ((null? expr)
-      (error 'cpl-expr "invalid form" expr))
+      (error 'compile-value "invalid form" expr))
 
      ((special? env expr)
       (case (car expr)
         ((if)
          (unless (= (length expr) 4)
-           (error 'cpl-expr "invalid arity for if"))
-         (cpl-if ctx env (list-ref expr 1) (list-ref expr 2) (list-ref expr 3)))
+           (error 'compile-value "invalid arity for if"))
+         (compile-value-if ctx env (list-ref expr 1) (list-ref expr 2) (list-ref expr 3)))
 
         ((let)
          (unless (= (length expr) 3)
-           (error 'cpl-expr "invalid arity for let"))
-         (cpl-expr ctx (extend-env-let ctx env (list-ref expr 1)) (list-ref expr 2)))
+           (error 'compile-value "invalid arity for let"))
+         (compile-value ctx (compile-let-bindings ctx env (list-ref expr 1)) (list-ref expr 2)))
 
         (else
-         (error 'cpl-expr "unimplemented special form" expr))))
+         (error 'compile-value "unimplemented special form" expr))))
 
      ((and (list? expr)
            (not (null? expr)))
-      (cpl-call ctx env expr))
+      (compile-value-call ctx env expr))
 
      ((symbol? expr)
       (let ((x (assq expr env)))
         (if x
             (cdr x)
-            (error 'cpl-expr "unknown symbol" expr))))
+            (error 'compile-value "unknown symbol" expr))))
 
      (else
-      (error 'cpl-expr "unknown form" expr))))
+      (error 'compile-value "unknown form" expr))))
 
 
   ;; Compile expr in tail position: emit a ret or a tailcall.
-  (define (cpl-tail ctx env expr)
+  (define (compile-tail ctx env expr)
     (cond
      ((special? env expr)
       (case (car expr)
         ((if)
          (unless (= (length expr) 4)
-           (error 'cpl-tail "invalid arity for if"))
-         (cpl-tail-if ctx env (list-ref expr 1) (list-ref expr 2) (list-ref expr 3)))
+           (error 'compile-tail "invalid arity for if"))
+         (compile-tail-if ctx env (list-ref expr 1) (list-ref expr 2) (list-ref expr 3)))
 
         ((let)
          (unless (= (length expr) 3)
-           (error 'cpl-tail "invalid arity for let"))
-         (cpl-tail ctx (extend-env-let ctx env (list-ref expr 1)) (list-ref expr 2)))
+           (error 'compile-tail "invalid arity for let"))
+         (compile-tail ctx (compile-let-bindings ctx env (list-ref expr 1)) (list-ref expr 2)))
 
         (else
-         (error 'cpl-tail "unimplemented special form" expr))))
+         (error 'compile-tail "unimplemented special form" expr))))
 
      ((and (pair? expr) (list? expr))
-      (cpl-tail-call ctx env expr))
+      (compile-tail-call ctx env expr))
 
      (else
-      (emit! ctx (list 'ret (cpl-expr ctx env expr))))))
+      (emit! ctx (list 'ret (compile-value ctx env expr))))))
 
 
-  (define (cpl-exprs ctx env exprs)
+  (define (compile-values ctx env exprs)
     (let loop ((exprs exprs)
                (vars '()))
       (if (null? exprs)
           (reverse vars)
-          (let ((x (cpl-expr ctx env (car exprs))))
+          (let ((x (compile-value ctx env (car exprs))))
             (loop (cdr exprs) (cons x vars))))))
 
 
-  (define (cpl-if ctx env test-expr true-expr false-expr)
-    (let* ((test-var (cpl-expr ctx env test-expr))
+  (define (compile-value-if ctx env test-expr true-expr false-expr)
+    (let* ((test-var (compile-value ctx env test-expr))
            (label-false (fresh-label ctx)))
       (emit! ctx
              (list 'cmp test-var '(imm #f))
              (list 'je label-false))
-      (let* ((true-var (cpl-expr ctx env true-expr))
+      (let* ((true-var (compile-value ctx env true-expr))
              (dst-var (fresh-var ctx))
              (label-end (fresh-label ctx)))
         (emit! ctx
                (list 'mov dst-var true-var)
                (list 'jmp label-end)
                (list 'def label-false))
-        (let ((false-var (cpl-expr ctx env false-expr)))
+        (let ((false-var (compile-value ctx env false-expr)))
           (emit! ctx
                  (list 'mov dst-var false-var)
                  (list 'def label-end))
           dst-var))))
 
 
-  (define (cpl-tail-if ctx env test-expr true-expr false-expr)
-    (let* ((test-var (cpl-expr ctx env test-expr))
+  (define (compile-tail-if ctx env test-expr true-expr false-expr)
+    (let* ((test-var (compile-value ctx env test-expr))
            (label-false (fresh-label ctx)))
       (emit! ctx
              (list 'cmp test-var '(imm #f))
              (list 'je label-false))
-      (cpl-tail ctx env true-expr)
+      (compile-tail ctx env true-expr)
       (emit! ctx (list 'def label-false))
-      (cpl-tail ctx env false-expr)))
+      (compile-tail ctx env false-expr)))
 
 
-  (define (extend-env-let ctx env bindings)
+  (define (compile-let-bindings ctx env bindings)
     (let loop ((bindings bindings)
                (new-env env))
       (if (null? bindings)
           new-env
           (let ((k (caar bindings))
                 (v (cadar bindings)))
-            (let ((dst (cpl-expr ctx env v)))
+            (let ((dst (compile-value ctx env v)))
               (loop (cdr bindings)
                     (acons k dst new-env)))))))
 
 
   ;; Returns the code pointer and the argument variables.
-  (define (cpl-call-operands ctx env form)
-    (let ((vars (cpl-exprs ctx env form))
+  (define (compile-operands ctx env form)
+    (let ((vars (compile-values ctx env form))
           (code (fresh-var ctx)))
       (emit! ctx
              (list 'ccall code "check_procedure" (car vars) (list 'quad (- (length vars) 1))))
       (values code (cdr vars))))
 
 
-  (define (cpl-call ctx env form)
-    (let-values (((code args) (cpl-call-operands ctx env form)))
+  (define (compile-value-call ctx env form)
+    (let-values (((code args) (compile-operands ctx env form)))
       (let ((dst (fresh-var ctx)))
         (emit! ctx (cons* 'call dst code args))
         dst)))
 
 
-  (define (cpl-tail-call ctx env form)
-    (let-values (((code args) (cpl-call-operands ctx env form)))
+  (define (compile-tail-call ctx env form)
+    (let-values (((code args) (compile-operands ctx env form)))
       (emit! ctx (cons* 'tailcall code args))))
-
-
-  (define (cpl env expr)
-    (let ((ctx (new-expr-context)))
-      (cpl-tail ctx env expr)
-      (reverse (expr-context-code ctx))))
 
 
   ;; Convert a list of elements s.t.
@@ -232,16 +219,18 @@
                 (cons (list (car args) 'arg i) env)))))
 
 
-  (define (cpl-function env proc args body)
-    (cons* 'function proc
-           (list 'arity (length args))
-           (cpl (extend-env-with-args env args) body)))
+  (define (function->ir env proc args body)
+    (let ((ctx (new-expr-context)))
+      (compile-tail ctx (extend-env-with-args env args) body)
+      (cons* 'function proc
+             (list 'arity (length args))
+             (reverse (expr-context-code ctx)))))
 
 
   ;; TODO: what about a (define define 42) ?
-  (define (cpl-program env program)
+  (define (program->ir env program)
     (when (null? program)
-      (error 'cpl-program "empty program"))
+      (error 'program->ir "empty program"))
 
     (let-values (((defs expr) (split-last program)))
       (let* ((defs (scan-defs defs))
@@ -251,6 +240,6 @@
                           (proc-data (proc-name (cadr x)) (length (caddr x)) (fn-name (cadr x))))
                         defs))
              (fns (map (lambda (x)
-                         (cpl-function env (fn-name (cadr x)) (caddr x) (cadddr x)))
+                         (function->ir env (fn-name (cadr x)) (caddr x) (cadddr x)))
                        defs)))
-        (append data fns (list (cpl-function env "scheme_main" '() expr)))))))
+        (append data fns (list (function->ir env "scheme_main" '() expr)))))))
