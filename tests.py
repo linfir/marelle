@@ -2,7 +2,9 @@
 
 import argparse
 import fnmatch
+import os
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from run import PipelineFailure, build_runtime, run_pipeline
@@ -160,9 +162,10 @@ def main():
         exit(1)
 
     failures = []
-    for path in paths:
+    with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
+        results = list(pool.map(check_case, paths))
+    for path, failure in zip(paths, results):
         name = path.relative_to(TEST_ROOT).as_posix()
-        failure = check_case(path)
         if args.verbose and not failure:
             print(f"PASS {name}")
         elif not args.verbose:
