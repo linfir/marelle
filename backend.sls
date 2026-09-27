@@ -9,9 +9,6 @@
 ;;   rbp - 8*(ntmp+2)   (arg 2)
 ;;   ...
 ;;   (padding to keep rsp 16-byte aligned, if ntmp + arity is odd)
-;;
-;; Arguments arrive in registers and are copied to their slots on entry,
-;; since the next ccall or call clobbers them.
 
 (library (backend)
   (export program->asm print-asm)
@@ -112,6 +109,12 @@
          (load! ctx 'rax target)
          (emit! ctx '(call rax))
          (store! ctx dst 'rax)))
+      ((tailcall)
+       (let ((target (cadr instr))
+             (args (cddr instr)))
+         (load-args! ctx args)
+         (load! ctx 'rax target)
+         (emit! ctx '(mov rsp rbp) '(pop rbp) '(jmp rax))))
       ((cmp)
        (let ((a (cadr instr))
              (b (caddr instr)))

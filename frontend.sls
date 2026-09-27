@@ -43,6 +43,14 @@
   (define *special-forms* '(if let))
 
 
+  (define (special? env expr)
+    (and (list? expr)
+         (not (null? expr))
+         (symbol? (car expr))
+         (memq (car expr) *special-forms*)
+         (not (assq (car expr) env))))
+
+
   ;; cpl expr
   ;;   env is an alist of pairs (symbol . variable)
   ;;   code is accumulated in ctx
@@ -60,11 +68,7 @@
      ((null? expr)
       (error 'cpl-expr "invalid form" expr))
 
-     ((and (list? expr)
-           (not (null? expr))
-           (symbol? (car expr))
-           (memq (car expr) *special-forms*)
-           (not (assq (car expr) env)))
+     ((special? env expr)
       (case (car expr)
         ((if)
          (unless (= (length expr) 4)
@@ -74,7 +78,7 @@
         ((let)
          (unless (= (length expr) 3)
            (error 'cpl-expr "invalid arity for let"))
-         (cpl-let ctx env (list-ref expr 1) (list-ref expr 2)))
+         (cpl-expr ctx (extend-env-let ctx env (list-ref expr 1)) (list-ref expr 2)))
 
         (else
          (error 'cpl-expr "unimplemented special form" expr))))
@@ -91,6 +95,31 @@
 
      (else
       (error 'cpl-expr "unknown form" expr))))
+
+
+  ;; Compile expr in tail position: emit a ret or a tailcall.
+  (define (cpl-tail ctx env expr)
+    (cond
+     ((special? env expr)
+      (case (car expr)
+        ((if)
+         (unless (= (length expr) 4)
+           (error 'cpl-tail "invalid arity for if"))
+         (cpl-tail-if ctx env (list-ref expr 1) (list-ref expr 2) (list-ref expr 3)))
+
+        ((let)
+         (unless (= (length expr) 3)
+           (error 'cpl-tail "invalid arity for let"))
+         (cpl-tail ctx (extend-env-let ctx env (list-ref expr 1)) (list-ref expr 2)))
+
+        (else
+         (error 'cpl-tail "unimplemented special form" expr))))
+
+     ((and (pair? expr) (list? expr))
+      (cpl-tail-call ctx env expr))
+
+     (else
+      (emit! ctx (list 'ret (cpl-expr ctx env expr))))))
 
 
   (define (cpl-exprs ctx env exprs)
@@ -122,11 +151,22 @@
           dst-var))))
 
 
-  (define (cpl-let ctx env bindings expr)
+  (define (cpl-tail-if ctx env test-expr true-expr false-expr)
+    (let* ((test-var (cpl-expr ctx env test-expr))
+           (label-false (fresh-label ctx)))
+      (emit! ctx
+             (list 'cmp test-var '(imm #f))
+             (list 'je label-false))
+      (cpl-tail ctx env true-expr)
+      (emit! ctx (list 'def label-false))
+      (cpl-tail ctx env false-expr)))
+
+
+  (define (extend-env-let ctx env bindings)
     (let loop ((bindings bindings)
                (new-env env))
       (if (null? bindings)
-          (cpl-expr ctx new-env expr)
+          new-env
           (let ((k (caar bindings))
                 (v (cadar bindings)))
             (let ((dst (cpl-expr ctx env v)))
@@ -134,20 +174,31 @@
                     (acons k dst new-env)))))))
 
 
-  (define (cpl-call ctx env form)
-    (let* ((vars (cpl-exprs ctx env form))
-           (a (fresh-var ctx))
-           (b (fresh-var ctx)))
+  ;; Returns the code pointer and the argument variables.
+  (define (cpl-call-operands ctx env form)
+    (let ((vars (cpl-exprs ctx env form))
+          (code (fresh-var ctx)))
       (emit! ctx
-             (list 'ccall a "check_procedure" (car vars) (list 'quad (- (length vars) 1)))
-             (cons* 'call b a (cdr vars)))
-      b))
+             (list 'ccall code "check_procedure" (car vars) (list 'quad (- (length vars) 1))))
+      (values code (cdr vars))))
+
+
+  (define (cpl-call ctx env form)
+    (let-values (((code args) (cpl-call-operands ctx env form)))
+      (let ((dst (fresh-var ctx)))
+        (emit! ctx (cons* 'call dst code args))
+        dst)))
+
+
+  (define (cpl-tail-call ctx env form)
+    (let-values (((code args) (cpl-call-operands ctx env form)))
+      (emit! ctx (cons* 'tailcall code args))))
 
 
   (define (cpl env expr)
-    (let* ((ctx (new-expr-context))
-           (x (cpl-expr ctx env expr)))
-      (reverse (cons (list 'ret x) (expr-context-code ctx)))))
+    (let ((ctx (new-expr-context)))
+      (cpl-tail ctx env expr)
+      (reverse (expr-context-code ctx))))
 
 
   ;; Convert a list of elements s.t.
