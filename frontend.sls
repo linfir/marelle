@@ -33,7 +33,7 @@
                                     (expr-context-code ctx))))
 
 
-  (define *special-forms* '(if let))
+  (define *special-forms* '(if let lambda))
 
 
   (define (special? env expr)
@@ -42,6 +42,28 @@
          (symbol? (car expr))
          (memq (car expr) *special-forms*)
          (not (assq (car expr) env))))
+
+
+  (define (validate-parameters args)
+    (unless (list? args)
+      (error 'validate-parameters "invalid parameter list" args))
+    (let loop ((args args)
+               (seen '()))
+      (unless (null? args)
+        (let ((arg (car args)))
+          (unless (symbol? arg)
+            (error 'validate-parameters "invalid parameter" arg))
+          (when (memq arg seen)
+            (error 'validate-parameters "duplicate parameter" arg))
+          (loop (cdr args) (cons arg seen)))))
+    (when (> (length args) 6)
+      (error 'validate-parameters "too many parameters" args)))
+
+
+  (define (validate-lambda expr)
+    (unless (= (length expr) 3)
+      (error 'validate-lambda "invalid lambda" expr))
+    (validate-parameters (cadr expr)))
 
 
   ;; compile expr in value position
@@ -72,6 +94,10 @@
          (unless (= (length expr) 3)
            (error 'compile-value "invalid arity for let"))
          (compile-value ctx (compile-let-bindings ctx env (list-ref expr 1)) (list-ref expr 2)))
+
+        ((lambda)
+         (validate-lambda expr)
+         (error 'compile-value "unimplemented special form" expr))
 
         (else
          (error 'compile-value "unimplemented special form" expr))))
@@ -104,6 +130,9 @@
          (unless (= (length expr) 3)
            (error 'compile-tail "invalid arity for let"))
          (compile-tail ctx (compile-let-bindings ctx env (list-ref expr 1)) (list-ref expr 2)))
+
+        ((lambda)
+         (emit! ctx (list 'ret (compile-value ctx env expr))))
 
         (else
          (error 'compile-tail "unimplemented special form" expr))))
@@ -203,6 +232,7 @@
             (let ((name (caadr form))
                   (args (cdadr form))
                   (body (caddr form)))
+              (validate-parameters args)
               (when (assq name acc)
                 (error 'scan-defs "define: redefinition not allowed"))
               (loop (cons (list name (proc-counter) args body) acc)
