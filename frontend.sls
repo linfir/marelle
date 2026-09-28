@@ -167,25 +167,25 @@
                     (acons k dst new-env)))))))
 
 
-  ;; Returns the code pointer and the argument variables.
+  ;; Returns the code pointer, the procedure and the argument variables.
   (define (compile-operands ctx env form)
     (let ((vars (compile-values ctx env form))
           (code (fresh-var ctx)))
       (emit! ctx
              (list 'ccall code "check_procedure" (car vars) (list 'quad (- (length vars) 1))))
-      (values code (cdr vars))))
+      (values code (car vars) (cdr vars))))
 
 
   (define (compile-value-call ctx env form)
-    (let-values (((code args) (compile-operands ctx env form)))
+    (let-values (((code proc args) (compile-operands ctx env form)))
       (let ((dst (fresh-var ctx)))
-        (emit! ctx (cons* 'call dst code args))
+        (emit! ctx (cons* 'call dst code proc args))
         dst)))
 
 
   (define (compile-tail-call ctx env form)
-    (let-values (((code args) (compile-operands ctx env form)))
-      (emit! ctx (cons* 'tailcall code args))))
+    (let-values (((code proc args) (compile-operands ctx env form)))
+      (emit! ctx (cons* 'tailcall code proc args))))
 
 
   ;; Convert a list of elements s.t.
