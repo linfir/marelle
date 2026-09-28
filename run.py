@@ -53,6 +53,10 @@ def run_pipeline(source, *, build=True):
         return run_stage("executable", [executable])
 
 
+def run_chez(source):
+    return run_stage("chez", ["scheme", "--script", ROOT / "chez.ss"], input=source)
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)

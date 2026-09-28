@@ -7,14 +7,15 @@ import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from run import PipelineFailure, build_runtime, run_pipeline
+from run import PipelineFailure, build_runtime, run_chez, run_pipeline
 
 
 ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
 STAGES = {"compiler", "cc", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
-EXPECTATION_FIELDS = {"stage", "exit", *OUTPUT_FIELDS}
+EXPECTATION_FIELDS = {"stage", "exit", "chez", *OUTPUT_FIELDS}
+SKIP = "skip"
 
 
 class TestFormatError(Exception):
@@ -50,6 +51,9 @@ def read_case(path):
     if not ((isinstance(exit_status, int) and not isinstance(exit_status, bool)) or exit_status == "nonzero"):
         raise TestFormatError('exit must be an integer or "nonzero"')
 
+    if expected.get("chez", SKIP) != SKIP:
+        raise TestFormatError('chez must be "skip"')
+
     for field in OUTPUT_FIELDS:
         if field in expected and not isinstance(expected[field], str):
             raise TestFormatError(f"{field} must be a string")
@@ -61,20 +65,29 @@ def describe_stream(value):
     return repr(value) if "\n" not in value else "\n" + value
 
 
-def check_case(path):
+def check_case(path, chez=False):
     try:
         source, expected = read_case(path)
     except (OSError, TestFormatError) as error:
         return "format", [str(error)]
 
+    if chez and expected.get("chez") == SKIP:
+        return SKIP
+
     try:
-        result = run_pipeline(source, build=False)
+        result = run_chez(source) if chez else run_pipeline(source, build=False)
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result
         actual_stage = error.stage
 
     expected_stage = expected["stage"]
+    if chez and expected_stage != "result":
+        # Chez has no separate stages and its own error messages: only check that it fails.
+        if actual_stage == "result":
+            return actual_stage, ["expected an error", f"stdout: {describe_stream(result.stdout)}"]
+        return None
+
     if actual_stage != expected_stage:
         details = [
             "unexpected pipeline outcome",
@@ -122,6 +135,7 @@ def parse_args():
     parser.add_argument("patterns", nargs="*", help="test name patterns")
     parser.add_argument("-k", dest="patterns_k", action="append", default=[], metavar="PATTERN")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--chez", action="store_true", help="run the tests with Chez Scheme instead of the compiler")
     return parser.parse_args()
 
 
@@ -152,20 +166,29 @@ def main():
         print("No tests matched")
         exit(2)
 
-    try:
-        build_runtime()
-    except PipelineFailure as error:
-        details = [f"exit: {error.result.returncode}"]
-        if error.result.stderr:
-            details.append(f"stderr: {describe_stream(error.result.stderr)}")
-        print_failure("setup", ("setup", details))
-        exit(1)
+    if not args.chez:
+        try:
+            build_runtime()
+        except PipelineFailure as error:
+            details = [f"exit: {error.result.returncode}"]
+            if error.result.stderr:
+                details.append(f"stderr: {describe_stream(error.result.stderr)}")
+            print_failure("setup", ("setup", details))
+            exit(1)
 
     failures = []
+    skipped = 0
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-        results = list(pool.map(check_case, paths))
+        results = list(pool.map(lambda path: check_case(path, args.chez), paths))
     for path, failure in zip(paths, results):
         name = path.relative_to(TEST_ROOT).as_posix()
+        if failure == SKIP:
+            skipped += 1
+            if args.verbose:
+                print(f"SKIP {name}")
+            else:
+                print("s", end="", flush=True)
+            continue
         if args.verbose and not failure:
             print(f"PASS {name}")
         elif not args.verbose:
@@ -182,9 +205,12 @@ def main():
                 print()
             print_failure(name, failure)
 
-    passed = len(paths) - len(failures)
+    passed = len(paths) - len(failures) - skipped
     noun = "test" if len(paths) == 1 else "tests"
-    print(f"\n{len(paths)} {noun}: {passed} passed, {len(failures)} failed")
+    summary = f"\n{len(paths)} {noun}: {passed} passed, {len(failures)} failed"
+    if skipped:
+        summary += f", {skipped} skipped"
+    print(summary)
     if failures:
         exit(1)
 

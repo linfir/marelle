@@ -4,3 +4,4 @@
 ---
 stage = "compiler"
 stderr_contains = "redefinition not allowed"
+chez = "skip"

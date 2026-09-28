@@ -1,0 +1,5 @@
+(let loop ((last (void)))
+  (let ((x (read)))
+    (if (eof-object? x)
+        (write last)
+        (loop (eval x)))))

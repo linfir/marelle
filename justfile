@@ -1,6 +1,9 @@
 test:
     ./tests.py
 
+test-chez:
+    ./tests.py --chez
+
 fmt:
     black --line-length 120 *.py
     clang-format -i *.c
