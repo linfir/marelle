@@ -2,13 +2,14 @@
 ;;
 ;;   rbp + 8            return address
 ;;   rbp                saved rbp
-;;   rbp - 8            (tmp 1)
+;;   rbp - 8            (self), the procedure object passed in r10
+;;   rbp - 16           (tmp 1)
 ;;   ...
-;;   rbp - 8*ntmp       (tmp ntmp)
-;;   rbp - 8*(ntmp+1)   (arg 1)
-;;   rbp - 8*(ntmp+2)   (arg 2)
+;;   rbp - 8*(ntmp+1)   (tmp ntmp)
+;;   rbp - 8*(ntmp+2)   (arg 1)
+;;   rbp - 8*(ntmp+3)   (arg 2)
 ;;   ...
-;;   (padding to keep rsp 16-byte aligned, if ntmp + arity is odd)
+;;   (padding to keep rsp 16-byte aligned)
 
 (library (backend)
   (export program->asm print-asm)
@@ -43,10 +44,12 @@
 
   (define (slot ctx x)
     (case (car x)
+      ((self)
+       (list 'mem 'rbp -8))
       ((tmp)
-       (list 'mem 'rbp (* -8 (cadr x))))
+       (list 'mem 'rbp (* -8 (+ 1 (cadr x)))))
       ((arg)
-       (list 'mem 'rbp (* -8 (+ (asm-context-ntmp ctx) (cadr x)))))
+       (list 'mem 'rbp (* -8 (+ 1 (asm-context-ntmp ctx) (cadr x)))))
       (else
        (error 'slot "not a slot operand" x))))
 
@@ -57,7 +60,7 @@
       (emit! ctx `(lea ,reg (rip ,x))))
      ((pair? x)
       (case (car x)
-        ((tmp arg)
+        ((self tmp arg)
          (emit! ctx `(mov ,reg ,(slot ctx x))))
         ((imm)
          (emit! ctx `(mov ,reg ,(encode-immediate (cadr x)))))
@@ -145,13 +148,17 @@
     (let* ((ctx (new-asm-context x))
            (fn (asm-context-fn ctx))
            (arity (cadr (caddr x)))
-           (nslots (+ (asm-context-ntmp ctx) arity))
+           (nslots (+ 1 (asm-context-ntmp ctx) arity))
            (size (* 8 (round-up-even nslots))))
       (when (> arity (length arg-regs))
         (error 'function->asm "too many parameters" fn))
-      (emit! ctx '(text) `(label ,fn) '(push rbp) '(mov rbp rsp))
-      (when (> size 0)
-        (emit! ctx `(sub rsp ,size)))
+      (emit! ctx
+             '(text)
+             `(label ,fn)
+             '(push rbp)
+             '(mov rbp rsp)
+             `(sub rsp ,size))
+      (store! ctx '(self) 'r10)
       (let loop ((i 1)
                  (regs arg-regs))
         (when (<= i arity)
