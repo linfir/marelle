@@ -109,8 +109,7 @@
          (compile-value ctx (compile-let-bindings ctx env (list-ref expr 1)) (list-ref expr 2)))
 
         ((lambda)
-         (validate-lambda expr)
-         (error 'compile-value "unimplemented special form" expr))
+         (compile-lambda ctx env expr))
 
         (else
          (error 'compile-value "unimplemented special form" expr))))
@@ -121,9 +120,13 @@
 
      ((symbol? expr)
       (let ((x (assq expr env)))
-        (if x
-            (cdr x)
-            (error 'compile-value "unknown symbol" expr))))
+        (cond
+         ((not x)
+          (error 'compile-value "unknown symbol" expr))
+         ((eq? (cdr x) 'free)
+          (error 'compile-value "unsupported free variable" expr))
+         (else
+          (cdr x)))))
 
      (else
       (error 'compile-value "unknown form" expr))))
@@ -154,6 +157,19 @@
 
      (else
       (emit! ctx (list 'ret (compile-value ctx env expr))))))
+
+
+  (define (compile-lambda ctx env expr)
+    (validate-lambda expr)
+    (let ((n (proc-counter))
+          (args (cadr expr))
+          (pctx (expr-context-program ctx))
+          (body-env (map (lambda (b)
+                           (if (string? (cdr b)) b (cons (car b) 'free)))
+                         env)))
+      (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
+      (add-entry! pctx (function->ir pctx body-env (fn-name n) args (caddr expr)))
+      (proc-name n)))
 
 
   (define (compile-values ctx env exprs)
