@@ -26,6 +26,7 @@
 
 
 (define-c-proc 'eq? "eq" 2)
+
 (define-c-proc '+   "int_add" 2)
 (define-c-proc '-   "int_sub" 2)
 (define-c-proc '*   "int_mul" 2)
@@ -34,6 +35,12 @@
 (define-c-proc '<=  "int_leq" 2)
 (define-c-proc '>   "int_gt"  2)
 (define-c-proc '>=  "int_geq" 2)
+
+(define-c-proc 'null? "is_null" 1)
+(define-c-proc 'pair? "pair_p"  1)
+(define-c-proc 'cons  "cons"    2)
+(define-c-proc 'car   "car"     1)
+(define-c-proc 'cdr   "cdr"     1)
 
 
 (let ((tops (append (reverse *prelude*)

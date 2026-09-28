@@ -1,4 +1,4 @@
-CFLAGS ?= -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow
+CFLAGS ?= -O2 -Werror -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 
 tmp/runtime.o: tmp/runtime-c.o tmp/runtime-asm.o
 	$(LD) -r -o $@ $^

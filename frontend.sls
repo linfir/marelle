@@ -108,7 +108,7 @@
         (else
          (error 'compile-tail "unimplemented special form" expr))))
 
-     ((and (pair? expr) (list? expr))
+     ((and (pair? expr) (list? expr) (not (immediate? expr)))
       (compile-tail-call ctx env expr))
 
      (else

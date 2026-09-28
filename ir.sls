@@ -30,7 +30,8 @@
     (or (and (integer? x)
              (exact? x)
              (<= int-min x int-max))
-        (boolean? x)))
+        (boolean? x)
+        (equal? x ''())))
 
 
   (define (encode-immediate x)
@@ -41,6 +42,8 @@
       (tag 1 x))
      ((boolean? x)
       (tag 2 (if x 1 0)))
+     ((equal? x ''())
+      (tag 2 2))
      (else (error 'encode-immediate "non immediate value" x))))
 
 
