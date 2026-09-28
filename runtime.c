@@ -16,6 +16,8 @@ char procedure_type;
 // 3 pointer to cons cell
 typedef uint64_t value;
 
+_Static_assert(sizeof(void *) == 8, "the runtime assumes 64-bit pointers");
+
 enum {
     BOOL_FALSE = 2,
     BOOL_TRUE = 10,
@@ -50,7 +52,7 @@ static value bool_to_value(bool b) {
     return b ? BOOL_TRUE : BOOL_FALSE;
 }
 
-void *check_procedure(value x, int64_t nargs) {
+void *check_procedure(value x, uint64_t nargs) {
     if (!is_pointer(x)) {
         fprintf(stderr, "Calling error: "
                         "expected procedure, got non-pointer value\n");
@@ -67,11 +69,11 @@ void *check_procedure(value x, int64_t nargs) {
                         "expected procedure, got pointer of different type\n");
         exit(1);
     }
-    int64_t arity = (int64_t)ptr[1];
+    uint64_t arity = ptr[1];
     if (arity != nargs) {
         fprintf(stderr,
                 "Calling error: "
-                "procedure of arity %" PRId64 " called with %" PRId64 " arguments\n",
+                "procedure of arity %" PRIu64 " called with %" PRIu64 " arguments\n",
                 arity, nargs);
         exit(1);
     }
@@ -128,11 +130,14 @@ value int_geq(value x, value y) {
 value *mem;
 size_t len, cap;
 
-void ensure_memory(size_t additional) {
-    if (len + additional > cap) {
+value *scheme_alloc(uint64_t nwords) {
+    if (nwords > cap - len) {
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);
     }
+    value *ptr = &mem[len];
+    len += nwords;
+    return ptr;
 }
 
 value is_null(value x) {
@@ -144,12 +149,10 @@ value pair_p(value x) {
 }
 
 value cons(value car, value cdr) {
-    ensure_memory(2);
-    mem[len] = car;
-    mem[len + 1] = cdr;
-    value pair = ((value)(uintptr_t)&mem[len]) | 3;
-    len += 2;
-    return pair;
+    value *ptr = scheme_alloc(2);
+    ptr[0] = car;
+    ptr[1] = cdr;
+    return (value)(uintptr_t)ptr | 3;
 }
 
 value car(value pair) {

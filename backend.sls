@@ -121,7 +121,28 @@
          (load-args! ctx args)
          (load! ctx 'r10 proc)
          (load! ctx 'rax target)
-         (emit! ctx '(mov rsp rbp) '(pop rbp) '(jmp rax))))
+         (emit! ctx
+		'(mov rsp rbp)
+		'(pop rbp)
+		'(jmp rax))))
+      ((store)
+       (let ((base (cadr instr))
+             (index (caddr instr))
+             (src (cadddr instr)))
+         (load! ctx 'rax base)
+         (load! ctx 'rcx src)
+         (emit! ctx
+		'(and rax -8)
+		`(mov (mem rax ,(* 8 index)) rcx))))
+      ((load)
+       (let ((dst (cadr instr))
+             (base (caddr instr))
+             (index (cadddr instr)))
+         (load! ctx 'rax base)
+         (emit! ctx
+		'(and rax -8)
+		`(mov rax (mem rax ,(* 8 index))))
+         (store! ctx dst 'rax)))
       ((cmp)
        (let ((a (cadr instr))
              (b (caddr instr)))
@@ -138,7 +159,10 @@
       ((ret)
        (let ((src (cadr instr)))
          (load! ctx 'rax src)
-         (emit! ctx '(mov rsp rbp) '(pop rbp) '(ret))))
+         (emit! ctx
+		'(mov rsp rbp)
+		'(pop rbp)
+		'(ret))))
       (else
        (error 'instr->asm! "unknown instruction" instr))))
 
