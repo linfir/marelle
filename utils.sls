@@ -1,5 +1,5 @@
 (library (utils)
-  (export acons split-last read-all round-up-even proc-counter)
+  (export acons split-last read-all round-up-even proc-counter map-in-order)
   (import (chezscheme))
 
 
@@ -12,6 +12,15 @@
 
   (define (acons k v alist)
     (cons (cons k v) alist))
+
+
+  ;; Like map, but processes the list left to right
+  (define (map-in-order f lst)
+    (let loop ((lst lst)
+               (acc '()))
+      (if (null? lst)
+          (reverse acc)
+          (loop (cdr lst) (cons (f (car lst)) acc)))))
 
 
   (define (round-up-even n)

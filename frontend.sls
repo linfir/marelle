@@ -5,14 +5,27 @@
           (ir))
 
 
+  (define-record-type program-context
+    (fields (mutable entries)))
+
+
+  (define (new-program-context)
+    (make-program-context '()))
+
+
+  (define (add-entry! pctx entry)
+    (program-context-entries-set! pctx (cons entry (program-context-entries pctx))))
+
+
   (define-record-type expr-context
-    (fields (mutable reg-counter)
+    (fields program
+            (mutable reg-counter)
             (mutable label-counter)
             (mutable code)))
 
 
-  (define (new-expr-context)
-    (make-expr-context 1 1 '()))
+  (define (new-expr-context pctx)
+    (make-expr-context pctx 1 1 '()))
 
 
   (define (fresh-var ctx)
@@ -116,7 +129,6 @@
       (error 'compile-value "unknown form" expr))))
 
 
-  ;; Compile expr in tail position: emit a ret or a tailcall.
   (define (compile-tail ctx env expr)
     (cond
      ((special? env expr)
@@ -196,7 +208,6 @@
                     (acons k dst new-env)))))))
 
 
-  ;; Returns the code pointer, the procedure and the argument variables.
   (define (compile-operands ctx env form)
     (let ((vars (compile-values ctx env form))
           (code (fresh-var ctx)))
@@ -249,8 +260,8 @@
                 (cons (list (car args) 'arg i) env)))))
 
 
-  (define (function->ir env proc args body)
-    (let ((ctx (new-expr-context)))
+  (define (function->ir pctx env proc args body)
+    (let ((ctx (new-expr-context pctx)))
       (compile-tail ctx (extend-env-with-args env args) body)
       (cons* 'function proc
              (list 'arity (length args))
@@ -266,10 +277,12 @@
       (let* ((defs (scan-defs defs))
              (env (append (map (lambda (x) (cons (car x) (proc-name (cadr x)))) defs)
                           env))
-             (data (map (lambda (x)
-                          (proc-data (proc-name (cadr x)) (length (caddr x)) (fn-name (cadr x))))
-                        defs))
-             (fns (map (lambda (x)
-                         (function->ir env (fn-name (cadr x)) (caddr x) (cadddr x)))
-                       defs)))
-        (append data fns (list (function->ir env "scheme_main" '() expr)))))))
+             (pctx (new-program-context)))
+        (for-each (lambda (x)
+                    (let ((n (cadr x))
+                          (args (caddr x)))
+                      (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
+                      (add-entry! pctx (function->ir pctx env (fn-name n) args (cadddr x)))))
+                  defs)
+        (add-entry! pctx (function->ir pctx env "scheme_main" '() expr))
+        (reverse (program-context-entries pctx))))))
