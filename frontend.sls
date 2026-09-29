@@ -1,5 +1,5 @@
 (library (frontend)
-  (export program->ir)
+  (export program->ir make-primitive)
   (import (chezscheme)
           (utils)
           (ir))
@@ -39,6 +39,36 @@
   (define (emit! ctx instruction)
     (expr-context-code-set! ctx
                             (cons instruction (expr-context-code ctx))))
+
+
+  ;; Bindings of the lexical environment
+  ;;   (local operand)
+  ;;   (procedure proc arity)
+  ;;   (primitive proc arity inliner)
+  ;;   (bound), for captured-vars analysis
+  (define (make-local operand)
+    (list 'local operand))
+
+
+  (define (make-procedure proc arity)
+    (list 'procedure proc arity))
+
+
+  (define (make-primitive proc arity inliner)
+    (list 'primitive proc arity inliner))
+
+
+  (define (binding-kind binding)
+    (car binding))
+
+
+  ;; The operand for a local, the procedure object symbol otherwise
+  (define (binding-value binding)
+    (cadr binding))
+
+
+  (define (local-binding? binding)
+    (eq? (binding-kind binding) 'local))
 
 
   (define *special-forms* '(if let lambda))
@@ -96,7 +126,7 @@
 
 
   ;; compile expr in value position
-  ;;   env is an alist of pairs (symbol . variable)
+  ;;   env is an alist of pairs (symbol . binding)
   ;;   code is accumulated in ctx
   ;; returns dst or throw an error
   (define (compile-value ctx env expr)
@@ -135,7 +165,7 @@
      ((symbol? expr)
       (let ((x (assq expr env)))
         (if x
-            (cdr x)
+            (binding-value (cdr x))
             (error 'compile-value "unknown symbol" expr))))
 
      (else
@@ -170,7 +200,7 @@
 
   (define (captured-vars env expr)
     (define (bind env names)
-      (append (map (lambda (x) (cons x 'bound)) names) env))
+      (append (map (lambda (x) (cons x '(bound))) names) env))
 
     (let walk ((env env)
                (expr expr)
@@ -179,8 +209,7 @@
        ((symbol? expr)
         (let ((x (assq expr env)))
           (if (and x
-                   (not (eq? (cdr x) 'bound))
-                   (not (string? (cdr x)))
+                   (local-binding? (cdr x))
                    (not (memq expr acc)))
               (cons expr acc)
               acc)))
@@ -211,7 +240,7 @@
       (let ((captures (reverse (captured-vars env expr)))
             (n (proc-counter))
             (pctx (expr-context-program ctx))
-            (body-env (filter (lambda (b) (string? (cdr b))) env)))
+            (body-env (filter (lambda (b) (not (local-binding? (cdr b)))) env)))
         (add-entry! pctx (function->ir pctx body-env (fn-name n) captures args body))
         (if (null? captures)
             (begin
@@ -232,7 +261,7 @@
       (let loop ((i 4)
                  (captures captures))
         (unless (null? captures)
-          (emit! ctx `(store ,dst ,i ,(cdr (assq (car captures) env))))
+          (emit! ctx `(store ,dst ,i ,(binding-value (cdr (assq (car captures) env)))))
           (loop (+ i 1) (cdr captures))))
       dst))
 
@@ -277,7 +306,7 @@
                 (v (cadar bindings)))
             (let ((dst (compile-value ctx env v)))
               (loop (cdr bindings)
-                    (acons k dst new-env)))))))
+                    (acons k (make-local dst) new-env)))))))
 
 
   (define (compile-operands ctx env form)
@@ -339,7 +368,7 @@
       (if (null? args)
           env
           (loop (+ i 1) (cdr args)
-                (cons (list (car args) 'arg i) env)))))
+                (acons (car args) (make-local (list 'arg i)) env)))))
 
 
   ;; Load each capture and return a new env
@@ -351,7 +380,7 @@
           env
           (let ((dst (fresh-var ctx)))
             (emit! ctx `(load ,dst (self) ,i))
-            (loop (+ i 1) (cdr captures) (acons (car captures) dst env))))))
+            (loop (+ i 1) (cdr captures) (acons (car captures) (make-local dst) env))))))
 
 
   (define (function->ir pctx env proc captures args body)
@@ -369,7 +398,11 @@
 
     (let-values (((defs expr) (split-last program)))
       (let* ((defs (scan-defs defs))
-             (env (append (map (lambda (d) (cons (def-name d) (proc-name (def-number d)))) defs)
+             (env (append (map (lambda (d)
+                                 (cons (def-name d)
+                                       (make-procedure (proc-name (def-number d))
+                                                       (length (def-params d)))))
+                               defs)
                           env))
              (pctx (new-program-context)))
         (for-each (lambda (d)
