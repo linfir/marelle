@@ -204,9 +204,9 @@
       (else (error 'top->asm "unknown top-level entry" x))))
 
 
-  (define (program->asm tops)
-    (append '((intel_syntax noprefix)
-              (globl "scheme_main"))
+  (define (program->asm tops exports)
+    (append '((intel_syntax noprefix))
+            (map (lambda (name) `(globl ,name)) exports)
             (apply append (map top->asm tops))
             '((section ".note.GNU-stack" "" %progbits))))
 

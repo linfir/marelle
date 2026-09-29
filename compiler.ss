@@ -12,9 +12,8 @@
 
 
 (define (define-c-proc name c-name arity)
-  (let* ((n (proc-counter))
-         (proc (proc-name n))
-         (fn (fn-name n))
+  (let* ((proc (string-append c-name "_proc"))
+         (fn (string-append c-name "_code"))
          (args (map (lambda (i) (list 'arg (+ i 1))) (iota arity))))
     (set! *env* (acons name proc *env*))
     (set! *prelude*
@@ -43,8 +42,13 @@
 (define-c-proc 'cdr   "cdr"     1)
 
 
-(let ((tops (append (reverse *prelude*)
-                    (program->ir *env* (read-all)))))
+(let* ((prelude? (member "--prelude" (command-line-arguments)))
+       (tops (if prelude?
+                 (reverse *prelude*)
+                 (program->ir *env* (read-all))))
+       (exports (if prelude?
+                    (map cadr (filter (lambda (x) (eq? (car x) 'data)) tops))
+                    '("scheme_main"))))
   (if (member "--ir" (command-line-arguments))
       (print-ir tops)
-      (for-each print-asm (program->asm tops))))
+      (for-each print-asm (program->asm tops exports))))
