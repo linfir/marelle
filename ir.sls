@@ -13,12 +13,13 @@
     (string-append "fn" (number->string n)))
 
 
-  ;; procedure object: [type, arity, code]
+  ;; procedure object: [type, arity, code, ncaptures, captures...]
   (define (proc-data proc arity code)
     (list 'data proc
           (list 'quad "procedure_type")
           (list 'quad arity)
-          (list 'quad code)))
+          (list 'quad code)
+          (list 'quad 0)))
 
 
   (define int-bits 61)

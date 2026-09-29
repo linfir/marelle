@@ -1,13 +1,16 @@
 (library (utils)
-  (export acons split-last read-all round-up-even proc-counter map-in-order)
+  (export acons split-last read-all round-up-even make-counter proc-counter map-in-order)
   (import (chezscheme))
 
 
-  (define proc-counter
+  (define (make-counter)
     (let ((n 0))
       (lambda ()
         (set! n (+ n 1))
         n)))
+
+
+  (define proc-counter (make-counter))
 
 
   (define (acons k v alist)
