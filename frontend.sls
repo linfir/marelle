@@ -208,15 +208,33 @@
 
   (define (compile-lambda ctx env expr)
     (let-values (((args body) (parse-lambda expr)))
-      (let ((captures (reverse (captured-vars env expr))))
-        (unless (null? captures)
-          (error 'compile-lambda "unsupported captured variables" captures)))
-      (let ((n (proc-counter))
+      (let ((captures (reverse (captured-vars env expr)))
+            (n (proc-counter))
             (pctx (expr-context-program ctx))
             (body-env (filter (lambda (b) (string? (cdr b))) env)))
-        (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
-        (add-entry! pctx (function->ir pctx body-env (fn-name n) args body))
-        (proc-name n))))
+        (add-entry! pctx (function->ir pctx body-env (fn-name n) captures args body))
+        (if (null? captures)
+            (begin
+              (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
+              (proc-name n))
+            (make-closure ctx env (fn-name n) (length args) captures)))))
+
+
+  ;; Allocate [type, arity, code, ncaptures, captures...]
+  (define (make-closure ctx env code arity captures)
+    (let ((dst (fresh-var ctx))
+          (ncaptures (length captures)))
+      (emit! ctx `(ccall ,dst "scheme_alloc" (quad ,(+ 4 ncaptures))))
+      (emit! ctx `(store ,dst 0 "procedure_type"))
+      (emit! ctx `(store ,dst 1 (quad ,arity)))
+      (emit! ctx `(store ,dst 2 ,code))
+      (emit! ctx `(store ,dst 3 (quad ,ncaptures)))
+      (let loop ((i 4)
+                 (captures captures))
+        (unless (null? captures)
+          (emit! ctx `(store ,dst ,i ,(cdr (assq (car captures) env))))
+          (loop (+ i 1) (cdr captures))))
+      dst))
 
 
   (define (compile-values ctx env exprs)
@@ -324,8 +342,21 @@
                 (cons (list (car args) 'arg i) env)))))
 
 
-  (define (function->ir pctx env proc args body)
-    (let ((ctx (new-expr-context pctx)))
+  ;; Load each capture and return a new env
+  (define (load-captures ctx env captures)
+    (let loop ((i 4)
+               (captures captures)
+               (env env))
+      (if (null? captures)
+          env
+          (let ((dst (fresh-var ctx)))
+            (emit! ctx `(load ,dst (self) ,i))
+            (loop (+ i 1) (cdr captures) (acons (car captures) dst env))))))
+
+
+  (define (function->ir pctx env proc captures args body)
+    (let* ((ctx (new-expr-context pctx))
+           (env (load-captures ctx env captures)))
       (compile-tail ctx (extend-env-with-args env args) body)
       `(function ,proc
                  (arity ,(length args))
@@ -345,7 +376,7 @@
                     (let ((n (def-number d))
                           (args (def-params d)))
                       (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
-                      (add-entry! pctx (function->ir pctx env (fn-name n) args (def-body d)))))
+                      (add-entry! pctx (function->ir pctx env (fn-name n) '() args (def-body d)))))
                   defs)
-        (add-entry! pctx (function->ir pctx env "scheme_main" '() expr))
+        (add-entry! pctx (function->ir pctx env "scheme_main" '() '() expr))
         (reverse (program-context-entries pctx))))))
