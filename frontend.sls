@@ -66,7 +66,7 @@
         (procedure-binding-proc binding)))
 
 
-  (define *special-forms* '(if let lambda))
+  (define *special-forms* '(if let lambda begin))
 
 
   (define (special? env expr)
@@ -93,17 +93,17 @@
       (error 'validate-parameters "too many parameters" args)))
 
 
-  ;; (lambda (arg ...) body) => (values args body)
+  ;; (lambda (arg ...) body ...) => (values args body)
   (define (parse-lambda form)
-    (unless (= (length form) 3)
+    (unless (>= (length form) 3)
       (error 'parse-lambda "invalid lambda" form))
     (validate-parameters (cadr form))
-    (values (cadr form) (caddr form)))
+    (values (cadr form) (cddr form)))
 
 
-  ;; (let ((var init) ...) body) => (values bindings body)
+  ;; (let ((var init) ...) body ...) => (values bindings body)
   (define (parse-let form)
-    (unless (and (= (length form) 3)
+    (unless (and (>= (length form) 3)
                  (list? (cadr form)))
       (error 'parse-let "invalid let" form))
     (let loop ((bs (cadr form))
@@ -117,7 +117,14 @@
           (when (memq (car b) seen)
             (error 'parse-let "duplicate let variable" (car b)))
           (loop (cdr bs) (cons (car b) seen)))))
-    (values (cadr form) (caddr form)))
+    (values (cadr form) (cddr form)))
+
+
+  ;; (begin expr ...) => (expr ...)
+  (define (parse-begin form)
+    (when (null? (cdr form))
+      (error 'parse-begin "empty begin" form))
+    (cdr form))
 
 
   ;; compile expr in value position
@@ -146,10 +153,13 @@
 
         ((let)
          (let-values (((bindings body) (parse-let expr)))
-           (compile-value ctx (bind-let-vars ctx env bindings) body)))
+           (compile-body ctx (bind-let-vars ctx env bindings) body)))
 
         ((lambda)
          (compile-lambda ctx env expr))
+
+        ((begin)
+         (compile-body ctx env (parse-begin expr)))
 
         (else
          (error 'compile-value "unimplemented special form" expr))))
@@ -178,10 +188,13 @@
 
         ((let)
          (let-values (((bindings body) (parse-let expr)))
-           (compile-tail ctx (bind-let-vars ctx env bindings) body)))
+           (compile-tail-body ctx (bind-let-vars ctx env bindings) body)))
 
         ((lambda)
          (emit! ctx `(ret ,(compile-value ctx env expr))))
+
+        ((begin)
+         (compile-tail-body ctx env (parse-begin expr)))
 
         (else
          (error 'compile-tail "unimplemented special form" expr))))
@@ -193,13 +206,27 @@
       (emit! ctx `(ret ,(compile-value ctx env expr))))))
 
 
+  ;; Compile each expression, discarding all values but the last
+  (define (compile-body ctx env exprs)
+    (let-values (((init last) (split-last exprs)))
+      (for-each (lambda (expr) (compile-value ctx env expr)) init)
+      (compile-value ctx env last)))
+
+
+  (define (compile-tail-body ctx env exprs)
+    (let-values (((init last) (split-last exprs)))
+      (for-each (lambda (expr) (compile-value ctx env expr)) init)
+      (compile-tail ctx env last)))
+
+
   (define (captured-vars env expr)
     (define (bind env names)
       (append (map (lambda (x) (cons x (make-bound-binding))) names) env))
 
-    (let walk ((env env)
-               (expr expr)
-               (acc '()))
+    (define (walk-list env exprs acc)
+      (fold-left (lambda (acc x) (walk env x acc)) acc exprs))
+
+    (define (walk env expr acc)
       (cond
        ((symbol? expr)
         (let ((x (assq expr env)))
@@ -215,19 +242,21 @@
            (let-values (((bindings body) (parse-let expr)))
              (let ((acc (fold-left (lambda (acc b) (walk env (cadr b) acc))
                                    acc bindings)))
-               (walk (bind env (map car bindings)) body acc))))
+               (walk-list (bind env (map car bindings)) body acc))))
 
           ((lambda)
            (let-values (((args body) (parse-lambda expr)))
-             (walk (bind env args) body acc)))
+             (walk-list (bind env args) body acc)))
 
           (else
-           (fold-left (lambda (acc x) (walk env x acc)) acc (cdr expr)))))
+           (walk-list env (cdr expr) acc))))
 
        ((list? expr)
-        (fold-left (lambda (acc x) (walk env x acc)) acc expr))
+        (walk-list env expr acc))
 
-       (else acc))))
+       (else acc)))
+
+    (walk env expr '()))
 
 
   (define (compile-lambda ctx env expr)
@@ -381,12 +410,12 @@
                          (not (null? form))
                          (eq? (car form) 'define))
               (error 'scan-defs "non define form in define position"))
-            (unless (and (= (length form) 3)
+            (unless (and (>= (length form) 3)
                          (pair? (cadr form)))
               (error 'scan-defs "define: invalid form" form))
             (let ((name (caadr form))
                   (args (cdadr form))
-                  (body (caddr form)))
+                  (body (cddr form)))
               (unless (symbol? name)
                 (error 'scan-defs "define: invalid name" form))
               (validate-parameters args)
@@ -421,7 +450,7 @@
   (define (function->ir pctx env proc captures args body)
     (let* ((ctx (new-expr-context pctx))
            (env (load-captures ctx env captures)))
-      (compile-tail ctx (extend-env-with-args env args) body)
+      (compile-tail-body ctx (extend-env-with-args env args) body)
       `(function ,proc
                  (arity ,(length args))
                  ,@(reverse (expr-context-code ctx)))))
@@ -446,5 +475,5 @@
                       (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
                       (add-entry! pctx (function->ir pctx env (fn-name n) '() args (def-body d)))))
                   defs)
-        (add-entry! pctx (function->ir pctx env "scheme_main" '() '() expr))
+        (add-entry! pctx (function->ir pctx env "scheme_main" '() '() (list expr)))
         (reverse (program-context-entries pctx))))))
