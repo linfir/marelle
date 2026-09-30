@@ -59,7 +59,7 @@
       (procedure-binding-proc binding)))
 
 
-(define *special-forms* '(if let lambda begin))
+(define *special-forms* '(if let let* lambda begin))
 
 
 (define (special? env expr)
@@ -96,9 +96,18 @@
 
 ;; (let ((var init) ...) body ...) => (values bindings body)
 (define (parse-let form)
+  (parse-bindings 'parse-let form #f))
+
+
+;; (let* ((var init) ...) body ...) => (values bindings body)
+(define (parse-let* form)
+  (parse-bindings 'parse-let* form #t))
+
+
+(define (parse-bindings who form duplicates-ok?)
   (unless (and (>= (length form) 3)
                (list? (cadr form)))
-    (error 'parse-let "invalid let" form))
+    (error who "invalid let" form))
   (let loop ((bs (cadr form))
              (seen '()))
     (unless (null? bs)
@@ -106,9 +115,9 @@
         (unless (and (list? b)
                      (= (length b) 2)
                      (symbol? (car b)))
-          (error 'parse-let "invalid let binding" b))
-        (when (memq (car b) seen)
-          (error 'parse-let "duplicate let variable" (car b)))
+          (error who "invalid let binding" b))
+        (when (and (not duplicates-ok?) (memq (car b) seen))
+          (error who "duplicate let variable" (car b)))
         (loop (cdr bs) (cons (car b) seen)))))
   (values (cadr form) (cddr form)))
 
@@ -148,6 +157,10 @@
        (let-values (((bindings body) (parse-let expr)))
          (compile-body ctx (bind-let-vars ctx env bindings) body)))
 
+      ((let*)
+       (let-values (((bindings body) (parse-let* expr)))
+         (compile-body ctx (bind-let*-vars ctx env bindings) body)))
+
       ((lambda)
        (compile-lambda ctx env expr))
 
@@ -182,6 +195,10 @@
       ((let)
        (let-values (((bindings body) (parse-let expr)))
          (compile-tail-body ctx (bind-let-vars ctx env bindings) body)))
+
+      ((let*)
+       (let-values (((bindings body) (parse-let* expr)))
+         (compile-tail-body ctx (bind-let*-vars ctx env bindings) body)))
 
       ((lambda)
        (emit! ctx `(ret ,(compile-value ctx env expr))))
@@ -236,6 +253,17 @@
            (let ((acc (fold-left (lambda (acc b) (walk env (cadr b) acc))
                                  acc bindings)))
              (walk-list (bind env (map car bindings)) body acc))))
+
+        ((let*)
+         (let-values (((bindings body) (parse-let* expr)))
+           (let loop ((env env)
+                      (bindings bindings)
+                      (acc acc))
+             (if (null? bindings)
+                 (walk-list env body acc)
+                 (loop (bind env (list (caar bindings)))
+                       (cdr bindings)
+                       (walk env (cadar bindings) acc))))))
 
         ((lambda)
          (let-values (((args body) (parse-lambda expr)))
@@ -324,6 +352,13 @@
           (let ((dst (compile-value ctx env v)))
             (loop (cdr bindings)
                   (acons k (make-local-binding dst) new-env)))))))
+
+
+(define (bind-let*-vars ctx env bindings)
+  (fold-left (lambda (env b)
+               (acons (car b) (make-local-binding (compile-value ctx env (cadr b))) env))
+             env
+             bindings))
 
 
 (define (compile-operands ctx env form)
