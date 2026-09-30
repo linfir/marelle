@@ -38,12 +38,18 @@
 (define-c-proc 'cdr   "cdr"     1)
 
 
+(define *prelude-defs* (scan-prelude (with-input-from-file "prelude.ss" read-all)))
+(set! *env* (bind-defs *env* *prelude-defs*))
+
+
 (let* ((prelude? (member "--prelude" (command-line-arguments)))
        (tops (if prelude?
-                 (reverse *prelude*)
+                 (append (reverse *prelude*) (prelude->ir *env* *prelude-defs*))
                  (program->ir *env* (read-all))))
        (exports (if prelude?
-                    (map cadr (filter (lambda (x) (eq? (car x) 'data)) tops))
+                    (append (map (lambda (x) (prim-proc-name (primitive-binding-c-name (cdr x))))
+                                 (filter (lambda (x) (primitive-binding? (cdr x))) *env*))
+                            (map def-proc *prelude-defs*))
                     '("scheme_main"))))
   (if (member "--ir" (command-line-arguments))
       (print-ir tops)

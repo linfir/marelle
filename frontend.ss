@@ -384,18 +384,21 @@
         (emit! ctx `(tailcall ,@(compile-operands ctx env form))))))
 
 
+;; proc and code are the symbols of the procedure object and its function
 (define-record-type def
-  (fields name number params body))
+  (fields name proc code params body))
 
 
 (define (find-def name defs)
   (find (lambda (d) (eq? (def-name d) name)) defs))
 
 
-;; Convert each (define (foo x y) (+ x y)) into a def record
-(define (scan-defs defs)
+;; Convert each (define (foo x y) (+ x y)) into a def record,
+;; (names i) returning the proc and code symbols of the i-th definition
+(define (scan-defs defs names)
   (let loop ((acc '())
-             (defs defs))
+             (defs defs)
+             (i 1))
     (if (null? defs)
         (reverse acc)
         (let ((form (car defs)))
@@ -414,8 +417,26 @@
             (validate-parameters args)
             (when (find-def name acc)
               (error 'scan-defs "define: redefinition not allowed"))
-            (loop (cons (make-def name (proc-counter) args body) acc)
-                  (cdr defs)))))))
+            (let ((proc+code (names i)))
+              (loop (cons (make-def name (car proc+code) (cdr proc+code) args body) acc)
+                    (cdr defs)
+                    (+ i 1))))))))
+
+
+(define (bind-defs env defs)
+  (append (map (lambda (d)
+                 (cons (def-name d)
+                       (make-procedure-binding (def-proc d) (length (def-params d)))))
+               defs)
+          env))
+
+
+(define (add-defs! pctx env defs)
+  (for-each (lambda (d)
+              (let ((args (def-params d)))
+                (add-entry! pctx (proc-data (def-proc d) (length args) (def-code d)))
+                (add-entry! pctx (function->ir pctx env (def-code d) '() args (def-body d)))))
+            defs))
 
 
 (define (extend-env-with-args env args)
@@ -454,19 +475,23 @@
     (error 'program->ir "empty program"))
 
   (let-values (((defs expr) (split-last program)))
-    (let* ((defs (scan-defs defs))
-           (env (append (map (lambda (d)
-                               (cons (def-name d)
-                                     (make-procedure-binding (proc-name (def-number d))
-                                                             (length (def-params d)))))
-                             defs)
-                        env))
+    (let* ((defs (scan-defs defs (lambda (i)
+                                   (let ((n (proc-counter)))
+                                     (cons (proc-name n) (fn-name n))))))
+           (env (bind-defs env defs))
            (pctx (new-program-context)))
-      (for-each (lambda (d)
-                  (let ((n (def-number d))
-                        (args (def-params d)))
-                    (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
-                    (add-entry! pctx (function->ir pctx env (fn-name n) '() args (def-body d)))))
-                defs)
+      (add-defs! pctx env defs)
       (add-entry! pctx (function->ir pctx env "scheme_main" '() '() (list expr)))
       (reverse (program-context-entries pctx)))))
+
+
+(define (scan-prelude forms)
+  (scan-defs forms (lambda (i)
+                     (cons (prelude-proc-name i) (prelude-fn-name i)))))
+
+
+;; env must already hold the bindings of defs
+(define (prelude->ir env defs)
+  (let ((pctx (new-program-context)))
+    (add-defs! pctx env defs)
+    (reverse (program-context-entries pctx))))

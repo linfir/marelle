@@ -6,6 +6,14 @@
   (string-append "fn" (number->string n)))
 
 
+(define (prelude-proc-name n)
+  (string-append "prelude_proc" (number->string n)))
+
+
+(define (prelude-fn-name n)
+  (string-append "prelude_fn" (number->string n)))
+
+
 (define (prim-proc-name c-name)
   (string-append c-name "_proc"))
 
