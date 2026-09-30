@@ -1,5 +1,5 @@
 (library (frontend)
-  (export program->ir make-primitive)
+  (export program->ir make-primitive-binding)
   (import (chezscheme)
           (utils)
           (ir))
@@ -42,33 +42,28 @@
 
 
   ;; Bindings of the lexical environment
-  ;;   (local operand)
-  ;;   (procedure proc arity)
-  ;;   (primitive proc arity inliner)
-  ;;   (bound), for captured-vars analysis
-  (define (make-local operand)
-    (list 'local operand))
+  (define-record-type local-binding
+    (fields operand))
 
 
-  (define (make-procedure proc arity)
-    (list 'procedure proc arity))
+  (define-record-type procedure-binding
+    (fields proc arity))
 
 
-  (define (make-primitive proc arity inliner)
-    (list 'primitive proc arity inliner))
+  (define-record-type primitive-binding
+    (parent procedure-binding)
+    (fields c-name inliner))
 
 
-  (define (binding-kind binding)
-    (car binding))
+  ;; A name bound inside the analysed expression, for captured-vars
+  (define-record-type bound-binding)
 
 
   ;; The operand for a local, the procedure object symbol otherwise
   (define (binding-value binding)
-    (cadr binding))
-
-
-  (define (local-binding? binding)
-    (eq? (binding-kind binding) 'local))
+    (if (local-binding? binding)
+        (local-binding-operand binding)
+        (procedure-binding-proc binding)))
 
 
   (define *special-forms* '(if let lambda))
@@ -200,7 +195,7 @@
 
   (define (captured-vars env expr)
     (define (bind env names)
-      (append (map (lambda (x) (cons x '(bound))) names) env))
+      (append (map (lambda (x) (cons x (make-bound-binding))) names) env))
 
     (let walk ((env env)
                (expr expr)
@@ -306,25 +301,50 @@
                 (v (cadar bindings)))
             (let ((dst (compile-value ctx env v)))
               (loop (cdr bindings)
-                    (acons k (make-local dst) new-env)))))))
+                    (acons k (make-local-binding dst) new-env)))))))
 
 
   (define (compile-operands ctx env form)
     (let* ((vars (compile-values ctx env form))
            (code (fresh-var ctx)))
-      (emit! ctx `(ccall ,code "check_procedure" ,(car vars) (quad ,(- (length vars) 1))))
+      (emit! ctx `(ccall void "check_procedure" ,(car vars) (quad ,(- (length vars) 1))))
+      (emit! ctx `(load ,code ,(car vars) 2))
       (cons code vars)))
 
 
-  (define (compile-value-call ctx env form)
-    (let* ((operands (compile-operands ctx env form))
+  ;; The primitive binding of the operator of form, or #f
+  (define (primitive-operator env form)
+    (let ((x (and (symbol? (car form)) (assq (car form) env))))
+      (and x
+           (primitive-binding? (cdr x))
+           (cdr x))))
+
+
+  ;; Call the C function directly
+  (define (compile-primitive-call ctx env binding form)
+    (unless (= (length (cdr form)) (procedure-binding-arity binding))
+      (error 'compile-primitive-call "wrong number of arguments" form))
+    (let* ((args (compile-values ctx env (cdr form)))
            (dst (fresh-var ctx)))
-      (emit! ctx `(call ,dst ,@operands))
+      (emit! ctx `(ccall ,dst ,(primitive-binding-c-name binding) ,@args))
       dst))
 
 
+  (define (compile-value-call ctx env form)
+    (let ((binding (primitive-operator env form)))
+      (if binding
+          (compile-primitive-call ctx env binding form)
+          (let* ((operands (compile-operands ctx env form))
+                 (dst (fresh-var ctx)))
+            (emit! ctx `(call ,dst ,@operands))
+            dst))))
+
+
   (define (compile-tail-call ctx env form)
-    (emit! ctx `(tailcall ,@(compile-operands ctx env form))))
+    (let ((binding (primitive-operator env form)))
+      (if binding
+          (emit! ctx `(ret ,(compile-primitive-call ctx env binding form)))
+          (emit! ctx `(tailcall ,@(compile-operands ctx env form))))))
 
 
   (define-record-type def
@@ -368,7 +388,7 @@
       (if (null? args)
           env
           (loop (+ i 1) (cdr args)
-                (acons (car args) (make-local (list 'arg i)) env)))))
+                (acons (car args) (make-local-binding (list 'arg i)) env)))))
 
 
   ;; Load each capture and return a new env
@@ -380,7 +400,7 @@
           env
           (let ((dst (fresh-var ctx)))
             (emit! ctx `(load ,dst (self) ,i))
-            (loop (+ i 1) (cdr captures) (acons (car captures) (make-local dst) env))))))
+            (loop (+ i 1) (cdr captures) (acons (car captures) (make-local-binding dst) env))))))
 
 
   (define (function->ir pctx env proc captures args body)
@@ -400,8 +420,8 @@
       (let* ((defs (scan-defs defs))
              (env (append (map (lambda (d)
                                  (cons (def-name d)
-                                       (make-procedure (proc-name (def-number d))
-                                                       (length (def-params d)))))
+                                       (make-procedure-binding (proc-name (def-number d))
+                                                               (length (def-params d)))))
                                defs)
                           env))
              (pctx (new-program-context)))

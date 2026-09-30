@@ -52,7 +52,7 @@ static value bool_to_value(bool b) {
     return b ? BOOL_TRUE : BOOL_FALSE;
 }
 
-void *check_procedure(value x, uint64_t nargs) {
+void check_procedure(value x, uint64_t nargs) {
     if (!is_pointer(x)) {
         fprintf(stderr, "Calling error: "
                         "expected procedure, got non-pointer value\n");
@@ -77,7 +77,6 @@ void *check_procedure(value x, uint64_t nargs) {
                 arity, nargs);
         exit(1);
     }
-    return (void *)ptr[2];
 }
 
 value eq(value x, value y) {

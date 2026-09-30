@@ -15,7 +15,7 @@
   (let* ((proc (string-append c-name "_proc"))
          (fn (string-append c-name "_code"))
          (args (map (lambda (i) (list 'arg (+ i 1))) (iota arity))))
-    (set! *env* (acons name (make-primitive proc arity #f) *env*))
+    (set! *env* (acons name (make-primitive-binding proc arity c-name #f) *env*))
     (set! *prelude*
           (cons* (list 'function fn (list 'arity arity)
                        (cons* 'ccall '(tmp 1) c-name args)
