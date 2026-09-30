@@ -14,7 +14,7 @@ tmp/runtime-asm.o: runtime.s | tmp
 tmp/prelude.o: tmp/prelude.s
 	$(CC) -c -o $@ $<
 
-tmp/prelude.s: compiler.ss frontend.sls backend.sls ir.sls utils.sls | tmp
+tmp/prelude.s: compiler.ss frontend.ss backend.ss ir.ss utils.ss | tmp
 	scheme --script compiler.ss --prelude > $@
 
 tmp:

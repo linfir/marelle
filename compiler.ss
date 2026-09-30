@@ -1,10 +1,9 @@
 #!/usr/bin/env scheme-script
 
-(import (chezscheme)
-        (utils)
-        (ir)
-        (frontend)
-        (backend))
+(load "utils.ss")
+(load "ir.ss")
+(load "frontend.ss")
+(load "backend.ss")
 
 
 (define *env* '())
