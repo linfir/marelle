@@ -1,5 +1,5 @@
 (library (frontend)
-  (export program->ir make-primitive-binding)
+  (export program->ir make-primitive-binding inline-eq)
   (import (chezscheme)
           (utils)
           (ir))
@@ -320,14 +320,29 @@
            (cdr x))))
 
 
-  ;; Call the C function directly
+  ;; Inliners: (inliner ctx args) emits the code and returns dst
+  (define (inline-eq ctx args)
+    (let ((dst (fresh-var ctx))
+          (label (fresh-label ctx)))
+      (emit! ctx `(mov ,dst (imm #t)))
+      (emit! ctx `(cmp ,(car args) ,(cadr args)))
+      (emit! ctx `(je ,label))
+      (emit! ctx `(mov ,dst (imm #f)))
+      (emit! ctx `(def ,label))
+      dst))
+
+
+  ;; Inline or call the C function directly
   (define (compile-primitive-call ctx env binding form)
     (unless (= (length (cdr form)) (procedure-binding-arity binding))
       (error 'compile-primitive-call "wrong number of arguments" form))
-    (let* ((args (compile-values ctx env (cdr form)))
-           (dst (fresh-var ctx)))
-      (emit! ctx `(ccall ,dst ,(primitive-binding-c-name binding) ,@args))
-      dst))
+    (let ((args (compile-values ctx env (cdr form)))
+          (inliner (primitive-binding-inliner binding)))
+      (if inliner
+          (inliner ctx args)
+          (let ((dst (fresh-var ctx)))
+            (emit! ctx `(ccall ,dst ,(primitive-binding-c-name binding) ,@args))
+            dst))))
 
 
   (define (compile-value-call ctx env form)

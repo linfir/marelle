@@ -11,20 +11,17 @@
 (define *prelude* '())
 
 
-(define (define-c-proc name c-name arity)
-  (let* ((proc (string-append c-name "_proc"))
-         (fn (string-append c-name "_code"))
-         (args (map (lambda (i) (list 'arg (+ i 1))) (iota arity))))
-    (set! *env* (acons name (make-primitive-binding proc arity c-name #f) *env*))
-    (set! *prelude*
-          (cons* (list 'function fn (list 'arity arity)
-                       (cons* 'ccall '(tmp 1) c-name args)
-                       '(ret (tmp 1)))
-                 (proc-data proc arity fn)
-                 *prelude*))))
+(define (define-c-proc name c-name arity . inliner)
+  (set! *env* (acons name (make-primitive-binding (prim-proc-name c-name) arity c-name
+                                                  (and (pair? inliner) (car inliner)))
+                     *env*))
+  (set! *prelude*
+        (cons* (prim-function c-name arity)
+               (proc-data (prim-proc-name c-name) arity (prim-fn-name c-name))
+               *prelude*)))
 
 
-(define-c-proc 'eq? "eq" 2)
+(define-c-proc 'eq? "eq" 2 inline-eq)
 
 (define-c-proc '+   "int_add" 2)
 (define-c-proc '-   "int_sub" 2)
