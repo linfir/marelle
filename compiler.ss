@@ -1,4 +1,4 @@
-#!/usr/bin/env scheme-script
+#!/usr/bin/env -S scheme --script
 
 (load "utils.ss")
 (load "ir.ss")
