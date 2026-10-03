@@ -48,12 +48,16 @@
 (define int-max (- (expt 2 (- int-bits 1)) 1))
 
 
+(define undef (void))
+
+
 (define (immediate? x)
   (or (and (integer? x)
            (exact? x)
            (<= int-min x int-max))
       (boolean? x)
-      (equal? x ''())))
+      (equal? x ''())
+      (eq? x undef)))
 
 
 (define (encode-immediate x)
@@ -66,6 +70,8 @@
     (tag 2 (if x 1 0)))
    ((equal? x ''())
     (tag 2 2))
+   ((eq? x undef)
+    (tag 2 3))
    (else (error 'encode-immediate "non immediate value" x))))
 
 

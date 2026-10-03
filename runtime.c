@@ -18,11 +18,16 @@ typedef uint64_t value;
 
 _Static_assert(sizeof(void *) == 8, "the runtime assumes 64-bit pointers");
 
+#define IMMEDIATE(x) ((value)(x) << 3 | 2)
+
 enum {
-    BOOL_FALSE = 2,
-    BOOL_TRUE = 10,
-    NIL = 18,
+    BOOL_FALSE = IMMEDIATE(0),
+    BOOL_TRUE = IMMEDIATE(1),
+    NIL = IMMEDIATE(2),
+    UNDEF = IMMEDIATE(3),
 };
+
+#undef IMMEDIATE
 
 static bool is_pointer(value x) {
     return (x & 7) == 0;
@@ -199,6 +204,9 @@ static void print_obj(value x) {
             break;
         case NIL:
             printf("()");
+            break;
+        case UNDEF:
+            printf("#<undef>");
             break;
         default:
             printf("#<err>");
