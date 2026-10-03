@@ -122,6 +122,15 @@
   (values (cadr form) (cddr form)))
 
 
+;; (if test then [else]) => (values test then else), else defaults to undef
+(define (parse-if form)
+  (unless (<= 3 (length form) 4)
+    (error 'parse-if "invalid if" form))
+  (values (cadr form)
+          (caddr form)
+          (if (null? (cdddr form)) undef (cadddr form))))
+
+
 ;; (begin expr ...) => (expr ...)
 (define (parse-begin form)
   (when (null? (cdr form))
@@ -149,9 +158,8 @@
    ((special? env expr)
     (case (car expr)
       ((if)
-       (unless (= (length expr) 4)
-         (error 'compile-value "invalid arity for if"))
-       (compile-value-if ctx env (cadr expr) (caddr expr) (cadddr expr)))
+       (let-values (((test then else) (parse-if expr)))
+         (compile-value-if ctx env test then else)))
 
       ((and)
        (compile-value-logic ctx env (cdr expr) #t 'je))
@@ -194,9 +202,8 @@
    ((special? env expr)
     (case (car expr)
       ((if)
-       (unless (= (length expr) 4)
-         (error 'compile-tail "invalid arity for if"))
-       (compile-tail-if ctx env (cadr expr) (caddr expr) (cadddr expr)))
+       (let-values (((test then else) (parse-if expr)))
+         (compile-tail-if ctx env test then else)))
 
       ((and)
        (compile-tail-logic ctx env (cdr expr) #t 'je))
