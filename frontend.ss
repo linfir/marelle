@@ -59,7 +59,7 @@
       (procedure-binding-proc binding)))
 
 
-(define *special-forms* '(if let let* lambda begin))
+(define *special-forms* '(if and or let let* lambda begin))
 
 
 (define (special? env expr)
@@ -153,6 +153,12 @@
          (error 'compile-value "invalid arity for if"))
        (compile-value-if ctx env (cadr expr) (caddr expr) (cadddr expr)))
 
+      ((and)
+       (compile-value-logic ctx env (cdr expr) #t 'je))
+
+      ((or)
+       (compile-value-logic ctx env (cdr expr) #f 'jne))
+
       ((let)
        (let-values (((bindings body) (parse-let expr)))
          (compile-body ctx (bind-let-vars ctx env bindings) body)))
@@ -191,6 +197,12 @@
        (unless (= (length expr) 4)
          (error 'compile-tail "invalid arity for if"))
        (compile-tail-if ctx env (cadr expr) (caddr expr) (cadddr expr)))
+
+      ((and)
+       (compile-tail-logic ctx env (cdr expr) #t 'je))
+
+      ((or)
+       (compile-tail-logic ctx env (cdr expr) #f 'jne))
 
       ((let)
        (let-values (((bindings body) (parse-let expr)))
@@ -340,6 +352,49 @@
     (compile-tail ctx env true-expr)
     (emit! ctx `(def ,label-false))
     (compile-tail ctx env false-expr)))
+
+
+
+;; and/or: jump to the end with the current value when the test
+;; (je: false, jne: true) succeeds; the last value is the result
+(define (compile-value-logic ctx env exprs empty jump)
+  (cond
+   ((null? exprs)
+    (compile-value ctx env empty))
+   ((null? (cdr exprs))
+    (compile-value ctx env (car exprs)))
+   (else
+    (let ((dst (fresh-var ctx))
+          (label-end (fresh-label ctx)))
+      (let loop ((exprs exprs))
+        (emit! ctx `(mov ,dst ,(compile-value ctx env (car exprs))))
+        (unless (null? (cdr exprs))
+          (emit! ctx `(cmp ,dst (imm #f)))
+          (emit! ctx `(,jump ,label-end))
+          (loop (cdr exprs))))
+      (emit! ctx `(def ,label-end))
+      dst))))
+
+
+(define (compile-tail-logic ctx env exprs empty jump)
+  (cond
+   ((null? exprs)
+    (emit! ctx `(ret (imm ,empty))))
+   ((null? (cdr exprs))
+    (compile-tail ctx env (car exprs)))
+   (else
+    (let ((dst (fresh-var ctx))
+          (label-end (fresh-label ctx)))
+      (let loop ((exprs exprs))
+        (if (null? (cdr exprs))
+            (compile-tail ctx env (car exprs))
+            (begin
+              (emit! ctx `(mov ,dst ,(compile-value ctx env (car exprs))))
+              (emit! ctx `(cmp ,dst (imm #f)))
+              (emit! ctx `(,jump ,label-end))
+              (loop (cdr exprs)))))
+      (emit! ctx `(def ,label-end))
+      (emit! ctx `(ret ,dst))))))
 
 
 (define (bind-let-vars ctx env bindings)

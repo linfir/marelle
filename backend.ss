@@ -143,7 +143,7 @@
        (load! ctx 'rax a)
        (load! ctx 'rcx b)
        (emit-asm! ctx '(cmp rax rcx))))
-    ((je jmp)
+    ((je jne jmp)
      (let ((op (car instr))
            (label (cadr instr)))
        (emit-asm! ctx `(,op ,(label-name ctx label)))))
