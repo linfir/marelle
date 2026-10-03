@@ -389,6 +389,10 @@
     dst))
 
 
+(define (inline-null ctx args)
+  (inline-eq ctx (list (car args) '(imm '()))))
+
+
 ;; Inline or call the C function directly
 (define (compile-primitive-call ctx env binding form)
   (unless (= (length (cdr form)) (procedure-binding-arity binding))

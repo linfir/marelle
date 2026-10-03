@@ -31,7 +31,7 @@
 (define-c-proc '>   "int_gt"  2)
 (define-c-proc '>=  "int_geq" 2)
 
-(define-c-proc 'null? "is_null" 1)
+(define-c-proc 'null? "is_null" 1 inline-null)
 (define-c-proc 'pair? "pair_p"  1)
 (define-c-proc 'cons  "cons"    2)
 (define-c-proc 'car   "car"     1)
