@@ -7,7 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-char procedure_type;
+// Their addresses are object headers, aligned so that they have a pointer tag
+_Alignas(8) char procedure_type;
+_Alignas(8) char frame_type;
 
 // tagged value, tag is 3 lower bits
 // 0 pointer
@@ -131,16 +133,16 @@ value int_geq(value x, value y) {
 
 // ----------------------------------------------------------------------------
 
-value *mem;
-size_t len, cap;
+value *scheme_mem;
+size_t scheme_len, scheme_cap;
 
 value *scheme_alloc(uint64_t nwords) {
-    if (nwords > cap - len) {
+    if (nwords > scheme_cap - scheme_len) {
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);
     }
-    value *ptr = &mem[len];
-    len += nwords;
+    value *ptr = &scheme_mem[scheme_len];
+    scheme_len += nwords;
     return ptr;
 }
 
@@ -232,15 +234,15 @@ static void print_obj(value x) {
 value scheme_main_stub(void);
 
 int main(void) {
-    len = 0;
-    cap = 1 << 20;
-    mem = malloc(cap * sizeof(value));
-    if (mem == NULL) {
+    scheme_len = 0;
+    scheme_cap = 1 << 26;
+    scheme_mem = malloc(scheme_cap * sizeof(value));
+    if (scheme_mem == NULL) {
         fprintf(stderr, "Memory allocation failed\n");
         return 1;
     }
     value v = scheme_main_stub();
     print_obj(v);
-    free(mem);
+    free(scheme_mem);
     return 0;
 }

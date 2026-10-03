@@ -1,15 +1,20 @@
-;; Stack frame of a function, ntmp being the highest tmp number:
+;; Frames are heap objects, rbp pointing to the current one, n being the
+;; function's arity:
 ;;
-;;   rbp + 8            return address
-;;   rbp                saved rbp
-;;   rbp - 8            (self), the procedure object passed in r10
-;;   rbp - 16           (tmp 1)
+;;   rbp + 0            "frame_type"
+;;   rbp + 8            length of the frame in words, header included (raw)
+;;   rbp + 16           caller's frame, or 0 for scheme_main
+;;   rbp + 24           return address (raw)
+;;   rbp + 32           (self), the procedure object passed in r10, or 0 for scheme_main
+;;   rbp + 40           (arg 1)
 ;;   ...
-;;   rbp - 8*(ntmp+1)   (tmp ntmp)
-;;   rbp - 8*(ntmp+2)   (arg 1)
-;;   rbp - 8*(ntmp+3)   (arg 2)
+;;   rbp + 8*(n+4)      (arg n)
+;;   rbp + 8*(n+5)      (tmp 1)
 ;;   ...
-;;   (padding to keep rsp 16-byte aligned)
+;;
+;; Scheme code only uses the machine stack to call the runtime and C: a Scheme
+;; call passes the return address in r11 and jumps, and alloc_frame stores it in
+;; the new frame. A tail call passes its own return address.
 
 (define arg-regs '(rdi rsi rdx rcx r8 r9))
 
@@ -23,12 +28,12 @@
 
 
 (define-record-type asm-context
-  (fields fn ntmp (mutable code)))
+  (fields fn arity ntmp (mutable code) ret-counter))
 
 
 ;; x is (function name (arity n) instr ...)
 (define (new-asm-context x)
-  (make-asm-context (cadr x) (count-tmps (cdddr x)) '()))
+  (make-asm-context (cadr x) (cadr (caddr x)) (count-tmps (cdddr x)) '() (make-counter)))
 
 
 (define (emit-asm! ctx . instrs)
@@ -38,11 +43,11 @@
 (define (slot ctx x)
   (case (car x)
     ((self)
-     (list 'mem 'rbp -8))
-    ((tmp)
-     (list 'mem 'rbp (* -8 (+ 1 (cadr x)))))
+     '(mem rbp 32))
     ((arg)
-     (list 'mem 'rbp (* -8 (+ 1 (asm-context-ntmp ctx) (cadr x)))))
+     `(mem rbp ,(* 8 (+ 4 (cadr x)))))
+    ((tmp)
+     `(mem rbp ,(* 8 (+ 4 (asm-context-arity ctx) (cadr x)))))
     (else
      (error 'slot "not a slot operand" x))))
 
@@ -106,7 +111,11 @@
        (load-args! ctx args)
        (load! ctx 'r10 proc)
        (load! ctx 'rax target)
-       (emit-asm! ctx '(call rax))
+       (let ((label (ret-label! ctx)))
+         (emit-asm! ctx
+                    `(lea r11 (rip ,label))
+                    '(jmp rax)
+                    `(label ,label)))
        (store! ctx dst 'rax)))
     ((tailcall)
      (let ((target (cadr instr))
@@ -116,9 +125,9 @@
        (load! ctx 'r10 proc)
        (load! ctx 'rax target)
        (emit-asm! ctx
-		  '(mov rsp rbp)
-		  '(pop rbp)
-		  '(jmp rax))))
+                  '(mov r11 (mem rbp 24))
+                  '(mov rbp (mem rbp 16))
+                  '(jmp rax))))
     ((store)
      (let ((base (cadr instr))
            (index (caddr instr))
@@ -126,16 +135,16 @@
        (load! ctx 'rax base)
        (load! ctx 'rcx src)
        (emit-asm! ctx
-		  '(and rax -8)
-		  `(mov (mem rax ,(* 8 index)) rcx))))
+                  '(and rax -8)
+                  `(mov (mem rax ,(* 8 index)) rcx))))
     ((load)
      (let ((dst (cadr instr))
            (base (caddr instr))
            (index (cadddr instr)))
        (load! ctx 'rax base)
        (emit-asm! ctx
-		  '(and rax -8)
-		  `(mov rax (mem rax ,(* 8 index))))
+                  '(and rax -8)
+                  `(mov rax (mem rax ,(* 8 index))))
        (store! ctx dst 'rax)))
     ((cmp)
      (let ((a (cadr instr))
@@ -154,29 +163,31 @@
      (let ((src (cadr instr)))
        (load! ctx 'rax src)
        (emit-asm! ctx
-		  '(mov rsp rbp)
-		  '(pop rbp)
-		  '(ret))))
+                  '(mov r11 (mem rbp 24))
+                  '(mov rbp (mem rbp 16))
+                  '(jmp r11))))
     (else
      (error 'instr->asm! "unknown instruction" instr))))
+
+
+(define (ret-label! ctx)
+  (string-append ".L" (asm-context-fn ctx) "_ret"
+                 (number->string ((asm-context-ret-counter ctx)))))
 
 
 ;; x is (function name (arity n) instr ...)
 (define (function->asm x)
   (let* ((ctx (new-asm-context x))
          (fn (asm-context-fn ctx))
-         (arity (cadr (caddr x)))
-         (nslots (+ 1 (asm-context-ntmp ctx) arity))
-         (size (* 8 (round-up-even nslots))))
+         (arity (asm-context-arity ctx))
+         (nwords (+ 5 arity (asm-context-ntmp ctx))))
     (when (> arity (length arg-regs))
       (error 'function->asm "too many parameters" fn))
     (emit-asm! ctx
                '(text)
                `(label ,fn)
-               '(push rbp)
-               '(mov rbp rsp)
-               `(sub rsp ,size))
-    (store! ctx '(self) 'r10)
+               `(mov rax ,nwords)
+               '(call "alloc_frame"))
     (let loop ((i 1)
                (regs arg-regs))
       (when (<= i arity)
@@ -218,7 +229,7 @@
     (let ((off (caddr x)))
       (printf "qword ptr [~a ~a ~a]" (cadr x) (if (< off 0) "-" "+") (abs off))))
    ((eq? (car x) 'rip)
-    (printf "[rip + ~s]" (cadr x)))
+    (printf "qword ptr [rip + ~s]" (cadr x)))
    (else (error 'print-operand "unknown operand" x))))
 
 

@@ -21,10 +21,6 @@
         (loop (cdr lst) (cons (f (car lst)) acc)))))
 
 
-(define (round-up-even n)
-  (if (even? n) n (+ n 1)))
-
-
 ;; x must be a non-empty list
 (define (split-last x)
   (let loop ((x x)
