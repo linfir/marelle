@@ -34,7 +34,7 @@ def build_runtime():
     return run_stage("setup", ["make", "-s"], cwd=ROOT)
 
 
-def run_pipeline(source, *, build=True, heap=None):
+def run_pipeline(source, *, build=True, env=None):
     if build:
         build_runtime()
 
@@ -51,8 +51,7 @@ def run_pipeline(source, *, build=True, heap=None):
         assembly.write_text(compiler.stdout)
 
         run_stage("cc", ["cc", "-o", executable, assembly, ROOT / "tmp" / "runtime.o"])
-        env = None if heap is None else {**os.environ, "SCHEME_HEAP": str(heap)}
-        return run_stage("executable", [executable], env=env)
+        return run_stage("executable", [executable], env=os.environ | (env or {}))
 
 
 def run_chez(source):

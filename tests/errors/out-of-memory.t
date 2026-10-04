@@ -8,7 +8,7 @@
       (sum (cdr l) (+ acc (car l)))))
 (sum (build 1000 '()) 0)
 ---
-heap = 2000
+env = { SCHEME_HEAP = "2000" }
 stage = "executable"
 stderr_contains = "Out of memory"
 chez = "skip"

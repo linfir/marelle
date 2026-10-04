@@ -12,5 +12,5 @@
       (repeat (- k 1) l (sum l 0))))
 (repeat 200 (build 1000 '()) 0)
 ---
-heap = 2500
+env = { SCHEME_HEAP = "2500" }
 stdout = "500500"

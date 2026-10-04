@@ -157,6 +157,9 @@ value *scheme_mem;
 size_t scheme_len, scheme_cap;
 static value *spare_mem;
 
+// Statistics, printed at exit when SCHEME_GC_STATS is set
+static uint64_t gc_count, gc_copied, gc_max_live, gc_used_before;
+
 static size_t object_words(value *p) {
     if (p[0] == (value)(uintptr_t)&frame_type) {
         return p[1];
@@ -217,17 +220,23 @@ static void scheme_collect(value *roots, uint64_t nroots) {
     for (value *p = to; p < free;) {
         p += scan(p, &free);
     }
+    size_t copied = (size_t)(free - to);
+    gc_count++;
+    gc_copied += copied;
+    gc_used_before += scheme_len;
+    if (copied > gc_max_live) {
+        gc_max_live = copied;
+    }
     memset(scheme_mem, 0, scheme_len * sizeof(value));
     spare_mem = scheme_mem;
     scheme_mem = to;
-    scheme_len = (size_t)(free - to);
+    scheme_len = copied;
     assert(scheme_len <= scheme_cap);
 }
 
 // Called from runtime.s, the only place where a collection may happen
 value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
     if (nwords > scheme_cap - scheme_len) {
-        fprintf(stderr, "... garbage collection ...\n");
         scheme_collect(roots, nroots);
         if (nwords > scheme_cap - scheme_len) {
             fprintf(stderr, "Out of memory\n");
@@ -315,9 +324,23 @@ static size_t heap_words(void) {
     return (size_t)n;
 }
 
+// Each stretch between collections allocates from the words copied up to the used words
+static void print_gc_stats(void) {
+    uint64_t allocated = gc_used_before + scheme_len - gc_copied;
+    fflush(stdout);
+    fprintf(stderr,
+            "GC: %" PRIu64 " collections, %" PRIu64 " words allocated, %" PRIu64 " words copied, "
+            "%" PRIu64 " max live words\n",
+            gc_count, allocated, gc_copied, gc_max_live);
+}
+
 int main(void) {
     scheme_len = 0;
     scheme_cap = heap_words();
+    const char *stats = getenv("SCHEME_GC_STATS");
+    if (stats != NULL && *stats != '\0') {
+        atexit(print_gc_stats);
+    }
     scheme_mem = calloc(scheme_cap, sizeof(value));
     spare_mem = calloc(scheme_cap, sizeof(value));
     if (scheme_mem == NULL || spare_mem == NULL) {

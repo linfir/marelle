@@ -14,5 +14,5 @@
   (churn 100000)
   (apply-all l 0))
 ---
-heap = 2000
+env = { SCHEME_HEAP = "2000" }
 stdout = "5050"
