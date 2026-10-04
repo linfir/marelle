@@ -72,7 +72,8 @@ def main():
     try:
         result = run_pipeline(source)
     except PipelineFailure as error:
-        sys.stdout.write(error.result.stdout)
+        stdout = error.result.stdout
+        sys.stdout.write(stdout.decode(errors="replace") if isinstance(stdout, bytes) else stdout)
         sys.stderr.write(f"run.py: {error}\n")
         sys.stderr.write(error.result.stderr)
         exit(error.result.returncode or 1)
