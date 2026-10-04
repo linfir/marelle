@@ -2,4 +2,4 @@
 (f 3)
 ---
 stage = "executable"
-stderr_contains = "is_pair"
+stderr_contains = "Error: cdr: expected pair: 3\n"

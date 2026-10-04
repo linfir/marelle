@@ -62,71 +62,79 @@ static value bool_to_value(bool b) {
     return b ? BOOL_TRUE : BOOL_FALSE;
 }
 
+static void print_obj(FILE *out, value x);
+
+// Prints the message and the offending value, then exits
+_Noreturn void scheme_error(const char *msg, value x) {
+    fflush(stdout);
+    fprintf(stderr, "Error: %s: ", msg);
+    print_obj(stderr, x);
+    fprintf(stderr, "\n");
+    exit(1);
+}
+
+static void check_integers(const char *msg, value x, value y) {
+    if (!is_integer(x)) {
+        scheme_error(msg, x);
+    }
+    if (!is_integer(y)) {
+        scheme_error(msg, y);
+    }
+}
+
 void check_procedure(value x, uint64_t nargs) {
-    if (!is_pointer(x)) {
-        fprintf(stderr, "Calling error: "
-                        "expected procedure, got non-pointer value\n");
-        exit(1);
-    }
     value *ptr = (value *)x;
-    if (ptr == NULL) {
-        fprintf(stderr, "Calling error: "
-                        "expected procedure, got null pointer\n");
-        exit(1);
-    }
-    if (ptr[0] != (value)(uintptr_t)&procedure_type) {
-        fprintf(stderr, "Calling error: "
-                        "expected procedure, got pointer of different type\n");
-        exit(1);
+    if (!is_pointer(x) || ptr == NULL || ptr[0] != (value)(uintptr_t)&procedure_type) {
+        scheme_error("expected procedure", x);
     }
     uint64_t arity = ptr[1];
     if (arity != nargs) {
+        fflush(stdout);
         fprintf(stderr,
-                "Calling error: "
-                "procedure of arity %" PRIu64 " called with %" PRIu64 " arguments\n",
+                "Error: procedure of arity %" PRIu64 " called with %" PRIu64 " arguments\n",
                 arity, nargs);
         exit(1);
     }
 }
 
 value int_add(value x, value y) {
-    assert(is_integer(x) && is_integer(y));
+    check_integers("+: expected integer", x, y);
     return x + y - 1;
 }
 
 value int_sub(value x, value y) {
-    assert(is_integer(x) && is_integer(y));
+    check_integers("-: expected integer", x, y);
     return x - y + 1;
 }
 
 value int_mul(value x, value y) {
-    assert(is_integer(x) && is_integer(y));
+    check_integers("*: expected integer", x, y);
     value product = (value)integer_value(x) * (value)integer_value(y);
     return int_to_value((int64_t)product);
 }
 
 value int_eq(value x, value y) {
-    assert(is_integer(x) && is_integer(y));
+    check_integers("=: expected integer", x, y);
     return bool_to_value(x == y);
 }
 
 value int_lt(value x, value y) {
-    assert(is_integer(x) && is_integer(y));
+    check_integers("<: expected integer", x, y);
     return bool_to_value((int64_t)x < (int64_t)y);
 }
 
 value int_leq(value x, value y) {
-    assert(is_integer(x) && is_integer(y));
+    check_integers("<=: expected integer", x, y);
     return bool_to_value((int64_t)x <= (int64_t)y);
 }
 
 value int_gt(value x, value y) {
-    assert(is_integer(x) && is_integer(y));
+    check_integers(">: expected integer", x, y);
     return bool_to_value((int64_t)x > (int64_t)y);
 }
 
 value int_geq(value x, value y) {
-    assert(is_integer(x) && is_integer(y));
+    check_integers(">=: expected integer", x, y);
     return bool_to_value((int64_t)x >= (int64_t)y);
 }
 
@@ -137,13 +145,17 @@ value pair_p(value x) {
 }
 
 value car(value pair) {
-    assert(is_pair(pair));
+    if (!is_pair(pair)) {
+        scheme_error("car: expected pair", pair);
+    }
     value *ptr = (value *)(uintptr_t)(pair & ~(value)7);
     return ptr[0];
 }
 
 value cdr(value pair) {
-    assert(is_pair(pair));
+    if (!is_pair(pair)) {
+        scheme_error("cdr: expected pair", pair);
+    }
     value *ptr = (value *)(uintptr_t)(pair & ~(value)7);
     return ptr[1];
 }
@@ -258,57 +270,55 @@ value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
 
 // ----------------------------------------------------------------------------
 
-static void print_obj(value x);
-
-static void print_pair(value x) {
-    printf("(");
-    print_obj(car(x));
+static void print_pair(FILE *out, value x) {
+    fprintf(out, "(");
+    print_obj(out, car(x));
     x = cdr(x);
     while (is_pair(x)) {
-        printf(" ");
-        print_obj(car(x));
+        fprintf(out, " ");
+        print_obj(out, car(x));
         x = cdr(x);
     }
     if (x != NIL) {
-        printf(" . ");
-        print_obj(x);
+        fprintf(out, " . ");
+        print_obj(out, x);
     }
-    printf(")");
+    fprintf(out, ")");
 }
 
-static void print_obj(value x) {
+static void print_obj(FILE *out, value x) {
     if (is_integer(x)) {
-        printf("%" PRId64, integer_value(x));
+        fprintf(out, "%" PRId64, integer_value(x));
     } else if (is_immediate(x)) {
         switch (x) {
         case BOOL_FALSE:
-            printf("#f");
+            fprintf(out, "#f");
             break;
         case BOOL_TRUE:
-            printf("#t");
+            fprintf(out, "#t");
             break;
         case NIL:
-            printf("()");
+            fprintf(out, "()");
             break;
         case UNDEF:
-            printf("#<undef>");
+            fprintf(out, "#<undef>");
             break;
         default:
-            printf("#<err>");
+            fprintf(out, "#<err>");
         }
     } else if (is_pair(x)) {
-        print_pair(x);
+        print_pair(out, x);
     } else if (is_pointer(x)) {
         value *ptr = (value *)x;
         if (ptr == NULL) {
-            printf("#<null>");
+            fprintf(out, "#<null>");
         } else if (ptr[0] == (value)(uintptr_t)&procedure_type) {
-            printf("#<procedure>");
+            fprintf(out, "#<procedure>");
         } else {
-            printf("#<unknown ptr>");
+            fprintf(out, "#<unknown ptr>");
         }
     } else {
-        printf("#<err>");
+        fprintf(out, "#<err>");
     }
 }
 
@@ -360,7 +370,7 @@ int main(void) {
         return 1;
     }
     value v = scheme_enter();
-    print_obj(v);
+    print_obj(stdout, v);
     free(scheme_mem);
     free(spare_mem);
     return 0;
