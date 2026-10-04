@@ -90,8 +90,7 @@ void check_procedure(value x, uint64_t nargs) {
     uint64_t arity = ptr[1];
     if (arity != nargs) {
         fflush(stdout);
-        fprintf(stderr,
-                "Error: procedure of arity %" PRIu64 " called with %" PRIu64 " arguments\n",
+        fprintf(stderr, "Error: procedure of arity %" PRIu64 " called with %" PRIu64 " arguments\n",
                 arity, nargs);
         exit(1);
     }
@@ -170,6 +169,10 @@ value *scheme_mem;
 size_t scheme_len, scheme_cap, scheme_limit;
 static value *spare_mem;
 
+// Cells of the top-level defines, from the compiled program
+extern value scheme_globals[];
+extern const uint64_t scheme_nglobals;
+
 // Statistics, printed at exit when SCHEME_GC_STATS is set
 static uint64_t gc_count, gc_copied, gc_max_live, gc_used_before;
 
@@ -232,6 +235,9 @@ static void scheme_collect(value *roots, uint64_t nroots) {
     value *free = to;
     for (uint64_t i = 0; i < nroots; i++) {
         roots[i] = forward(roots[i], &free);
+    }
+    for (uint64_t i = 0; i < scheme_nglobals; i++) {
+        scheme_globals[i] = forward(scheme_globals[i], &free);
     }
     for (value *p = to; p < free;) {
         p += scan(p, &free);

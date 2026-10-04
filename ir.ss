@@ -71,7 +71,7 @@
 
 (define (print-top x)
   (case (car x)
-    ((data)
+    ((data cells)
      (printf "~s\n\n" x))
     ((function)
      (printf "(function ~s ~s\n" (cadr x) (caddr x))

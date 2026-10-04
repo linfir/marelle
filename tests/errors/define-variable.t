@@ -1,4 +1,4 @@
-(define x 1)
+(define x)
 x
 ---
 stage = "compiler"

@@ -1,0 +1,4 @@
+(define x 1)
+(let ((x 2)) x)
+---
+stdout = "2"

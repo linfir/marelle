@@ -147,9 +147,7 @@ def parse_args():
     parser.add_argument("-k", dest="patterns_k", action="append", default=[], metavar="PATTERN")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--chez", action="store_true", help="run the tests with Chez Scheme instead of the compiler")
-    parser.add_argument(
-        "--gc-stress", type=int, metavar="N", help="collect every N allocations (SCHEME_GC_STRESS)"
-    )
+    parser.add_argument("--gc-stress", type=int, metavar="N", help="collect every N allocations (SCHEME_GC_STRESS)")
     args = parser.parse_args()
     if args.gc_stress is not None and args.gc_stress < 1:
         parser.error("--gc-stress must be at least 1")

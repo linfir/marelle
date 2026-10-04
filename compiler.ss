@@ -50,7 +50,7 @@
                     (append (map (lambda (x) (prim-proc-name (primitive-binding-name (cdr x))))
                                  (filter (lambda (x) (primitive-binding? (cdr x))) *env*))
                             (map def-proc *prelude-defs*))
-                    '("scheme_main"))))
+                    '("scheme_main" "scheme_globals" "scheme_nglobals"))))
   (if (member "--ir" (command-line-arguments))
       (print-ir tops)
       (for-each print-asm (program->asm tops exports))))

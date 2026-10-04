@@ -43,6 +43,11 @@
   (fields proc arity))
 
 
+;; Top-level define, cell index of "scheme_globals"
+(define-record-type global-binding
+  (fields index))
+
+
 ;; name gives the symbol names, and the C function called without an inliner
 (define-record-type primitive-binding
   (parent procedure-binding)
@@ -190,9 +195,15 @@
 
    ((symbol? expr)
     (let ((x (assq expr env)))
-      (if x
-          (binding-value (cdr x))
-          (error 'compile-value "unknown symbol" expr))))
+      (cond
+       ((not x)
+        (error 'compile-value "unknown symbol" expr))
+       ((global-binding? (cdr x))
+        (let ((tmp (fresh-var ctx)))
+          (emit! ctx `(load ,tmp "scheme_globals" ,(global-binding-index (cdr x))))
+          tmp))
+       (else
+        (binding-value (cdr x))))))
 
    (else
     (error 'compile-value "unknown form" expr))))
@@ -249,7 +260,7 @@
     (compile-tail ctx env last)))
 
 
-(define (captured-vars env expr)
+(define (captured-vars env args body)
   (define (bind env names)
     (append (map (lambda (x) (cons x (make-bound-binding))) names) env))
 
@@ -297,21 +308,25 @@
 
      (else acc)))
 
-  (walk env expr '()))
+  (walk-list (bind env args) body '()))
 
 
 (define (compile-lambda ctx env expr)
   (let-values (((args body) (parse-lambda expr)))
-    (let ((captures (reverse (captured-vars env expr)))
-          (n (proc-counter))
-          (pctx (expr-context-program ctx))
-          (body-env (filter (lambda (b) (not (local-binding? (cdr b)))) env)))
-      (add-entry! pctx (function->ir pctx body-env (fn-name n) captures args body))
-      (if (null? captures)
-          (begin
-            (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
-            (proc-name n))
-          (make-closure ctx env (fn-name n) (length args) captures)))))
+    (compile-procedure ctx env args body)))
+
+
+(define (compile-procedure ctx env args body)
+  (let ((captures (reverse (captured-vars env args body)))
+        (n (proc-counter))
+        (pctx (expr-context-program ctx))
+        (body-env (filter (lambda (b) (not (local-binding? (cdr b)))) env)))
+    (add-entry! pctx (function->ir pctx body-env (fn-name n) captures args body))
+    (if (null? captures)
+        (begin
+          (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
+          (proc-name n))
+        (make-closure ctx env (fn-name n) (length args) captures))))
 
 
 ;; Allocate [type, arity, code, ncaptures, captures...]
@@ -514,43 +529,62 @@
         (emit! ctx `(tailcall ,@(compile-operands ctx env form))))))
 
 
-;; proc and code are the symbols of the procedure object and its function
+;; (define (name arg ...) body ...) => (values name args body)
+;; (define name init) => (values name #f (init))
+(define (parse-define form)
+  (unless (and (list? form)
+               (not (null? form))
+               (eq? (car form) 'define))
+    (error 'parse-define "non define form in define position"))
+  (unless (and (>= (length form) 3)
+               (or (pair? (cadr form))
+                   (and (symbol? (cadr form))
+                        (= (length form) 3))))
+    (error 'parse-define "define: invalid form" form))
+  (if (symbol? (cadr form))
+      (values (cadr form) #f (cddr form))
+      (let ((name (caadr form))
+            (args (cdadr form)))
+        (unless (symbol? name)
+          (error 'parse-define "define: invalid name" form))
+        (validate-parameters args)
+        (values name args (cddr form)))))
+
+
+;; A top-level define: cell index of "scheme_globals", args #f for a value
+(define-record-type global-def
+  (fields name index args body))
+
+
+;; A prelude define, proc and code the symbols of its procedure object and
+;; function
 (define-record-type def
   (fields name proc code params body))
 
 
-(define (find-def name defs)
-  (find (lambda (d) (eq? (def-name d) name)) defs))
-
-
-;; Convert each (define (foo x y) (+ x y)) into a def record,
-;; (names i) returning the proc and code symbols of the i-th definition
-(define (scan-defs defs names)
+;; Map (make name i args body) over the define forms
+(define (scan-defs forms make)
   (let loop ((acc '())
-             (defs defs)
-             (i 1))
-    (if (null? defs)
+             (names '())
+             (forms forms)
+             (i 0))
+    (if (null? forms)
         (reverse acc)
-        (let ((form (car defs)))
-          (unless (and (list? form)
-                       (not (null? form))
-                       (eq? (car form) 'define))
-            (error 'scan-defs "non define form in define position"))
-          (unless (and (>= (length form) 3)
-                       (pair? (cadr form)))
-            (error 'scan-defs "define: invalid form" form))
-          (let ((name (caadr form))
-                (args (cdadr form))
-                (body (cddr form)))
-            (unless (symbol? name)
-              (error 'scan-defs "define: invalid name" form))
-            (validate-parameters args)
-            (when (find-def name acc)
-              (error 'scan-defs "define: redefinition not allowed"))
-            (let ((proc+code (names i)))
-              (loop (cons (make-def name (car proc+code) (cdr proc+code) args body) acc)
-                    (cdr defs)
-                    (+ i 1))))))))
+        (let-values (((name args body) (parse-define (car forms))))
+          (when (memq name names)
+            (error 'scan-defs "define: redefinition not allowed" name))
+          (loop (cons (make name i args body) acc)
+                (cons name names)
+                (cdr forms)
+                (+ i 1))))))
+
+
+(define (scan-prelude forms)
+  (scan-defs forms
+             (lambda (name i args body)
+               (unless args
+                 (error 'scan-prelude "value define in the prelude" name))
+               (make-def name (prelude-proc-name (+ i 1)) (prelude-fn-name (+ i 1)) args body))))
 
 
 (define (bind-defs env defs)
@@ -600,24 +634,39 @@
                ,@(reverse (expr-context-code ctx)))))
 
 
+;; Every top-level define is a cell holding #<undef> until scheme_main
+;; stores its init, in source order
 (define (program->ir env program)
   (when (null? program)
     (error 'program->ir "empty program"))
 
-  (let-values (((defs expr) (split-last program)))
-    (let* ((defs (scan-defs defs (lambda (i)
-                                   (let ((n (proc-counter)))
-                                     (cons (proc-name n) (fn-name n))))))
-           (env (bind-defs env defs))
-           (pctx (new-program-context)))
-      (add-defs! pctx env defs)
-      (add-entry! pctx (function->ir pctx env "scheme_main" '() '() (list expr)))
+  (let-values (((forms expr) (split-last program)))
+    (let* ((globals (scan-defs forms make-global-def))
+           (env (append (map (lambda (g)
+                               (cons (global-def-name g)
+                                     (make-global-binding (global-def-index g))))
+                             globals)
+                        env))
+           (pctx (new-program-context))
+           (n (length globals)))
+      (add-entry! pctx (main->ir pctx env globals expr))
+      (add-entry! pctx `(cells "scheme_globals" ,n))
+      (add-entry! pctx `(data "scheme_nglobals" (quad ,n)))
       (reverse (program-context-entries pctx)))))
 
 
-(define (scan-prelude forms)
-  (scan-defs forms (lambda (i)
-                     (cons (prelude-proc-name i) (prelude-fn-name i)))))
+(define (main->ir pctx env globals expr)
+  (let ((ctx (new-expr-context pctx)))
+    (for-each (lambda (g)
+                (let ((src (if (global-def-args g)
+                               (compile-procedure ctx env (global-def-args g) (global-def-body g))
+                               (compile-value ctx env (car (global-def-body g))))))
+                  (emit! ctx `(store "scheme_globals" ,(global-def-index g) ,src))))
+              globals)
+    (compile-tail ctx env expr)
+    `(function "scheme_main"
+               (arity 0)
+               ,@(reverse (expr-context-code ctx)))))
 
 
 ;; env must already hold the bindings of defs
