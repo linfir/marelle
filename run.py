@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -33,7 +34,7 @@ def build_runtime():
     return run_stage("setup", ["make", "-s"], cwd=ROOT)
 
 
-def run_pipeline(source, *, build=True):
+def run_pipeline(source, *, build=True, heap=None):
     if build:
         build_runtime()
 
@@ -50,7 +51,8 @@ def run_pipeline(source, *, build=True):
         assembly.write_text(compiler.stdout)
 
         run_stage("cc", ["cc", "-o", executable, assembly, ROOT / "tmp" / "runtime.o"])
-        return run_stage("executable", [executable])
+        env = None if heap is None else {**os.environ, "SCHEME_HEAP": str(heap)}
+        return run_stage("executable", [executable], env=env)
 
 
 def run_chez(source):

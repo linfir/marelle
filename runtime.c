@@ -1,6 +1,7 @@
 // runtime.c
 
 #include <assert.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -298,9 +299,25 @@ static void print_obj(value x) {
 
 value scheme_enter(void);
 
+// Words per semispace: SCHEME_HEAP if set, else 2^26 (1 GiB for both spaces)
+static size_t heap_words(void) {
+    const char *env = getenv("SCHEME_HEAP");
+    if (env == NULL) {
+        return (size_t)1 << 26;
+    }
+    char *end;
+    errno = 0;
+    unsigned long long n = strtoull(env, &end, 10);
+    if (errno != 0 || end == env || *end != '\0' || n == 0 || n > SIZE_MAX / sizeof(value)) {
+        fprintf(stderr, "Invalid SCHEME_HEAP: %s\n", env);
+        exit(1);
+    }
+    return (size_t)n;
+}
+
 int main(void) {
     scheme_len = 0;
-    scheme_cap = (size_t)1 << 26; // 1 GiB for both spaces
+    scheme_cap = heap_words();
     scheme_mem = calloc(scheme_cap, sizeof(value));
     spare_mem = calloc(scheme_cap, sizeof(value));
     if (scheme_mem == NULL || spare_mem == NULL) {

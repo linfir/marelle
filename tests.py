@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
 STAGES = {"compiler", "cc", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
-EXPECTATION_FIELDS = {"stage", "exit", "chez", *OUTPUT_FIELDS}
+EXPECTATION_FIELDS = {"stage", "exit", "chez", "heap", *OUTPUT_FIELDS}
 SKIP = "skip"
 
 
@@ -51,6 +51,10 @@ def read_case(path):
     if not ((isinstance(exit_status, int) and not isinstance(exit_status, bool)) or exit_status == "nonzero"):
         raise TestFormatError('exit must be an integer or "nonzero"')
 
+    heap = expected.get("heap")
+    if heap is not None and (not isinstance(heap, int) or isinstance(heap, bool) or heap <= 0):
+        raise TestFormatError("heap must be a positive integer")
+
     if expected.get("chez", SKIP) != SKIP:
         raise TestFormatError('chez must be "skip"')
 
@@ -75,7 +79,7 @@ def check_case(path, chez=False):
         return SKIP
 
     try:
-        result = run_chez(source) if chez else run_pipeline(source, build=False)
+        result = run_chez(source) if chez else run_pipeline(source, build=False, heap=expected.get("heap"))
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result
