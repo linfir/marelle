@@ -6,10 +6,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Their addresses are object headers, aligned so that they have a pointer tag
 _Alignas(8) char procedure_type;
 _Alignas(8) char frame_type;
+_Alignas(8) char forward_type;
 
 // tagged value, tag is 3 lower bits
 // 0 pointer
@@ -129,28 +131,6 @@ value int_geq(value x, value y) {
 
 // ----------------------------------------------------------------------------
 
-value *scheme_mem;
-size_t scheme_len, scheme_cap;
-
-// Moves the live objects and updates the roots, which must hold every heap
-// pointer in use; the rest is reached through them. Not implemented yet.
-static void scheme_collect(value *roots, uint64_t nroots) {
-    (void)roots;
-    (void)nroots;
-    fprintf(stderr, "Memory allocation failed\n");
-    exit(1);
-}
-
-// Called from runtime.s, the only place where a collection may happen
-value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
-    if (nwords > scheme_cap - scheme_len) {
-        scheme_collect(roots, nroots);
-    }
-    value *ptr = &scheme_mem[scheme_len];
-    scheme_len += nwords;
-    return ptr;
-}
-
 value pair_p(value x) {
     return bool_to_value(is_pair(x));
 }
@@ -165,6 +145,97 @@ value cdr(value pair) {
     assert(is_pair(pair));
     value *ptr = (value *)(uintptr_t)(pair & ~(value)7);
     return ptr[1];
+}
+
+// ----------------------------------------------------------------------------
+
+// Copying collector (Cheney) with two semispaces.
+// scheme_mem is the current one, scheme_len its used words out of scheme_cap.
+// Each space is zero past its used part, so frame slots not yet written hold 0.
+value *scheme_mem;
+size_t scheme_len, scheme_cap;
+static value *spare_mem;
+
+static size_t object_words(value *p) {
+    if (p[0] == (value)(uintptr_t)&frame_type) {
+        return p[1];
+    }
+    if (p[0] == (value)(uintptr_t)&procedure_type) {
+        return 4 + p[3];
+    }
+    return 2; // pair
+}
+
+// Copies the object x points to, if in the current space, and returns its new address;
+// a moved object holds forward_type and its new address
+static value forward(value x, value **free) {
+    value tag = x & 7;
+    if (tag != 0 && tag != 3) {
+        return x;
+    }
+    uintptr_t addr = (uintptr_t)(x - tag);
+    if (addr < (uintptr_t)scheme_mem || addr >= (uintptr_t)(scheme_mem + scheme_len)) {
+        return x; // null or static procedure
+    }
+    value *p = (value *)addr;
+    if (p[0] == (value)(uintptr_t)&forward_type) {
+        return p[1] | tag;
+    }
+    size_t n = tag == 3 ? 2 : object_words(p);
+    value *q = *free;
+    memcpy(q, p, n * sizeof(value));
+    *free = q + n;
+    p[0] = (value)(uintptr_t)&forward_type;
+    p[1] = (value)(uintptr_t)q;
+    return (value)(uintptr_t)q | tag;
+}
+
+// Forwards the values of an object in the new space, returns its length
+static size_t scan(value *p, value **free) {
+    size_t n = object_words(p);
+    size_t i = 0;
+    if (p[0] == (value)(uintptr_t)&frame_type) {
+        i = 3;
+    } else if (p[0] == (value)(uintptr_t)&procedure_type) {
+        i = 4;
+    }
+    for (; i < n; i++) {
+        p[i] = forward(p[i], free);
+    }
+    return n;
+}
+
+// Moves the live objects and updates the roots, which must hold every heap pointer in use;
+// the rest is reached through them
+static void scheme_collect(value *roots, uint64_t nroots) {
+    value *to = spare_mem;
+    value *free = to;
+    for (uint64_t i = 0; i < nroots; i++) {
+        roots[i] = forward(roots[i], &free);
+    }
+    for (value *p = to; p < free;) {
+        p += scan(p, &free);
+    }
+    memset(scheme_mem, 0, scheme_len * sizeof(value));
+    spare_mem = scheme_mem;
+    scheme_mem = to;
+    scheme_len = (size_t)(free - to);
+    assert(scheme_len <= scheme_cap);
+}
+
+// Called from runtime.s, the only place where a collection may happen
+value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
+    if (nwords > scheme_cap - scheme_len) {
+        fprintf(stderr, "... garbage collection ...\n");
+        scheme_collect(roots, nroots);
+        if (nwords > scheme_cap - scheme_len) {
+            fprintf(stderr, "Out of memory\n");
+            exit(1);
+        }
+    }
+    value *ptr = &scheme_mem[scheme_len];
+    scheme_len += nwords;
+    return ptr;
 }
 
 // ----------------------------------------------------------------------------
@@ -229,15 +300,16 @@ value scheme_enter(void);
 
 int main(void) {
     scheme_len = 0;
-    scheme_cap = 1 << 26;
-    // Zeroed: the collector scans frame slots before they are written
+    scheme_cap = (size_t)1 << 26; // 1 GiB for both spaces
     scheme_mem = calloc(scheme_cap, sizeof(value));
-    if (scheme_mem == NULL) {
+    spare_mem = calloc(scheme_cap, sizeof(value));
+    if (scheme_mem == NULL || spare_mem == NULL) {
         fprintf(stderr, "Memory allocation failed\n");
         return 1;
     }
     value v = scheme_enter();
     print_obj(v);
     free(scheme_mem);
+    free(spare_mem);
     return 0;
 }

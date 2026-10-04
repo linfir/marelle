@@ -3,8 +3,8 @@
 ;;
 ;;   rbp + 0            "frame_type"
 ;;   rbp + 8            length of the frame in words, header included (raw)
-;;   rbp + 16           caller's frame, or 0 for scheme_main
-;;   rbp + 24           return address (raw)
+;;   rbp + 16           return address (raw)
+;;   rbp + 24           caller's frame, or 0 for scheme_main
 ;;   rbp + 32           (self), the procedure object passed in r10, or 0 for scheme_main
 ;;   rbp + 40           (arg 1)
 ;;   ...
@@ -139,8 +139,8 @@
        (load! ctx 'r10 proc)
        (load! ctx 'rax target)
        (emit-asm! ctx
-                  '(mov r11 (mem rbp 24))
-                  '(mov rbp (mem rbp 16))
+                  '(mov r11 (mem rbp 16))
+                  '(mov rbp (mem rbp 24))
                   '(jmp rax))))
     ((alloc)
      (let ((dst (cadr instr))
@@ -187,8 +187,8 @@
      (let ((src (cadr instr)))
        (load! ctx 'rax src)
        (emit-asm! ctx
-                  '(mov r11 (mem rbp 24))
-                  '(mov rbp (mem rbp 16))
+                  '(mov r11 (mem rbp 16))
+                  '(mov rbp (mem rbp 24))
                   '(jmp r11))))
     (else
      (error 'instr->asm! "unknown instruction" instr))))
