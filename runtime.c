@@ -152,13 +152,17 @@ value cdr(value pair) {
 
 // Copying collector (Cheney) with two semispaces.
 // scheme_mem is the current one, scheme_len its used words out of scheme_cap.
+// The inline path of alloc_frame bumps scheme_len up to scheme_limit, 0 in stress mode.
 // Each space is zero past its used part, so frame slots not yet written hold 0.
 value *scheme_mem;
-size_t scheme_len, scheme_cap;
+size_t scheme_len, scheme_cap, scheme_limit;
 static value *spare_mem;
 
 // Statistics, printed at exit when SCHEME_GC_STATS is set
 static uint64_t gc_count, gc_copied, gc_max_live, gc_used_before;
+
+// Stress mode (SCHEME_GC_STRESS): collect every gc_stress allocations
+static uint64_t gc_stress, gc_countdown;
 
 static size_t object_words(value *p) {
     if (p[0] == (value)(uintptr_t)&frame_type) {
@@ -236,7 +240,11 @@ static void scheme_collect(value *roots, uint64_t nroots) {
 
 // Called from runtime.s, the only place where a collection may happen
 value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
-    if (nwords > scheme_cap - scheme_len) {
+    bool stress = gc_stress != 0 && --gc_countdown == 0;
+    if (stress) {
+        gc_countdown = gc_stress;
+    }
+    if (stress || nwords > scheme_cap - scheme_len) {
         scheme_collect(roots, nroots);
         if (nwords > scheme_cap - scheme_len) {
             fprintf(stderr, "Out of memory\n");
@@ -308,20 +316,20 @@ static void print_obj(value x) {
 
 value scheme_enter(void);
 
-// Words per semispace: SCHEME_HEAP if set, else 2^26 (1 GiB for both spaces)
-static size_t heap_words(void) {
-    const char *env = getenv("SCHEME_HEAP");
+// The positive integer in the environment variable name, or default_value if unset
+static uint64_t env_positive(const char *name, uint64_t default_value, uint64_t max) {
+    const char *env = getenv(name);
     if (env == NULL) {
-        return (size_t)1 << 26;
+        return default_value;
     }
     char *end;
     errno = 0;
     unsigned long long n = strtoull(env, &end, 10);
-    if (errno != 0 || end == env || *end != '\0' || n == 0 || n > SIZE_MAX / sizeof(value)) {
-        fprintf(stderr, "Invalid SCHEME_HEAP: %s\n", env);
+    if (errno != 0 || end == env || *end != '\0' || n == 0 || n > max) {
+        fprintf(stderr, "Invalid %s: %s\n", name, env);
         exit(1);
     }
-    return (size_t)n;
+    return n;
 }
 
 // Each stretch between collections allocates from the words copied up to the used words
@@ -336,7 +344,11 @@ static void print_gc_stats(void) {
 
 int main(void) {
     scheme_len = 0;
-    scheme_cap = heap_words();
+    // 2^26 words by default: 1 GiB for both spaces
+    scheme_cap = env_positive("SCHEME_HEAP", (uint64_t)1 << 26, SIZE_MAX / sizeof(value));
+    gc_stress = env_positive("SCHEME_GC_STRESS", 0, UINT64_MAX);
+    gc_countdown = gc_stress;
+    scheme_limit = gc_stress != 0 ? 0 : scheme_cap;
     const char *stats = getenv("SCHEME_GC_STATS");
     if (stats != NULL && *stats != '\0') {
         atexit(print_gc_stats);

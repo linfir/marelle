@@ -5,3 +5,4 @@
 (count 2000000)
 ---
 stdout = "2000000"
+gc_stress = "skip"

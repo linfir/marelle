@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
 STAGES = {"compiler", "cc", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
-EXPECTATION_FIELDS = {"stage", "exit", "chez", "env", *OUTPUT_FIELDS}
+EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", *OUTPUT_FIELDS}
 SKIP = "skip"
 
 
@@ -55,8 +55,9 @@ def read_case(path):
     if not isinstance(env, dict) or not all(isinstance(v, str) for v in env.values()):
         raise TestFormatError("env must be a table of strings")
 
-    if expected.get("chez", SKIP) != SKIP:
-        raise TestFormatError('chez must be "skip"')
+    for field in ("chez", "gc_stress"):
+        if expected.get(field, SKIP) != SKIP:
+            raise TestFormatError(f'{field} must be "skip"')
 
     for field in OUTPUT_FIELDS:
         if field in expected and not isinstance(expected[field], str):
@@ -69,7 +70,7 @@ def describe_stream(value):
     return repr(value) if "\n" not in value else "\n" + value
 
 
-def check_case(path, chez=False):
+def check_case(path, chez=False, gc_stress=None):
     try:
         source, expected = read_case(path)
     except (OSError, TestFormatError) as error:
@@ -77,9 +78,15 @@ def check_case(path, chez=False):
 
     if chez and expected.get("chez") == SKIP:
         return SKIP
+    if gc_stress and expected.get("gc_stress") == SKIP:
+        return SKIP
+
+    env = expected.get("env", {})
+    if gc_stress:
+        env = {"SCHEME_GC_STRESS": str(gc_stress)} | env
 
     try:
-        result = run_chez(source) if chez else run_pipeline(source, build=False, env=expected.get("env"))
+        result = run_chez(source) if chez else run_pipeline(source, build=False, env=env)
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result
@@ -140,7 +147,13 @@ def parse_args():
     parser.add_argument("-k", dest="patterns_k", action="append", default=[], metavar="PATTERN")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--chez", action="store_true", help="run the tests with Chez Scheme instead of the compiler")
-    return parser.parse_args()
+    parser.add_argument(
+        "--gc-stress", type=int, metavar="N", help="collect every N allocations (SCHEME_GC_STRESS)"
+    )
+    args = parser.parse_args()
+    if args.gc_stress is not None and args.gc_stress < 1:
+        parser.error("--gc-stress must be at least 1")
+    return args
 
 
 def selected_cases(patterns):
@@ -183,7 +196,7 @@ def main():
     failures = []
     skipped = 0
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-        results = list(pool.map(lambda path: check_case(path, args.chez), paths))
+        results = list(pool.map(lambda path: check_case(path, args.chez, args.gc_stress), paths))
     for path, failure in zip(paths, results):
         name = path.relative_to(TEST_ROOT).as_posix()
         if failure == SKIP:

@@ -60,12 +60,12 @@ alloc_object:
 .globl alloc_frame
 alloc_frame:
     push rcx            # also realigns rsp to 16
-    mov rcx, [rip + scheme_cap]
-    sub rcx, [rip + scheme_len]
-    cmp rcx, rax
-    jb .Lslow
     mov rcx, [rip + scheme_len]
-    add [rip + scheme_len], rax
+    add rcx, rax
+    cmp rcx, [rip + scheme_limit]
+    ja .Lslow
+    mov [rip + scheme_len], rcx
+    sub rcx, rax
     shl rcx, 3
     add rcx, [rip + scheme_mem]
 .Linit:

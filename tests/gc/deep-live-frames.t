@@ -9,3 +9,4 @@
 (repeat 20 0)
 ---
 stdout = "1000000"
+gc_stress = "skip"

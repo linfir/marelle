@@ -1,0 +1,10 @@
+(define (make-adder l)
+  (lambda (x) (cons (+ x (car l)) (cdr l))))
+(define (compose f g)
+  (lambda (x) (f (g x))))
+(let ((h (compose (lambda (p) (cons (car p) (car (cdr p))))
+                  (make-adder (cons 10 (cons 20 '()))))))
+  (map h (cons 1 (cons 2 (cons 3 '())))))
+---
+env = { SCHEME_GC_STRESS = "1" }
+stdout = "((11 . 20) (12 . 20) (13 . 20))"
