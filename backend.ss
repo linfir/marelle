@@ -12,9 +12,23 @@
 ;;   rbp + 8*(n+5)      (tmp 1)
 ;;   ...
 ;;
-;; Scheme code only uses the machine stack to call the runtime and C: a Scheme
-;; call passes the return address in r11 and jumps, and alloc_frame stores it in
-;; the new frame. A tail call passes its own return address.
+;; C calls (ccall) follow the System V AMD64 ABI:
+;;   - arguments in rdi, rsi, rdx, rcx, r8, r9, result in rax
+;;   - rbx, rbp, rsp, r12-r15 are preserved, all other registers are clobbered
+;;   - rsp is 16-byte aligned at the call; Scheme code never pushes, and
+;;     scheme_enter aligns it once, so a plain call is always aligned
+;;
+;; Scheme calls (call, tailcall) use their own convention:
+;;   - arguments in rdi, rsi, rdx, rcx, r8, r9 (at most 6), the procedure object
+;;     in r10, the return address in r11, then a jmp to the code (no push)
+;;   - the callee's prologue calls alloc_frame, which saves rbp, r10 and r11 in
+;;     the new frame; the arguments are then stored in it
+;;   - ret puts the result in rax, restores the caller's rbp and jumps to the
+;;     saved return address
+;;   - a tail call passes its own caller's frame and return address, so the
+;;     callee returns directly there
+;;   - only rbp and rsp are preserved: all values live in frames
+;;   - the arity is checked by the caller, not the callee
 
 (define arg-regs '(rdi rsi rdx rcx r8 r9))
 
@@ -128,6 +142,16 @@
                   '(mov r11 (mem rbp 24))
                   '(mov rbp (mem rbp 16))
                   '(jmp rax))))
+    ((alloc)
+     (let ((dst (cadr instr))
+           (nwords (caddr instr))
+           (tag (cadddr instr)))
+       (emit-asm! ctx
+                  `(mov rax ,nwords)
+                  '(call "alloc_object"))
+       (unless (= tag 0)
+         (emit-asm! ctx `(or rax ,tag)))
+       (store! ctx dst 'rax)))
     ((store)
      (let ((base (cadr instr))
            (index (caddr instr))

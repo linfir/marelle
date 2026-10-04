@@ -43,9 +43,10 @@
   (fields proc arity))
 
 
+;; name gives the symbol names, and the C function called without an inliner
 (define-record-type primitive-binding
   (parent procedure-binding)
-  (fields c-name inliner))
+  (fields name inliner))
 
 
 ;; A name bound inside the analysed expression, for captured-vars
@@ -317,7 +318,7 @@
 (define (make-closure ctx env code arity captures)
   (let ((dst (fresh-var ctx))
         (ncaptures (length captures)))
-    (emit! ctx `(ccall ,dst "scheme_alloc" (quad ,(+ 4 ncaptures))))
+    (emit! ctx `(alloc ,dst ,(+ 4 ncaptures) 0))
     (emit! ctx `(store ,dst 0 "procedure_type"))
     (emit! ctx `(store ,dst 1 (quad ,arity)))
     (emit! ctx `(store ,dst 2 ,code))
@@ -455,17 +456,45 @@
   (inline-eq ctx (list (car args) '(imm '()))))
 
 
-;; Inline or call the C function directly
-(define (compile-primitive-call ctx env binding form)
-  (unless (= (length (cdr form)) (procedure-binding-arity binding))
-    (error 'compile-primitive-call "wrong number of arguments" form))
-  (let ((args (compile-values ctx env (cdr form)))
-        (inliner (primitive-binding-inliner binding)))
+;; Pairs have tag 3 and no header
+(define (inline-cons ctx args)
+  (let ((dst (fresh-var ctx)))
+    (emit! ctx `(alloc ,dst 2 3))
+    (emit! ctx `(store ,dst 0 ,(car args)))
+    (emit! ctx `(store ,dst 1 ,(cadr args)))
+    dst))
+
+
+;; Inline the primitive or call its C function, returning dst
+(define (emit-primitive ctx binding args)
+  (let ((inliner (primitive-binding-inliner binding)))
     (if inliner
         (inliner ctx args)
         (let ((dst (fresh-var ctx)))
-          (emit! ctx `(ccall ,dst ,(primitive-binding-c-name binding) ,@args))
+          (emit! ctx `(ccall ,dst ,(primitive-binding-name binding) ,@args))
           dst))))
+
+
+(define (compile-primitive-call ctx env binding form)
+  (unless (= (length (cdr form)) (procedure-binding-arity binding))
+    (error 'compile-primitive-call "wrong number of arguments" form))
+  (emit-primitive ctx binding (compile-values ctx env (cdr form))))
+
+
+;; Function in the Scheme calling convention wrapping the primitive, called
+;; through its procedure object
+(define (prim-function binding)
+  (let* ((arity (procedure-binding-arity binding))
+         (ctx (new-expr-context (new-program-context)))
+         (args (let loop ((i arity)
+                          (acc '()))
+                 (if (= i 0)
+                     acc
+                     (loop (- i 1) (cons (list 'arg i) acc))))))
+    (emit! ctx `(ret ,(emit-primitive ctx binding args)))
+    `(function ,(prim-fn-name (primitive-binding-name binding))
+               (arity ,arity)
+               ,@(reverse (expr-context-code ctx)))))
 
 
 (define (compile-value-call ctx env form)

@@ -86,10 +86,6 @@ void check_procedure(value x, uint64_t nargs) {
     }
 }
 
-value eq(value x, value y) {
-    return bool_to_value(x == y);
-}
-
 value int_add(value x, value y) {
     assert(is_integer(x) && is_integer(y));
     return x + y - 1;
@@ -136,29 +132,27 @@ value int_geq(value x, value y) {
 value *scheme_mem;
 size_t scheme_len, scheme_cap;
 
-value *scheme_alloc(uint64_t nwords) {
+// Moves the live objects and updates the roots, which must hold every heap
+// pointer in use; the rest is reached through them. Not implemented yet.
+static void scheme_collect(value *roots, uint64_t nroots) {
+    (void)roots;
+    (void)nroots;
+    fprintf(stderr, "Memory allocation failed\n");
+    exit(1);
+}
+
+// Called from runtime.s, the only place where a collection may happen
+value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
     if (nwords > scheme_cap - scheme_len) {
-        fprintf(stderr, "Memory allocation failed\n");
-        exit(1);
+        scheme_collect(roots, nroots);
     }
     value *ptr = &scheme_mem[scheme_len];
     scheme_len += nwords;
     return ptr;
 }
 
-value is_null(value x) {
-    return bool_to_value(x == NIL);
-}
-
 value pair_p(value x) {
     return bool_to_value(is_pair(x));
-}
-
-value cons(value car, value cdr) {
-    value *ptr = scheme_alloc(2);
-    ptr[0] = car;
-    ptr[1] = cdr;
-    return (value)(uintptr_t)ptr | 3;
 }
 
 value car(value pair) {
@@ -231,17 +225,18 @@ static void print_obj(value x) {
 
 // ----------------------------------------------------------------------------
 
-value scheme_main_stub(void);
+value scheme_enter(void);
 
 int main(void) {
     scheme_len = 0;
     scheme_cap = 1 << 26;
-    scheme_mem = malloc(scheme_cap * sizeof(value));
+    // Zeroed: the collector scans frame slots before they are written
+    scheme_mem = calloc(scheme_cap, sizeof(value));
     if (scheme_mem == NULL) {
         fprintf(stderr, "Memory allocation failed\n");
         return 1;
     }
-    value v = scheme_main_stub();
+    value v = scheme_enter();
     print_obj(v);
     free(scheme_mem);
     return 0;

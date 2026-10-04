@@ -14,24 +14,12 @@
   (string-append "prelude_fn" (number->string n)))
 
 
-(define (prim-proc-name c-name)
-  (string-append c-name "_proc"))
+(define (prim-proc-name name)
+  (string-append name "_proc"))
 
 
-(define (prim-fn-name c-name)
-  (string-append c-name "_code"))
-
-
-;; Wrapper in the Scheme calling convention that calls the C function
-(define (prim-function c-name arity)
-  (let ((args (let loop ((i arity)
-                         (acc '()))
-                (if (= i 0)
-                    acc
-                    (loop (- i 1) (cons (list 'arg i) acc))))))
-    `(function ,(prim-fn-name c-name) (arity ,arity)
-               (ccall (tmp 1) ,c-name ,@args)
-               (ret (tmp 1)))))
+(define (prim-fn-name name)
+  (string-append name "_code"))
 
 
 ;; procedure object: [type, arity, code, ncaptures, captures...]
