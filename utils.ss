@@ -5,9 +5,6 @@
       n)))
 
 
-(define proc-counter (make-counter))
-
-
 (define (acons k v alist)
   (cons (cons k v) alist))
 
@@ -19,6 +16,10 @@
     (if (null? lst)
         (reverse acc)
         (loop (cdr lst) (cons (f (car lst)) acc)))))
+
+
+(define (non-empty-list? x)
+  (and (pair? x) (list? x)))
 
 
 ;; x must be a non-empty list

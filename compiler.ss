@@ -7,17 +7,19 @@
 
 
 (define *env* '())
-(define *prelude* '())
+(define *primitive-tops* '())
+(define *primitive-exports* '())
 
 
 (define (define-primitive symbol name arity . inliner)
   (let ((binding (make-primitive-binding (prim-proc-name name) arity name
                                          (and (pair? inliner) (car inliner)))))
     (set! *env* (acons symbol binding *env*))
-    (set! *prelude*
+    (set! *primitive-tops*
           (cons* (prim-function binding)
                  (proc-data (prim-proc-name name) arity (prim-fn-name name))
-                 *prelude*))))
+                 *primitive-tops*))
+    (set! *primitive-exports* (cons (prim-proc-name name) *primitive-exports*))))
 
 
 (define-primitive 'eq? "eq" 2 inline-eq)
@@ -39,18 +41,16 @@
 
 
 (define *prelude-defs* (scan-prelude (with-input-from-file "prelude.ss" read-all)))
-(set! *env* (bind-defs *env* *prelude-defs*))
+(set! *env* (bind-prelude-defs *env* *prelude-defs*))
 
 
 (let* ((prelude? (member "--prelude" (command-line-arguments)))
        (tops (if prelude?
-                 (append (reverse *prelude*) (prelude->ir *env* *prelude-defs*))
+                 (append (reverse *primitive-tops*) (prelude->ir *env* *prelude-defs*))
                  (program->ir *env* (read-all))))
        (exports (if prelude?
-                    (append (map (lambda (x) (prim-proc-name (primitive-binding-name (cdr x))))
-                                 (filter (lambda (x) (primitive-binding? (cdr x))) *env*))
-                            (map def-proc *prelude-defs*))
-                    '("scheme_main" "scheme_globals" "scheme_nglobals"))))
+                    (append (reverse *primitive-exports*) (prelude-exports *prelude-defs*))
+                    program-exports)))
   (if (member "--ir" (command-line-arguments))
       (print-ir tops)
       (for-each print-asm (program->asm tops exports))))

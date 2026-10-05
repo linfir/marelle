@@ -33,6 +33,11 @@
 (define arg-regs '(rdi rsi rdx rcx r8 r9))
 
 
+(define frame-ret 16)
+(define frame-caller 24)
+(define frame-self 32)
+
+
 (define (count-tmps x)
   (if (pair? x)
       (if (eq? (car x) 'tmp)
@@ -57,11 +62,11 @@
 (define (slot ctx x)
   (case (car x)
     ((self)
-     '(mem rbp 32))
+     `(mem rbp ,frame-self))
     ((arg)
-     `(mem rbp ,(* 8 (+ 4 (cadr x)))))
+     `(mem rbp ,(+ frame-self (* 8 (cadr x)))))
     ((tmp)
-     `(mem rbp ,(* 8 (+ 4 (asm-context-arity ctx) (cadr x)))))
+     `(mem rbp ,(+ frame-self (* 8 (+ (asm-context-arity ctx) (cadr x))))))
     (else
      (error 'slot "not a slot operand" x))))
 
@@ -102,6 +107,17 @@
   (string-append ".L" (asm-context-fn ctx) "_" (number->string (cadr label))))
 
 
+(define (ret-label! ctx)
+  (string-append ".L" (asm-context-fn ctx) "_ret"
+                 (number->string ((asm-context-ret-counter ctx)))))
+
+
+(define (leave! ctx)
+  (emit-asm! ctx
+             `(mov r11 (mem rbp ,frame-ret))
+             `(mov rbp (mem rbp ,frame-caller))))
+
+
 (define (instr->asm! ctx instr)
   (case (car instr)
     ((mov)
@@ -138,10 +154,8 @@
        (load-args! ctx args)
        (load! ctx 'r10 proc)
        (load! ctx 'rax target)
-       (emit-asm! ctx
-                  '(mov r11 (mem rbp 16))
-                  '(mov rbp (mem rbp 24))
-                  '(jmp rax))))
+       (leave! ctx)
+       (emit-asm! ctx '(jmp rax))))
     ((alloc)
      (let ((dst (cadr instr))
            (nwords (caddr instr))
@@ -186,17 +200,10 @@
     ((ret)
      (let ((src (cadr instr)))
        (load! ctx 'rax src)
-       (emit-asm! ctx
-                  '(mov r11 (mem rbp 16))
-                  '(mov rbp (mem rbp 24))
-                  '(jmp r11))))
+       (leave! ctx)
+       (emit-asm! ctx '(jmp r11))))
     (else
      (error 'instr->asm! "unknown instruction" instr))))
-
-
-(define (ret-label! ctx)
-  (string-append ".L" (asm-context-fn ctx) "_ret"
-                 (number->string ((asm-context-ret-counter ctx)))))
 
 
 ;; x is (function name (arity n) instr ...)

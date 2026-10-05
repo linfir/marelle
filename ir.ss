@@ -1,17 +1,12 @@
-(define (proc-name n)
-  (string-append "proc" (number->string n)))
+(define (numbered prefix)
+  (lambda (n)
+    (string-append prefix (number->string n))))
 
 
-(define (fn-name n)
-  (string-append "fn" (number->string n)))
-
-
-(define (prelude-proc-name n)
-  (string-append "prelude_proc" (number->string n)))
-
-
-(define (prelude-fn-name n)
-  (string-append "prelude_fn" (number->string n)))
+(define proc-name (numbered "proc"))
+(define fn-name (numbered "fn"))
+(define prelude-proc-name (numbered "prelude_proc"))
+(define prelude-fn-name (numbered "prelude_fn"))
 
 
 (define (prim-proc-name name)

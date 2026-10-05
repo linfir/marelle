@@ -1,8 +1,8 @@
 .intel_syntax noprefix
 .text
 
-// Enter Scheme from C, following the System V ABI: call the Scheme function
-// scheme_main in the Scheme calling convention and return its value
+# Enter Scheme from C, following the System V ABI: call the Scheme function
+# scheme_main in the Scheme calling convention and return its value
 .globl scheme_enter
 scheme_enter:
     push rbx
@@ -26,15 +26,15 @@ scheme_enter:
     pop rbx
     ret
 
-// Allocate an object
-// Parameters:
-//   - rax: length (in words) of the object
-//   - rbp: current frame, the only root
-//   - rsp: 8 (mod 16), i.e. aligned before the call
-// Output:
-//   - rax: the object
-//   - rbp: the current frame, moved if a collection happened
-// Clobbers: rdi, rsi, rdx, rcx, r8, r9, r10, r11
+# Allocate an object
+# Parameters:
+#   - rax: length (in words) of the object
+#   - rbp: current frame, the only root
+#   - rsp: 8 (mod 16), i.e. aligned before the call
+# Output:
+#   - rax: the object
+#   - rbp: the current frame, moved if a collection happened
+# Clobbers: rdi, rsi, rdx, rcx, r8, r9, r10, r11
 .globl alloc_object
 alloc_object:
     push rbp            # roots[0], also realigns rsp to 16
@@ -45,18 +45,18 @@ alloc_object:
     pop rbp
     ret
 
-// Allocate a frame
-// Parameters:
-//   - rax: length (in words) of the frame
-//   - rbp: caller's frame
-//   - r11: return address
-//   - r10: procedure object, or 0 for scheme_main
-//   - argument registers, as many as the procedure's arity
-//   - rsp: 8 (mod 16), i.e. aligned before the call
-// Output:
-//   - rbp: the new frame
-//   - r10 and argument registers, moved if a collection happened
-// Clobbers: rax, r11
+# Allocate a frame
+# Parameters:
+#   - rax: length (in words) of the frame
+#   - rbp: caller's frame
+#   - r11: return address
+#   - r10: procedure object, or 0 for scheme_main
+#   - argument registers, as many as the procedure's arity
+#   - rsp: 8 (mod 16), i.e. aligned before the call
+# Output:
+#   - rbp: the new frame
+#   - r10 and argument registers, moved if a collection happened
+# Clobbers: rax, r11
 .globl alloc_frame
 alloc_frame:
     push rcx            # also realigns rsp to 16

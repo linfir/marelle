@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -62,6 +63,23 @@ static value bool_to_value(bool b) {
     return b ? BOOL_TRUE : BOOL_FALSE;
 }
 
+static value *untag(value x) {
+    return (value *)(uintptr_t)(x & ~(value)7);
+}
+
+static bool has_header(const value *p, const char *type) {
+    return p[0] == (value)(uintptr_t)type;
+}
+
+__attribute__((format(printf, 1, 2))) _Noreturn static void scheme_fatal(const char *fmt, ...) {
+    fflush(stdout);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    exit(1);
+}
+
 static void print_obj(FILE *out, value x);
 
 // Prints the message and the offending value, then exits
@@ -83,16 +101,14 @@ static void check_integers(const char *msg, value x, value y) {
 }
 
 void check_procedure(value x, uint64_t nargs) {
-    value *ptr = (value *)x;
-    if (!is_pointer(x) || ptr == NULL || ptr[0] != (value)(uintptr_t)&procedure_type) {
+    value *ptr = untag(x);
+    if (!is_pointer(x) || ptr == NULL || !has_header(ptr, &procedure_type)) {
         scheme_error("expected procedure", x);
     }
     uint64_t arity = ptr[1];
     if (arity != nargs) {
-        fflush(stdout);
-        fprintf(stderr, "Error: procedure of arity %" PRIu64 " called with %" PRIu64 " arguments\n",
-                arity, nargs);
-        exit(1);
+        scheme_fatal("Error: procedure of arity %" PRIu64 " called with %" PRIu64 " arguments\n",
+                     arity, nargs);
     }
 }
 
@@ -147,16 +163,14 @@ value car(value pair) {
     if (!is_pair(pair)) {
         scheme_error("car: expected pair", pair);
     }
-    value *ptr = (value *)(uintptr_t)(pair & ~(value)7);
-    return ptr[0];
+    return untag(pair)[0];
 }
 
 value cdr(value pair) {
     if (!is_pair(pair)) {
         scheme_error("cdr: expected pair", pair);
     }
-    value *ptr = (value *)(uintptr_t)(pair & ~(value)7);
-    return ptr[1];
+    return untag(pair)[1];
 }
 
 // ----------------------------------------------------------------------------
@@ -179,11 +193,11 @@ static uint64_t gc_count, gc_copied, gc_max_live, gc_used_before;
 // Stress mode (SCHEME_GC_STRESS): collect every gc_stress allocations
 static uint64_t gc_stress, gc_countdown;
 
-static size_t object_words(value *p) {
-    if (p[0] == (value)(uintptr_t)&frame_type) {
+static size_t object_words(const value *p) {
+    if (has_header(p, &frame_type)) {
         return p[1];
     }
-    if (p[0] == (value)(uintptr_t)&procedure_type) {
+    if (has_header(p, &procedure_type)) {
         return 4 + p[3];
     }
     return 2; // pair
@@ -192,19 +206,19 @@ static size_t object_words(value *p) {
 // Copies the object x points to, if in the current space, and returns its new address;
 // a moved object holds forward_type and its new address
 static value forward(value x, value **free) {
-    value tag = x & 7;
-    if (tag != 0 && tag != 3) {
+    if (!is_pointer(x) && !is_pair(x)) {
         return x;
     }
-    uintptr_t addr = (uintptr_t)(x - tag);
+    value tag = x & 7;
+    value *p = untag(x);
+    uintptr_t addr = (uintptr_t)p;
     if (addr < (uintptr_t)scheme_mem || addr >= (uintptr_t)(scheme_mem + scheme_len)) {
         return x; // null or static procedure
     }
-    value *p = (value *)addr;
-    if (p[0] == (value)(uintptr_t)&forward_type) {
+    if (has_header(p, &forward_type)) {
         return p[1] | tag;
     }
-    size_t n = tag == 3 ? 2 : object_words(p);
+    size_t n = is_pair(x) ? 2 : object_words(p);
     value *q = *free;
     memcpy(q, p, n * sizeof(value));
     *free = q + n;
@@ -217,9 +231,9 @@ static value forward(value x, value **free) {
 static size_t scan(value *p, value **free) {
     size_t n = object_words(p);
     size_t i = 0;
-    if (p[0] == (value)(uintptr_t)&frame_type) {
+    if (has_header(p, &frame_type)) {
         i = 3;
-    } else if (p[0] == (value)(uintptr_t)&procedure_type) {
+    } else if (has_header(p, &procedure_type)) {
         i = 4;
     }
     for (; i < n; i++) {
@@ -265,8 +279,7 @@ value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
     if (stress || nwords > scheme_cap - scheme_len) {
         scheme_collect(roots, nroots);
         if (nwords > scheme_cap - scheme_len) {
-            fprintf(stderr, "Out of memory\n");
-            exit(1);
+            scheme_fatal("Out of memory\n");
         }
     }
     value *ptr = &scheme_mem[scheme_len];
@@ -315,10 +328,10 @@ static void print_obj(FILE *out, value x) {
     } else if (is_pair(x)) {
         print_pair(out, x);
     } else if (is_pointer(x)) {
-        value *ptr = (value *)x;
+        value *ptr = untag(x);
         if (ptr == NULL) {
             fprintf(out, "#<null>");
-        } else if (ptr[0] == (value)(uintptr_t)&procedure_type) {
+        } else if (has_header(ptr, &procedure_type)) {
             fprintf(out, "#<procedure>");
         } else {
             fprintf(out, "#<unknown ptr>");
@@ -342,8 +355,7 @@ static uint64_t env_positive(const char *name, uint64_t default_value, uint64_t 
     errno = 0;
     unsigned long long n = strtoull(env, &end, 10);
     if (errno != 0 || end == env || *end != '\0' || n == 0 || n > max) {
-        fprintf(stderr, "Invalid %s: %s\n", name, env);
-        exit(1);
+        scheme_fatal("Invalid %s: %s\n", name, env);
     }
     return n;
 }
@@ -359,7 +371,6 @@ static void print_gc_stats(void) {
 }
 
 int main(void) {
-    scheme_len = 0;
     // 2^26 words by default: 1 GiB for both spaces
     scheme_cap = env_positive("SCHEME_HEAP", (uint64_t)1 << 26, SIZE_MAX / sizeof(value));
     gc_stress = env_positive("SCHEME_GC_STRESS", 0, UINT64_MAX);
@@ -372,8 +383,7 @@ int main(void) {
     scheme_mem = calloc(scheme_cap, sizeof(value));
     spare_mem = calloc(scheme_cap, sizeof(value));
     if (scheme_mem == NULL || spare_mem == NULL) {
-        fprintf(stderr, "Memory allocation failed\n");
-        return 1;
+        scheme_fatal("Memory allocation failed\n");
     }
     value v = scheme_enter();
     print_obj(stdout, v);
