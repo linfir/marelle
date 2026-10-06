@@ -235,6 +235,10 @@
        (balign 8)
        (label ,(cadr x))
        (quad ,@(map cadr (cddr x)))))
+    ((string)
+     `((section ".rodata")
+       (label ,(cadr x))
+       (asciz ,(caddr x))))
     ((cells)
      (let ((n (caddr x)))
        `((section ".data")
@@ -255,7 +259,7 @@
           '((section ".note.GNU-stack" "" %progbits))))
 
 
-(define *directives* '(intel_syntax globl text section balign quad))
+(define *directives* '(intel_syntax globl text section balign quad asciz))
 
 
 (define (print-operand x)

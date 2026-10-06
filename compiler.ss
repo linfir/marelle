@@ -12,12 +12,14 @@
 
 
 (define (define-primitive symbol name arity . inliner)
-  (let ((binding (make-primitive-binding (prim-proc-name name) arity name
-                                         (and (pair? inliner) (car inliner)))))
+  (let* ((proc (prim-proc-name name))
+         (binding (make-primitive-binding proc arity name
+                                          (and (pair? inliner) (car inliner)))))
     (set! *env* (acons symbol binding *env*))
     (set! *primitive-tops*
           (cons* (prim-function binding)
-                 (proc-data (prim-proc-name name) arity (prim-fn-name name))
+                 (proc-data proc arity (prim-fn-name name) (proc-name-label proc))
+                 (proc-name-string proc symbol)
                  *primitive-tops*))
     (set! *primitive-exports* (cons (prim-proc-name name) *primitive-exports*))))
 

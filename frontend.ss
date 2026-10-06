@@ -183,7 +183,7 @@
          (compile-value ctx env last)))
 
       ((lambda)
-       (compile-lambda ctx env expr))
+       (compile-lambda ctx env #f expr))
 
       ((set!)
        (let-values (((var value) (parse-set! expr)))
@@ -348,38 +348,51 @@
           (car (free-vars (bind-inside env args) body))))
 
 
-(define (compile-lambda ctx env expr)
+(define (compile-lambda ctx env name expr)
   (let-values (((args body) (parse-lambda expr)))
-    (compile-procedure ctx env args body)))
+    (compile-procedure ctx env name args body)))
 
 
-(define (compile-procedure ctx env args body)
+;; Compile expr in value position, naming it name if it is a lambda
+(define (compile-named ctx env name expr)
+  (if (and (special? env expr)
+           (eq? (car expr) 'lambda))
+      (compile-lambda ctx env name expr)
+      (compile-value ctx env expr)))
+
+
+;; name is a symbol, or #f for an anonymous procedure
+(define (compile-procedure ctx env name args body)
   (let* ((captures (reverse (captured-vars env args body)))
          (pctx (expr-context-program ctx))
          (n ((program-context-proc-counter pctx)))
+         (label (and name (proc-name-label (proc-name n))))
          (body-env (filter (lambda (b) (not (local-binding? (cdr b)))) env)))
     (for-each (lambda (var)
                 (when (local-binding-assigned? (cdr (assq var env)))
                   (error 'compile-procedure "set! of a captured variable" var)))
               captures)
+    (when name
+      (add-entry! pctx (proc-name-string (proc-name n) name)))
     (add-entry! pctx (function->ir pctx body-env (fn-name n) captures args body))
     (if (null? captures)
         (begin
-          (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n)))
+          (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n) label))
           (proc-name n))
-        (make-closure ctx env (fn-name n) (length args) captures))))
+        (make-closure ctx env (fn-name n) (length args) label captures))))
 
 
-;; Allocate [type, arity, code, ncaptures, captures...]
-(define (make-closure ctx env code arity captures)
+;; Allocate [type, arity, code, name, ncaptures, captures...]
+(define (make-closure ctx env code arity name captures)
   (let ((dst (fresh-var ctx))
         (ncaptures (length captures)))
-    (emit! ctx `(alloc ,dst ,(+ 4 ncaptures) 0))
+    (emit! ctx `(alloc ,dst ,(+ proc-captures-index ncaptures) 0))
     (emit! ctx `(store ,dst 0 "procedure_type"))
     (emit! ctx `(store ,dst 1 (quad ,arity)))
     (emit! ctx `(store ,dst 2 ,code))
-    (emit! ctx `(store ,dst 3 (quad ,ncaptures)))
-    (let loop ((i 4)
+    (emit! ctx `(store ,dst 3 ,(or name '(quad 0))))
+    (emit! ctx `(store ,dst 4 (quad ,ncaptures)))
+    (let loop ((i proc-captures-index)
                (captures captures))
       (unless (null? captures)
         (emit! ctx `(store ,dst ,i ,(binding-value (cdr (assq (car captures) env)))))
@@ -463,7 +476,7 @@
 (define (bind-let-vars ctx env bindings body)
   (let ((sets (cdr (free-vars (bind-scope env (map car bindings)) body))))
     (fold-left (lambda (new-env b)
-                 (let ((operand (compile-value ctx env (cadr b))))
+                 (let ((operand (compile-named ctx env (car b) (cadr b))))
                    (acons (car b) (make-local ctx operand (memq (car b) sets)) new-env)))
                env
                bindings)))
@@ -475,7 +488,7 @@
     (if (null? bindings)
         env
         (let* ((var (caar bindings))
-               (operand (compile-value ctx env (cadar bindings)))
+               (operand (compile-named ctx env var (cadar bindings)))
                (sets (cdr (walk-let* (bind-scope env (list var)) (cdr bindings) body '(() . ())))))
           (loop (acons var (make-local ctx operand (memq var sets)) env)
                 (cdr bindings))))))
@@ -491,7 +504,7 @@
 
 (define (compile-set! ctx env var expr)
   (let ((x (assq var env))
-        (src (compile-value ctx env expr)))
+        (src (compile-named ctx env var expr)))
     (cond
      ((not x)
       (error 'compile-set! "unknown symbol" var))
@@ -605,7 +618,7 @@
 
 
 (define (load-captures ctx env captures)
-  (let loop ((i 4)
+  (let loop ((i proc-captures-index)
              (captures captures)
              (env env))
     (if (null? captures)
@@ -648,8 +661,9 @@
   (let ((ctx (new-expr-context pctx)))
     (for-each (lambda (g)
                 (let ((src (if (global-def-args g)
-                               (compile-procedure ctx env (global-def-args g) (global-def-body g))
-                               (compile-value ctx env (car (global-def-body g))))))
+                               (compile-procedure ctx env (global-def-name g)
+                                                  (global-def-args g) (global-def-body g))
+                               (compile-named ctx env (global-def-name g) (car (global-def-body g))))))
                   (emit! ctx `(store "scheme_globals" ,(global-def-index g) ,src))))
               globals)
     (compile-tail ctx env expr)
@@ -663,8 +677,10 @@
 (define (prelude->ir env defs)
   (let ((pctx (new-program-context)))
     (for-each (lambda (d)
-                (let ((args (prelude-def-args d)))
-                  (add-entry! pctx (proc-data (prelude-def-proc d) (length args) (prelude-def-code d)))
+                (let ((args (prelude-def-args d))
+                      (proc (prelude-def-proc d)))
+                  (add-entry! pctx (proc-name-string proc (prelude-def-name d)))
+                  (add-entry! pctx (proc-data proc (length args) (prelude-def-code d) (proc-name-label proc)))
                   (add-entry! pctx (function->ir pctx env (prelude-def-code d) '() args (prelude-def-body d)))))
               defs)
     (reverse (program-context-entries pctx))))

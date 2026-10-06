@@ -17,12 +17,28 @@
   (string-append name "_code"))
 
 
-;; procedure object: [type, arity, code, ncaptures, captures...]
-(define (proc-data proc arity code)
+;; procedure object: [type, arity, code, name, ncaptures, captures...]
+;; name is a C string, or 0 for an anonymous procedure
+(define proc-captures-index 5)
+
+
+;; Symbol of the C string naming the procedure proc
+(define (proc-name-label proc)
+  (string-append proc "_name"))
+
+
+;; (string label text): a C string in read-only data
+(define (proc-name-string proc name)
+  (list 'string (proc-name-label proc) (symbol->string name)))
+
+
+;; name is a symbol of the C string, or #f
+(define (proc-data proc arity code name)
   (list 'data proc
         (list 'quad "procedure_type")
         (list 'quad arity)
         (list 'quad code)
+        (list 'quad (or name 0))
         (list 'quad 0)))
 
 
@@ -66,7 +82,7 @@
 
 (define (print-top x)
   (case (car x)
-    ((data cells)
+    ((data cells string)
      (printf "~s\n\n" x))
     ((function)
      (printf "(function ~s ~s\n" (cadr x) (caddr x))

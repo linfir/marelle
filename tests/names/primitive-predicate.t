@@ -1,0 +1,3 @@
+eq?
+---
+stdout = "#<procedure eq?>"

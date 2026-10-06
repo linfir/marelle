@@ -15,6 +15,14 @@ _Alignas(8) char procedure_type;
 _Alignas(8) char frame_type;
 _Alignas(8) char forward_type;
 
+// Procedure objects: [type, arity, code, name, ncaptures, captures...],
+// name being a C string or NULL
+enum {
+    PROC_NAME = 3,
+    PROC_NCAPTURES = 4,
+    PROC_CAPTURES = 5,
+};
+
 // tagged value, tag is 3 lower bits
 // 0 pointer
 // 1 integer
@@ -198,7 +206,7 @@ static size_t object_words(const value *p) {
         return p[1];
     }
     if (has_header(p, &procedure_type)) {
-        return 4 + p[3];
+        return PROC_CAPTURES + p[PROC_NCAPTURES];
     }
     return 2; // pair
 }
@@ -234,7 +242,7 @@ static size_t scan(value *p, value **free) {
     if (has_header(p, &frame_type)) {
         i = 3;
     } else if (has_header(p, &procedure_type)) {
-        i = 4;
+        i = PROC_CAPTURES;
     }
     for (; i < n; i++) {
         p[i] = forward(p[i], free);
@@ -332,7 +340,12 @@ static void print_obj(FILE *out, value x) {
         if (ptr == NULL) {
             fprintf(out, "#<null>");
         } else if (has_header(ptr, &procedure_type)) {
-            fprintf(out, "#<procedure>");
+            const char *name = (const char *)(uintptr_t)ptr[PROC_NAME];
+            if (name != NULL) {
+                fprintf(out, "#<procedure %s>", name);
+            } else {
+                fprintf(out, "#<procedure>");
+            }
         } else {
             fprintf(out, "#<unknown ptr>");
         }

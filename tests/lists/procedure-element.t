@@ -1,4 +1,3 @@
 (cons car '())
 ---
-stdout = "(#<procedure>)"
-chez = "skip"
+stdout = "(#<procedure car>)"

@@ -1,0 +1,3 @@
+map
+---
+stdout = "#<procedure map>"
