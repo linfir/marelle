@@ -35,51 +35,45 @@
 
 
 (define (expr-context->function ctx name arity)
-  `(function ,name
-             (arity ,arity)
+  `(function ,name (arity ,arity)
              ,@(reverse (expr-context-code ctx))))
 
 
-;; Bindings of the lexical environment
+(define-record-type global-binding
+  (fields index))
+
+
 (define-record-type local-binding
-  (fields operand))
+  (fields operand assigned?))
+
+
+(define-record-type bound-binding)
 
 
 (define-record-type procedure-binding
   (fields proc arity))
 
 
-;; Top-level define, cell index of "scheme_globals"
-(define-record-type global-binding
-  (fields index))
-
-
-;; name gives the symbol names, and the C function called without an inliner
 (define-record-type primitive-binding
   (parent procedure-binding)
   (fields name inliner))
 
 
-;; A name bound inside the analysed expression, for captured-vars
-(define-record-type bound-binding)
-
-
-;; The operand for a local, the procedure object symbol for a procedure;
-;; not for globals, which need a load
 (define (binding-value binding)
   (if (local-binding? binding)
       (local-binding-operand binding)
       (procedure-binding-proc binding)))
 
 
-(define *special-forms* '(if and or let let* lambda begin))
+(define *special-forms* '(if and or let let* lambda begin set!))
 
 
 (define (special? env expr)
   (and (non-empty-list? expr)
-       (symbol? (car expr))
-       (memq (car expr) *special-forms*)
-       (not (assq (car expr) env))))
+       (let ((x (car expr)))
+         (and (symbol? x)
+              (memq x *special-forms*)
+              (not (assq x env))))))
 
 
 (define (validate-parameters args)
@@ -134,7 +128,7 @@
   (values (cadr form) (cddr form)))
 
 
-;; (if test then [else]) => (values test then else), else defaults to undef
+;; (if test then [else]) => (values test then else)
 (define (parse-if form)
   (unless (<= 3 (length form) 4)
     (error 'parse-if "invalid if" form))
@@ -148,6 +142,14 @@
   (when (null? (cdr form))
     (error 'parse-begin "empty begin" form))
   (cdr form))
+
+
+;; (set! var expr) => (values var expr)
+(define (parse-set! form)
+  (unless (and (= (length form) 3)
+               (symbol? (cadr form)))
+    (error 'parse-set! "invalid set!" form))
+  (values (cadr form) (caddr form)))
 
 
 ;; compile expr in value position
@@ -183,6 +185,10 @@
       ((lambda)
        (compile-lambda ctx env expr))
 
+      ((set!)
+       (let-values (((var value) (parse-set! expr)))
+         (compile-set! ctx env var value)))
+
       (else
        (error 'compile-value "unimplemented special form" expr))))
 
@@ -198,6 +204,11 @@
         (let ((tmp (fresh-var ctx)))
           (emit! ctx `(load ,tmp "scheme_globals" ,(global-binding-index (cdr x))))
           tmp))
+       ((and (local-binding? (cdr x))
+             (local-binding-assigned? (cdr x)))
+        (let ((tmp (fresh-var ctx)))
+          (emit! ctx `(mov ,tmp ,(local-binding-operand (cdr x))))
+          tmp))
        (else
         (binding-value (cdr x))))))
 
@@ -205,7 +216,6 @@
     (error 'compile-value "unknown form" expr))))
 
 
-;; Only forms passing the tail position on are handled here
 (define (compile-tail ctx env expr)
   (case (and (special? env expr) (car expr))
     ((if)
@@ -240,11 +250,11 @@
   (case (car expr)
     ((let)
      (let-values (((bindings body) (parse-let expr)))
-       (compile-body ctx (bind-let-vars ctx env bindings) body)))
+       (compile-body ctx (bind-let-vars ctx env bindings body) body)))
 
     ((let*)
      (let-values (((bindings body) (parse-let* expr)))
-       (compile-body ctx (bind-let*-vars ctx env bindings) body)))
+       (compile-body ctx (bind-let*-vars ctx env bindings body) body)))
 
     ((begin)
      (compile-body ctx env (parse-begin expr)))))
@@ -258,55 +268,84 @@
     (values env last)))
 
 
+;; Free variables of exprs, not bound to a bound-binding in env
+;; => (refs . sets), the referenced and the assigned ones
+(define (free-vars env exprs)
+  (walk-exprs env exprs '(() . ())))
+
+
+(define (walk-exprs env exprs acc)
+  (fold-left (lambda (acc x) (walk-expr env x acc)) acc exprs))
+
+
+(define (walk-expr env expr acc)
+  (cond
+   ((symbol? expr)
+    (add-free-var env expr acc #f))
+
+   ((special? env expr)
+    (case (car expr)
+      ((let)
+       (let-values (((bindings body) (parse-let expr)))
+         (walk-let env bindings body acc)))
+
+      ((let*)
+       (let-values (((bindings body) (parse-let* expr)))
+         (walk-let* env bindings body acc)))
+
+      ((lambda)
+       (let-values (((args body) (parse-lambda expr)))
+         (walk-exprs (bind-inside env args) body acc)))
+
+      ((set!)
+       (let-values (((var value) (parse-set! expr)))
+         (add-free-var env var (walk-expr env value acc) #t)))
+
+      (else
+       (walk-exprs env (cdr expr) acc))))
+
+   ((list? expr)
+    (walk-exprs env expr acc))
+
+   (else acc)))
+
+
+(define (walk-let env bindings body acc)
+  (walk-exprs (bind-inside env (map car bindings))
+              body
+              (walk-exprs env (map cadr bindings) acc)))
+
+
+(define (walk-let* env bindings body acc)
+  (if (null? bindings)
+      (walk-exprs env body acc)
+      (walk-let* (bind-inside env (list (caar bindings)))
+                 (cdr bindings)
+                 body
+                 (walk-expr env (cadar bindings) acc))))
+
+
+(define (add-free-var env var acc set?)
+  (let ((x (assq var env)))
+    (if (and x (bound-binding? (cdr x)))
+        acc
+        (cons (adjoin var (car acc))
+              (if set? (adjoin var (cdr acc)) (cdr acc))))))
+
+
+(define (bind-inside env names)
+  (append (map (lambda (x) (cons x (make-bound-binding))) names) env))
+
+
+(define (bind-scope env names)
+  (append (map (lambda (x) (cons x #f)) names) env))
+
+
 (define (captured-vars env args body)
-  (define (bind env names)
-    (append (map (lambda (x) (cons x (make-bound-binding))) names) env))
-
-  (define (walk-list env exprs acc)
-    (fold-left (lambda (acc x) (walk env x acc)) acc exprs))
-
-  (define (walk env expr acc)
-    (cond
-     ((symbol? expr)
-      (let ((x (assq expr env)))
-        (if (and x
-                 (local-binding? (cdr x))
-                 (not (memq expr acc)))
-            (cons expr acc)
-            acc)))
-
-     ((special? env expr)
-      (case (car expr)
-        ((let)
-         (let-values (((bindings body) (parse-let expr)))
-           (let ((acc (fold-left (lambda (acc b) (walk env (cadr b) acc))
-                                 acc bindings)))
-             (walk-list (bind env (map car bindings)) body acc))))
-
-        ((let*)
-         (let-values (((bindings body) (parse-let* expr)))
-           (let loop ((env env)
-                      (bindings bindings)
-                      (acc acc))
-             (if (null? bindings)
-                 (walk-list env body acc)
-                 (loop (bind env (list (caar bindings)))
-                       (cdr bindings)
-                       (walk env (cadar bindings) acc))))))
-
-        ((lambda)
-         (let-values (((args body) (parse-lambda expr)))
-           (walk-list (bind env args) body acc)))
-
-        (else
-         (walk-list env (cdr expr) acc))))
-
-     ((list? expr)
-      (walk-list env expr acc))
-
-     (else acc)))
-
-  (walk-list (bind env args) body '()))
+  (filter (lambda (var)
+            (let ((x (assq var env)))
+              (and x (local-binding? (cdr x)))))
+          (car (free-vars (bind-inside env args) body))))
 
 
 (define (compile-lambda ctx env expr)
@@ -319,6 +358,10 @@
          (pctx (expr-context-program ctx))
          (n ((program-context-proc-counter pctx)))
          (body-env (filter (lambda (b) (not (local-binding? (cdr b)))) env)))
+    (for-each (lambda (var)
+                (when (local-binding-assigned? (cdr (assq var env)))
+                  (error 'compile-procedure "set! of a captured variable" var)))
+              captures)
     (add-entry! pctx (function->ir pctx body-env (fn-name n) captures args body))
     (if (null? captures)
         (begin
@@ -417,21 +460,51 @@
       (emit! ctx `(ret ,dst))))))
 
 
-(define (bind-let-vars ctx env bindings)
-  (fold-left (lambda (new-env b)
-               (acons (car b) (make-local-binding (compile-value ctx env (cadr b))) new-env))
-             env
-             bindings))
+(define (bind-let-vars ctx env bindings body)
+  (let ((sets (cdr (free-vars (bind-scope env (map car bindings)) body))))
+    (fold-left (lambda (new-env b)
+                 (let ((operand (compile-value ctx env (cadr b))))
+                   (acons (car b) (make-local ctx operand (memq (car b) sets)) new-env)))
+               env
+               bindings)))
 
 
-(define (bind-let*-vars ctx env bindings)
-  (fold-left (lambda (env b)
-               (acons (car b) (make-local-binding (compile-value ctx env (cadr b))) env))
-             env
-             bindings))
+(define (bind-let*-vars ctx env bindings body)
+  (let loop ((env env)
+             (bindings bindings))
+    (if (null? bindings)
+        env
+        (let* ((var (caar bindings))
+               (operand (compile-value ctx env (cadar bindings)))
+               (sets (cdr (walk-let* (bind-scope env (list var)) (cdr bindings) body '(() . ())))))
+          (loop (acons var (make-local ctx operand (memq var sets)) env)
+                (cdr bindings))))))
 
 
-(define (compile-operands ctx env form)
+(define (make-local ctx operand assigned?)
+  (if assigned?
+      (let ((tmp (fresh-var ctx)))
+        (emit! ctx `(mov ,tmp ,operand))
+        (make-local-binding tmp #t))
+      (make-local-binding operand #f)))
+
+
+(define (compile-set! ctx env var expr)
+  (let ((x (assq var env))
+        (src (compile-value ctx env expr)))
+    (cond
+     ((not x)
+      (error 'compile-set! "unknown symbol" var))
+     ((local-binding? (cdr x))
+      (emit! ctx `(mov ,(local-binding-operand (cdr x)) ,src)))
+     ((global-binding? (cdr x))
+      (emit! ctx `(store "scheme_globals" ,(global-binding-index (cdr x)) ,src)))
+     (else
+      (error 'compile-set! "set! of a prelude procedure or primitive" var)))
+    (compile-value ctx env undef)))
+
+
+(define (compile-call-operands ctx env form)
   (let* ((vars (compile-values ctx env form))
          (code (fresh-var ctx)))
     (emit! ctx `(ccall void "check_procedure" ,(car vars) (quad ,(- (length vars) 1))))
@@ -443,7 +516,7 @@
   (let ((binding (primitive-operator env form)))
     (if binding
         (compile-primitive-call ctx env binding form)
-        (let* ((operands (compile-operands ctx env form))
+        (let* ((operands (compile-call-operands ctx env form))
                (dst (fresh-var ctx)))
           (emit! ctx `(call ,dst ,@operands))
           dst))))
@@ -453,7 +526,7 @@
   (let ((binding (primitive-operator env form)))
     (if binding
         (emit! ctx `(ret ,(compile-primitive-call ctx env binding form)))
-        (emit! ctx `(tailcall ,@(compile-operands ctx env form))))))
+        (emit! ctx `(tailcall ,@(compile-call-operands ctx env form))))))
 
 
 ;; (define (name arg ...) body ...) => (values name args body)
@@ -477,13 +550,10 @@
         (values name args (cddr form)))))
 
 
-;; A top-level define: cell index of "scheme_globals", args #f for a value
 (define-record-type global-def
   (fields name index args body))
 
 
-;; A prelude define, proc and code the symbols of its procedure object and
-;; function
 (define-record-type prelude-def
   (fields name proc code args body))
 
@@ -521,17 +591,19 @@
           env))
 
 
-(define (extend-env-with-args env args)
-  (let loop ((i 1)
-             (args args)
-             (env env))
-    (if (null? args)
-        env
-        (loop (+ i 1) (cdr args)
-              (acons (car args) (make-local-binding (list 'arg i)) env)))))
+(define (extend-env-with-args env args body)
+  (let ((sets (cdr (free-vars (bind-scope env args) body))))
+    (let loop ((i 1)
+               (args args)
+               (env env))
+      (if (null? args)
+          env
+          (loop (+ i 1) (cdr args)
+                (acons (car args)
+                       (make-local-binding (list 'arg i) (and (memq (car args) sets) #t))
+                       env))))))
 
 
-;; Load each capture and return a new env
 (define (load-captures ctx env captures)
   (let loop ((i 4)
              (captures captures)
@@ -540,13 +612,13 @@
         env
         (let ((dst (fresh-var ctx)))
           (emit! ctx `(load ,dst (self) ,i))
-          (loop (+ i 1) (cdr captures) (acons (car captures) (make-local-binding dst) env))))))
+          (loop (+ i 1) (cdr captures) (acons (car captures) (make-local-binding dst #f) env))))))
 
 
 (define (function->ir pctx env proc captures args body)
   (let* ((ctx (new-expr-context pctx))
          (env (load-captures ctx env captures)))
-    (let-values (((env last) (compile-body ctx (extend-env-with-args env args) body)))
+    (let-values (((env last) (compile-body ctx (extend-env-with-args env args body) body)))
       (compile-tail ctx env last))
     (expr-context->function ctx proc (length args))))
 
@@ -584,7 +656,6 @@
     (expr-context->function ctx "scheme_main" 0)))
 
 
-;; The global symbols of program->ir
 (define program-exports '("scheme_main" "scheme_globals" "scheme_nglobals"))
 
 
@@ -599,12 +670,10 @@
     (reverse (program-context-entries pctx))))
 
 
-;; The global symbols of prelude->ir
 (define (prelude-exports defs)
   (map prelude-def-proc defs))
 
 
-;; The primitive binding of the operator of form, or #f
 (define (primitive-operator env form)
   (let ((x (and (symbol? (car form)) (assq (car form) env))))
     (and x
@@ -612,7 +681,6 @@
          (cdr x))))
 
 
-;; Inliners: (inliner ctx args) emits the code and returns dst
 (define (inline-eq ctx args)
   (let ((dst (fresh-var ctx))
         (label (fresh-label ctx)))
@@ -628,7 +696,6 @@
   (inline-eq ctx (list (car args) '(imm '()))))
 
 
-;; Pairs have tag 3 and no header
 (define (inline-cons ctx args)
   (let ((dst (fresh-var ctx)))
     (emit! ctx `(alloc ,dst 2 3))
@@ -637,7 +704,6 @@
     dst))
 
 
-;; Inline the primitive or call its C function, returning dst
 (define (emit-primitive ctx binding args)
   (let ((inliner (primitive-binding-inliner binding)))
     (if inliner
@@ -653,8 +719,6 @@
   (emit-primitive ctx binding (compile-values ctx env (cdr form))))
 
 
-;; Function in the Scheme calling convention wrapping the primitive, called
-;; through its procedure object
 (define (prim-function binding)
   (let* ((arity (procedure-binding-arity binding))
          (ctx (new-expr-context (new-program-context)))

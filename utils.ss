@@ -18,6 +18,10 @@
         (loop (cdr lst) (cons (f (car lst)) acc)))))
 
 
+(define (adjoin x xs)
+  (if (memq x xs) xs (cons x xs)))
+
+
 (define (non-empty-list? x)
   (and (pair? x) (list? x)))
 
