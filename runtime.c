@@ -14,6 +14,7 @@
 _Alignas(8) char procedure_type;
 _Alignas(8) char frame_type;
 _Alignas(8) char forward_type;
+_Alignas(8) char box_type;
 
 // Procedure objects: [type, arity, code, name, ncaptures, captures...],
 // name being a C string or NULL
@@ -208,7 +209,7 @@ static size_t object_words(const value *p) {
     if (has_header(p, &procedure_type)) {
         return PROC_CAPTURES + p[PROC_NCAPTURES];
     }
-    return 2; // pair
+    return 2; // pair or box
 }
 
 // Copies the object x points to, if in the current space, and returns its new address;
@@ -243,6 +244,8 @@ static size_t scan(value *p, value **free) {
         i = 3;
     } else if (has_header(p, &procedure_type)) {
         i = PROC_CAPTURES;
+    } else if (has_header(p, &box_type)) {
+        i = 1;
     }
     for (; i < n; i++) {
         p[i] = forward(p[i], free);

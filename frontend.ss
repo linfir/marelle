@@ -47,6 +47,10 @@
   (fields operand assigned?))
 
 
+(define-record-type box-binding
+  (parent local-binding))
+
+
 (define-record-type bound-binding)
 
 
@@ -204,6 +208,10 @@
         (let ((tmp (fresh-var ctx)))
           (emit! ctx `(load ,tmp "scheme_globals" ,(global-binding-index (cdr x))))
           tmp))
+       ((box-binding? (cdr x))
+        (let ((tmp (fresh-var ctx)))
+          (emit! ctx `(load ,tmp ,(local-binding-operand (cdr x)) 1))
+          tmp))
        ((and (local-binding? (cdr x))
              (local-binding-assigned? (cdr x)))
         (let ((tmp (fresh-var ctx)))
@@ -268,10 +276,17 @@
     (values env last)))
 
 
-;; Free variables of exprs, not bound to a bound-binding in env
-;; => (refs . sets), the referenced and the assigned ones
+;; Free variables of exprs, not bound to a bound-binding in env:
+;; the referenced, the assigned, and the ones used in a lambda
+(define-record-type var-sets
+  (fields refs sets caps))
+
+
+(define no-vars (make-var-sets '() '() '()))
+
+
 (define (free-vars env exprs)
-  (walk-exprs env exprs '(() . ())))
+  (walk-exprs env exprs no-vars))
 
 
 (define (walk-exprs env exprs acc)
@@ -295,7 +310,10 @@
 
       ((lambda)
        (let-values (((args body) (parse-lambda expr)))
-         (walk-exprs (bind-inside env args) body acc)))
+         (let ((inner (walk-exprs (bind-inside env args) body no-vars)))
+           (make-var-sets (union (var-sets-refs inner) (var-sets-refs acc))
+                          (union (var-sets-sets inner) (var-sets-sets acc))
+                          (union (var-sets-refs inner) (var-sets-caps acc))))))
 
       ((set!)
        (let-values (((var value) (parse-set! expr)))
@@ -329,8 +347,14 @@
   (let ((x (assq var env)))
     (if (and x (bound-binding? (cdr x)))
         acc
-        (cons (adjoin var (car acc))
-              (if set? (adjoin var (cdr acc)) (cdr acc))))))
+        (make-var-sets (adjoin var (var-sets-refs acc))
+                       (if set? (adjoin var (var-sets-sets acc)) (var-sets-sets acc))
+                       (var-sets-caps acc)))))
+
+
+;; xs added to ys, as if adjoined in the order they were found
+(define (union xs ys)
+  (fold-right adjoin ys xs))
 
 
 (define (bind-inside env names)
@@ -345,7 +369,7 @@
   (filter (lambda (var)
             (let ((x (assq var env)))
               (and x (local-binding? (cdr x)))))
-          (car (free-vars (bind-inside env args) body))))
+          (var-sets-refs (free-vars (bind-inside env args) body))))
 
 
 (define (compile-lambda ctx env name expr)
@@ -368,13 +392,10 @@
          (n ((program-context-proc-counter pctx)))
          (label (and name (proc-name-label (proc-name n))))
          (body-env (filter (lambda (b) (not (local-binding? (cdr b)))) env)))
-    (for-each (lambda (var)
-                (when (local-binding-assigned? (cdr (assq var env)))
-                  (error 'compile-procedure "set! of a captured variable" var)))
-              captures)
     (when name
       (add-entry! pctx (proc-name-string (proc-name n) name)))
-    (add-entry! pctx (function->ir pctx body-env (fn-name n) captures args body))
+    (add-entry! pctx (function->ir pctx body-env (fn-name n)
+                                   (map (lambda (var) (assq var env)) captures) args body))
     (if (null? captures)
         (begin
           (add-entry! pctx (proc-data (proc-name n) (length args) (fn-name n) label))
@@ -474,10 +495,10 @@
 
 
 (define (bind-let-vars ctx env bindings body)
-  (let ((sets (cdr (free-vars (bind-scope env (map car bindings)) body))))
+  (let ((vars (free-vars (bind-scope env (map car bindings)) body)))
     (fold-left (lambda (new-env b)
                  (let ((operand (compile-named ctx env (car b) (cadr b))))
-                   (acons (car b) (make-local ctx operand (memq (car b) sets)) new-env)))
+                   (acons (car b) (make-local ctx operand (car b) vars) new-env)))
                env
                bindings)))
 
@@ -489,17 +510,35 @@
         env
         (let* ((var (caar bindings))
                (operand (compile-named ctx env var (cadar bindings)))
-               (sets (cdr (walk-let* (bind-scope env (list var)) (cdr bindings) body '(() . ())))))
-          (loop (acons var (make-local ctx operand (memq var sets)) env)
+               (vars (walk-let* (bind-scope env (list var)) (cdr bindings) body no-vars)))
+          (loop (acons var (make-local ctx operand var vars) env)
                 (cdr bindings))))))
 
 
-(define (make-local ctx operand assigned?)
-  (if assigned?
-      (let ((tmp (fresh-var ctx)))
-        (emit! ctx `(mov ,tmp ,operand))
-        (make-local-binding tmp #t))
-      (make-local-binding operand #f)))
+(define (make-local ctx operand var vars)
+  (cond
+   ((boxed? var vars)
+    (make-box ctx operand))
+   ((memq var (var-sets-sets vars))
+    (let ((tmp (fresh-var ctx)))
+      (emit! ctx `(mov ,tmp ,operand))
+      (make-local-binding tmp #t)))
+   (else
+    (make-local-binding operand #f))))
+
+
+(define (boxed? var vars)
+  (and (memq var (var-sets-sets vars))
+       (memq var (var-sets-caps vars))
+       #t))
+
+
+(define (make-box ctx operand)
+  (let ((box (fresh-var ctx)))
+    (emit! ctx `(alloc ,box 2 0))
+    (emit! ctx `(store ,box 0 "box_type"))
+    (emit! ctx `(store ,box 1 ,operand))
+    (make-box-binding box #t)))
 
 
 (define (compile-set! ctx env var expr)
@@ -508,6 +547,8 @@
     (cond
      ((not x)
       (error 'compile-set! "unknown symbol" var))
+     ((box-binding? (cdr x))
+      (emit! ctx `(store ,(local-binding-operand (cdr x)) 1 ,src)))
      ((local-binding? (cdr x))
       (emit! ctx `(mov ,(local-binding-operand (cdr x)) ,src)))
      ((global-binding? (cdr x))
@@ -604,8 +645,8 @@
           env))
 
 
-(define (extend-env-with-args env args body)
-  (let ((sets (cdr (free-vars (bind-scope env args) body))))
+(define (extend-env-with-args ctx env args body)
+  (let ((vars (free-vars (bind-scope env args) body)))
     (let loop ((i 1)
                (args args)
                (env env))
@@ -613,7 +654,10 @@
           env
           (loop (+ i 1) (cdr args)
                 (acons (car args)
-                       (make-local-binding (list 'arg i) (and (memq (car args) sets) #t))
+                       (if (boxed? (car args) vars)
+                           (make-box ctx (list 'arg i))
+                           (make-local-binding (list 'arg i)
+                                               (and (memq (car args) (var-sets-sets vars)) #t)))
                        env))))))
 
 
@@ -625,13 +669,21 @@
         env
         (let ((dst (fresh-var ctx)))
           (emit! ctx `(load ,dst (self) ,i))
-          (loop (+ i 1) (cdr captures) (acons (car captures) (make-local-binding dst #f) env))))))
+          (loop (+ i 1) (cdr captures)
+                (acons (caar captures) (capture-binding dst (cdar captures)) env))))))
+
+
+;; A captured local is either boxed or never assigned
+(define (capture-binding operand binding)
+  (if (box-binding? binding)
+      (make-box-binding operand #t)
+      (make-local-binding operand #f)))
 
 
 (define (function->ir pctx env proc captures args body)
   (let* ((ctx (new-expr-context pctx))
          (env (load-captures ctx env captures)))
-    (let-values (((env last) (compile-body ctx (extend-env-with-args env args body) body)))
+    (let-values (((env last) (compile-body ctx (extend-env-with-args ctx env args body) body)))
       (compile-tail ctx env last))
     (expr-context->function ctx proc (length args))))
 

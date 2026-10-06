@@ -1,0 +1,8 @@
+(let ((x 0))
+  (let ((f (lambda ()
+             (lambda () (set! x (+ x 1)) x))))
+    ((f))
+    ((f))
+    x))
+---
+stdout = "2"
