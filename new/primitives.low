@@ -1,0 +1,78 @@
+(def tag ((val x)) -> (raw) (:inline)
+     (bit-and (as-raw x) (raw 7)))
+
+(def untag ((val x)) -> (raw) (:inline)
+     (bit-and (as-raw x) (raw -8)))
+
+(def tag=? ((val x) (raw y)) -> (val) (:inline)
+     (raw= (tag x) y))
+
+(def pair? ((val x)) -> (val) (:public :inline)
+     (tag=? x (raw 3)))
+
+(def type-error ((raw x) (val y)) -> ! (:inline)
+     (c-call scheme_error x (as-raw y)))
+
+(def car ((val x)) -> (val) (:public :inline)
+     (unless (pair? x)
+       (type-error "`car` expected a pair" x))
+     (as-val (load (untag x))))
+
+(def cdr ((val x)) -> (val) (:public :inline)
+     (unless (pair? x)
+       (type-error "`cdr` expected a pair" x))
+     (as-val (load (untag x) 1)))
+
+(def fixnum? ((val x)) -> (val) (:inline)
+     (tag=? x (raw 1)))
+
+(def check-fixnums ((val x) (val y) (raw msg)) -> () (:inline)
+     (unless (fixnum? x)
+       (type-error msg x))
+     (unless (fixnum? y)
+       (type-error msg y)))
+
+;; Tagged fixnums: (n << 3) | 1, so the tags cancel out
+(def + ((val x) (val y)) -> (val) (:public :inline)
+     (check-fixnums x y "`+` expected an integer")
+     (as-val (raw- (raw+ (as-raw x) (as-raw y)) (raw 1))))
+
+(def - ((val x) (val y)) -> (val) (:public :inline)
+     (check-fixnums x y "`-` expected an integer")
+     (as-val (raw+ (raw- (as-raw x) (as-raw y)) (raw 1))))
+
+(def * ((val x) (val y)) -> (val) (:public :inline)
+     (check-fixnums x y "`*` expected an integer")
+     (as-val (raw+ (raw* (raw- (as-raw x) (raw 1)) (raw>> (as-raw y) (raw 3)))
+                   (raw 1))))
+
+;; Comparing tagged fixnums compares their values
+(def = ((val x) (val y)) -> (val) (:public :inline)
+     (check-fixnums x y "`=` expected an integer")
+     (raw= (as-raw x) (as-raw y)))
+
+(def < ((val x) (val y)) -> (val) (:public :inline)
+     (check-fixnums x y "`<` expected an integer")
+     (raw< (as-raw x) (as-raw y)))
+
+(def <= ((val x) (val y)) -> (val) (:public :inline)
+     (check-fixnums x y "`<=` expected an integer")
+     (raw<= (as-raw x) (as-raw y)))
+
+(def > ((val x) (val y)) -> (val) (:public :inline)
+     (check-fixnums x y "`>` expected an integer")
+     (raw> (as-raw x) (as-raw y)))
+
+(def >= ((val x) (val y)) -> (val) (:public :inline)
+     (check-fixnums x y "`>=` expected an integer")
+     (raw>= (as-raw x) (as-raw y)))
+
+(def eq? ((val x) (val y)) -> (val) (:public :inline)
+     (raw= (as-raw x) (as-raw y)))
+
+(def null? ((val x)) -> (val) (:public :inline)
+     (raw= (as-raw x) (as-raw '())))
+
+;; not is a low keyword, so the procedure is exported under that name
+(def scm-not ((val x)) -> (val) (:public :inline (:as not))
+     (not x))

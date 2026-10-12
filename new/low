@@ -1,0 +1,529 @@
+#!/usr/bin/env scheme-script
+
+;; scheme-script low < SOURCE > IR
+;; Single pass: each def is compiled and printed before the next is read.
+
+;; There are 4 kinds:
+;; - raw    a plain word
+;; - val    a tagged value
+;; - never  does not return
+;; - void   returns nothing
+;;
+;; An expression is compiled either
+;; - as a value
+;;   - compile-value, giving an operand
+;;   - compile-result, same but checking the kind
+;; - as a branch
+;;   - compile-branch, giving a conditional jump
+
+(import (chezscheme)
+        (utils))
+
+
+(define strings '())
+(define strings-counter (make-counter))
+
+(define defs '())
+(define fn-counter (make-counter))
+
+(define blocks '())
+(define block-label #f)
+(define code '())
+(define tmp-counter #f)
+(define raw-counter #f)
+(define label-counter #f)
+
+
+(define (intern-string! x)
+  (assert (string? x))
+  (cond
+   ((assoc x strings) => cdr)
+   (else
+    (let ((name (format "str~a" (strings-counter))))
+      (set! strings (acons x name strings))
+      (print-entry (list 'string name x))
+      name))))
+
+
+(define (lower-operand x)
+  (if (pair? x)
+      (case (car x)
+        ((val) `(tmp ,(cadr x)))
+        ((as-raw as-val) (lower-operand (cadr x)))
+        (else x))
+      x))
+
+
+(define (lower-block block)
+  (define (lower-instr instr)
+    (cons (car instr) (map lower-operand (cdr instr))))
+  (define (lower tag label . instrs)
+    `(block ,label ,@(map lower-instr instrs)))
+  (apply lower block))
+
+
+(define (print-entry x)
+  (if (eq? (car x) 'function)
+      (begin
+        (printf "(function ~s ~s" (cadr x) (caddr x))
+        (for-each (lambda (b)
+                    (printf "\n  (block ~s" (cadr b))
+                    (for-each (lambda (i) (printf "\n    ~s" i)) (cddr b))
+                    (display ")"))
+                  (cdddr x))
+        (display ")\n\n"))
+      (printf "~s\n\n" x)))
+
+
+(define (emit! instr)
+  (set! code (cons instr code)))
+
+
+(define (close-block!)
+  (set! blocks (cons `(block ,block-label ,@(reverse code)) blocks))
+  (set! code '()))
+
+
+(define (start-block! label)
+  (close-block!)
+  (set! block-label label))
+
+
+(define (fresh-tmp kind)
+  (list kind ((if (eq? kind 'raw) raw-counter tmp-counter))))
+
+
+(define (fresh-label)
+  (label-counter))
+
+
+(define (kind x)
+  (cond
+   ((string? x) 'raw)
+   ((memq (car x) '(quad as-raw)) 'raw)
+   ((memq (car x) '(raw never void)) (car x))
+   (else 'val)))
+
+
+(define (check-kind x k expr)
+  (unless (eq? (kind x) k)
+    (error 'check-kind (format "expected a ~a" k) expr)))
+
+
+;; params   (symbol . kind) pairs
+;; result   kind
+;; n        number of the emitted function, #f when the def is only inlined
+;; as       name Scheme sees, from (:as name), else the def name
+(define-record-type def
+  (fields name params result inline? public? body n as))
+
+
+(define (def-proc def) (format "proc~a" (def-n def)))
+(define (def-code def) (format "fn~a" (def-n def)))
+(define (def-params-names def) (map car (def-params def)))
+(define (def-params-kinds def) (map cdr (def-params def)))
+
+
+(define (lookup-def name)
+  (let ((entry (assq name defs)))
+    (and entry (cdr entry))))
+
+
+(define binary-ops
+  '((bit-and . and)
+    (raw+ . add)
+    (raw- . sub)
+    (raw* . mul)
+    (raw<< . sal)
+    (raw>> . sar)))
+
+
+(define keywords
+  (append (map car binary-ops)
+          '(if when unless
+            and or not
+            raw as-raw as-val
+            raw= raw< raw> raw<= raw>=
+            c-call
+            load)))
+
+
+;; (val x) => (x . val)
+(define (parse-param x)
+  (unless (and (list? x)
+               (= (length x) 2)
+               (memq (car x) '(val raw))
+               (symbol? (cadr x)))
+    (error 'parse-param "invalid parameter" x))
+  (cons (cadr x) (car x)))
+
+
+(define (parse-result x)
+  (cond
+   ((null? x) 'void)
+   ((eq? x '!) 'never)
+   ((and (list? x) (= (length x) 1) (memq (car x) '(val raw))) (car x))
+   (else (error 'parse-result "invalid result" x))))
+
+
+;; (def name (param ...) -> (kind ...) (attr ...) body ...)
+(define (parse-def form)
+  (unless (and (list? form)
+               (>= (length form) 7)
+               (eq? (car form) 'def)
+               (symbol? (cadr form))
+               (list? (caddr form))
+               (eq? (cadddr form) '->)
+               (list? (list-ref form 5)))
+    (error 'parse-def "invalid def" form))
+  (let* ((attrs (list-ref form 5))
+         (body (list-tail form 6))
+         (name (cadr form))
+         (inline? (and (memq ':inline attrs) #t))
+         (public? (and (memq ':public attrs) #t))
+         (as (find pair? attrs)))
+    (for-each (lambda (a)
+                (unless (or (memq a '(:inline :public))
+                            (and (pair? a) (eq? (car a) ':as)
+                                 (= (length a) 2) (symbol? (cadr a))))
+                  (error 'parse-def "unknown attribute" a)))
+              attrs)
+    (when (and as (not public?))
+      (error 'parse-def ":as requires :public" name))
+    (when (or (memq name keywords) (lookup-def name))
+      (error 'parse-def "name already defined" name))
+    (make-def name
+              (map parse-param (caddr form))
+              (parse-result (list-ref form 4))
+              inline? public? body
+              (and (or public? (not inline?)) (fn-counter))
+              (if as (cadr as) name))))
+
+
+(define (lookup-var env x)
+  (let ((entry (assq x env)))
+    (if entry
+        (cdr entry)
+        (error 'lookup-var "unbound variable" x))))
+
+
+;; The operand for x, or #f when x is not an immediate
+(define (immediate x)
+  (define (tag t x)
+    `(as-val (quad ,(+ t (* x 8)))))
+  (cond
+   ((and (integer? x) (exact? x)
+         (<= (- (expt 2 60)) x (- (expt 2 60) 1)))
+    (tag 1 x))
+   ((boolean? x)
+    (tag 2 (if x 1 0)))
+   ((equal? x ''())
+    (tag 2 2))
+   ((eq? x 'undef)
+    (tag 2 3))
+   (else #f)))
+
+
+(define tests
+  '((raw=  je  jne)
+    (raw<  jl  jge)
+    (raw<= jle jg)
+    (raw>  jg  jle)
+    (raw>= jge jl)))
+
+
+(define (test-form? expr)
+  (and (pair? expr)
+       (assq (car expr) tests)))
+
+
+(define (binary-op? expr)
+  (and (pair? expr)
+       (assq (car expr) binary-ops)))
+
+
+(define (call-form? expr)
+  (and (pair? expr)
+       (symbol? (car expr))
+       (not (memq (car expr) keywords))
+       (lookup-def (car expr))))
+
+
+(define (inline-call? expr)
+  (let ((def (call-form? expr)))
+    (and def (def-inline? def) def)))
+
+
+(define (compile-value env expr)
+  (cond
+   ((symbol? expr)
+    (lookup-var env expr))
+
+   ((immediate expr)) ;; after symbol? because of 'undef
+
+   ((string? expr)
+    (intern-string! expr))
+
+   ((test-form? expr)
+    (compile-value env `(if ,expr #t #f)))
+
+   ((call-form? expr)
+    => (lambda (def)
+         (if (def-inline? def)
+             (compile-inline env def expr (lambda (env x) (compile-result env def x)))
+             (emit-op! 'call 'val
+                       (cons* (def-code def) (def-proc def) (compile-args env def expr))))))
+
+   ((binary-op? expr)
+    => (lambda (entry)
+         (emit-op! (cdr entry) 'raw (compile-operands env expr '(raw raw)))))
+
+   ((and (pair? expr)
+         (symbol? (car expr)))
+    (case (car expr)
+      ((if)
+       (unless (= (length expr) 4)
+         (error 'compile-value "invalid if" expr))
+       (compile-if env (cadr expr) (caddr expr) (cadddr expr)))
+
+      ((when unless)
+       (unless (>= (length expr) 3)
+         (error 'compile-value "invalid when or unless" expr))
+       ;; The body for effect, so it may have any kind
+       (let ((label-skip (fresh-label)))
+         (compile-branch env (cadr expr) (eq? (car expr) 'unless) label-skip)
+         (for-each (lambda (x) (compile-value env x)) (cddr expr))
+         (start-block! label-skip)
+         (immediate 'undef)))
+
+      ((and or not)
+       (compile-value env `(if ,expr #t #f)))
+
+      ((raw)
+       (unless (and (= (length expr) 2)
+                    (integer? (cadr expr))
+                    (exact? (cadr expr))
+                    (<= (- (expt 2 63)) (cadr expr) (- (expt 2 64) 1)))
+         (error 'compile-value "invalid raw literal" expr))
+       `(quad ,(cadr expr)))
+
+      ;; Casts emit nothing, the operand is only wrapped
+      ((as-raw as-val)
+       (unless (= (length expr) 2)
+         (error 'compile-value "invalid cast" expr))
+       (list (car expr)
+             (compile-kind env (cadr expr) (if (eq? (car expr) 'as-raw) 'val 'raw) expr)))
+
+      ;; (c-call name arg ...): raw arguments and result, not a safepoint
+      ((c-call)
+       (unless (and (>= (length expr) 2) (symbol? (cadr expr)))
+         (error 'compile-value "invalid c-call" expr))
+       (emit-op! 'ccall 'raw
+                 (cons (symbol->string (cadr expr))
+                       (compile-exprs env (cddr expr) (map (lambda (x) 'raw) (cddr expr)) expr))))
+
+      ;; (load address [index]): the raw word at word index of address
+      ((load)
+       (let ((index (if (= (length expr) 3) (caddr expr) 0)))
+         (unless (and (<= 2 (length expr) 3) (integer? index) (exact? index) (>= index 0))
+           (error 'compile-value "invalid load" expr))
+         (emit-op! 'load 'raw (list (compile-kind env (cadr expr) 'raw expr) index))))
+      (else
+       (error 'compile-value "unsupported operation" expr))))
+
+   (else
+    (error 'compile-value "unsupported expression" expr))))
+
+
+(define (compile-kind env x k form)
+  (let ((op (compile-value env x)))
+    (check-kind op k form)
+    op))
+
+
+(define (compile-operands env expr kinds)
+  (compile-exprs env (cdr expr) kinds expr))
+
+
+;; form is the whole expression, for errors
+(define (compile-exprs env exprs kinds form)
+  (unless (= (length exprs) (length kinds))
+    (error 'compile-exprs "wrong number of operands" form))
+  (let loop ((exprs exprs)
+             (kinds kinds)
+             (ops '()))
+    (if (null? exprs)
+        (reverse ops)
+        (loop (cdr exprs)
+              (cdr kinds)
+              (cons (compile-kind env (car exprs) (car kinds) form) ops)))))
+
+
+(define (compile-args env def expr)
+  (compile-operands env expr (def-params-kinds def)))
+
+
+;; Every expression but the last for effect, then (compile-last env last)
+(define (compile-seq env exprs compile-last)
+  (let-values (((init last) (split-last exprs)))
+    (for-each (lambda (x) (compile-value env x)) init)
+    (compile-last env last)))
+
+
+;; The value of a def's last expression x, checked against its result
+(define (compile-result env def x)
+  (let ((op (compile-value env x))
+        (result (def-result def)))
+    (cond
+     ((eq? (kind op) 'never)
+      op)
+     ((eq? result 'never)
+      (emit! '(unreachable))
+      '(never))
+     ((eq? result 'void)
+      '(void))
+     (else
+      (check-kind op result (def-name def)) op))))
+
+
+;; The callee body, its parameters bound to the compiled arguments
+(define (compile-inline env def expr compile-last)
+  (let* ((names (def-params-names def))
+         (args (compile-args env def expr))
+         (callee-env (map cons names args)))
+    (compile-seq callee-env (def-body def) compile-last)))
+
+
+;; and/or in a test: short is the truth that ends the evaluation early
+(define (compile-logic-branch env expr jump-if label)
+  (assert (memq (car expr) '(and or)))
+  (let ((short (eq? (car expr) 'or))
+        (ops (cdr expr)))
+    (cond
+     ((null? ops)
+      (unless (eq? jump-if short)
+        (emit! `(jmp ,label))))
+     ((eq? jump-if short)
+      (for-each (lambda (x) (compile-branch env x short label)) ops))
+     (else
+      (let ((label-skip (fresh-label)))
+        (let-values (((init last) (split-last ops)))
+          (for-each (lambda (x) (compile-branch env x short label-skip)) init)
+          (compile-branch env last jump-if label))
+        (start-block! label-skip))))))
+
+
+;; Jumps to label when the truth of test equals jump-if
+(define (compile-branch env test jump-if label)
+  (cond
+   ((and (pair? test) (memq (car test) '(and or)))
+    (compile-logic-branch env test jump-if label))
+   ((and (pair? test) (eq? (car test) 'not))
+    (unless (= (length test) 2)
+      (error 'compile-branch "invalid not" test))
+    (compile-branch env (cadr test) (not jump-if) label))
+   ((test-form? test)
+    => (lambda (entry)
+         (let ((ops (compile-operands env test '(raw raw))))
+           (emit! `(cmp ,@ops))
+           (emit! `(,(if jump-if (cadr entry) (caddr entry)) ,label)))))
+   ((inline-call? test)
+    => (lambda (def)
+         (unless (eq? (def-result def) 'val)
+           (error 'compile-branch "expected a val" test))
+         (compile-inline env def test
+                         (lambda (env x) (compile-branch env x jump-if label)))))
+   (else
+    (let ((op (compile-kind env test 'val test)))
+      (emit! `(cmp ,op ,(immediate #f)))
+      (emit! `(,(if jump-if 'jne 'je) ,label))))))
+
+
+(define (compile-if env test then else)
+  (let* ((label-false (fresh-label))
+         (label-end (fresh-label)))
+    (compile-branch env test #f label-false)
+    ;; A branch that does not return takes the kind of the other one
+    (let* ((a (compile-value env then))
+           (slot? (memq (kind a) '(val raw)))
+           (dst (if slot? (fresh-tmp (kind a)) a)))
+      (unless (eq? (kind a) 'never)
+        (when slot?
+          (emit! `(mov ,dst ,a)))
+        (emit! `(jmp ,label-end)))
+      (start-block! label-false)
+      (let ((b (compile-value env else)))
+        (cond
+         ((eq? (kind a) 'never)
+          (set! dst b))
+         ((not (eq? (kind b) 'never))
+          (check-kind b (kind a) `(if ,test ,then ,else))
+          (when slot?
+            (emit! `(mov ,dst ,b))))))
+      (start-block! label-end)
+      dst)))
+
+
+;; (op dst src ...) with a fresh dst of kind k
+(define (emit-op! op k srcs)
+  (let ((dst (fresh-tmp k)))
+    (emit! `(,op ,dst ,@srcs))
+    dst))
+
+
+(define (find-raw x)
+  (and (pair? x)
+       (or (eq? (car x) 'raw)
+           (find-raw (car x))
+           (find-raw (cdr x)))))
+
+
+;; Raw slots are in the frame area the GC scans, so no safepoint may see them
+(define (check-gc-safety def body)
+  (when (and (find-raw body)
+             (exists (lambda (i) (memq (car i) '(call tailcall alloc)))
+                     (apply append (map cddr body))))
+    (error 'check-gc-safety "raw slot in a function with a safepoint" (def-name def))))
+
+
+;; Prints the def's strings, export, name, procedure object and function
+(define (emit-def def)
+  (let* ((params (def-params def))
+         (arity (length params))
+         (proc (def-proc def))
+         (name (string-append proc "_name")))
+    (unless (and (for-all (lambda (p) (eq? (cdr p) 'val)) params)
+                 (eq? (def-result def) 'val))
+      (error 'emit-def "raw parameter or result in a non-inline def" (def-name def)))
+    (set! blocks '())
+    (set! block-label 0)
+    (set! code '())
+    (set! tmp-counter (make-counter))
+    (set! raw-counter (make-counter))
+    (set! label-counter (make-counter))
+    (let ((result (compile-seq (map (lambda (p i) (cons (car p) (list 'arg (+ i 1))))
+                                    params (iota arity))
+                               (def-body def)
+                               (lambda (env x) (compile-result env def x)))))
+      (unless (eq? (kind result) 'never)
+        (emit! `(ret ,result)))
+      (close-block!)
+      (let ((body (reverse blocks)))
+        (check-gc-safety def body)
+        (for-each print-entry
+                  (append (if (def-public? def) (list `(export ,proc)) '())
+                          (list `(string ,name ,(symbol->string (def-as def)))
+                                `(data ,proc (quad "procedure_type") (quad ,arity)
+                                       (quad ,(def-code def)) (quad ,name) (quad 0))
+                                `(function ,(def-code def) (arity ,arity)
+                                           ,@(map lower-block body)))))))))
+
+
+(let loop ()
+  (let ((form (read)))
+    (unless (eof-object? form)
+      (let ((def (parse-def form)))
+        (when (def-n def)
+          (emit-def def))
+        (set! defs (acons (def-name def) def defs)))
+      (loop))))
