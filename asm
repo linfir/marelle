@@ -1,6 +1,6 @@
-#!/usr/bin/env -S scheme --script
+#!/usr/bin/env scheme-script
 
-;; scheme --script asm < IR > ASM
+;; scheme-script asm < IR > ASM
 
 ;; Frames are heap objects, rbp pointing to the current one, n being the
 ;; function's arity and m its number of tmps:

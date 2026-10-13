@@ -40,8 +40,8 @@ def compile_scheme(source):
 
 def compile_low(source):
     prelude = (ROOT / "prelude.low").read_text()
-    ir = run_stage("low", ["scheme", "--script", ROOT / "low"], input=prelude + source, cwd=ROOT).stdout
-    return run_stage("asm", ["scheme", "--script", ROOT / "asm"], input=ir, cwd=ROOT).stdout
+    ir = run_stage("low", ["scheme-script", ROOT / "low"], input=prelude + source, cwd=ROOT).stdout
+    return run_stage("asm", ["scheme-script", ROOT / "asm"], input=ir, cwd=ROOT).stdout
 
 
 def run_pipeline(source, *, build=True, env=None, low=False):
