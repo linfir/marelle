@@ -7,6 +7,12 @@
 (def tag=? ((val x) (raw y)) -> (val) (:inline)
      (raw= (tag x) y))
 
+(def global-ref ((raw i)) -> (val) (:inline)
+     (as-val (load (address "scheme_globals") i)))
+
+(def global-set! ((raw i) (val v)) -> () (:inline)
+     (store (address "scheme_globals") i v))
+
 (def pair? ((val x)) -> (val) (:public :inline)
      (tag=? x (raw 3)))
 
@@ -22,6 +28,14 @@
      (unless (pair? x)
        (type-error "`cdr` expected a pair" x))
      (as-val (load (untag x) (raw 1))))
+
+(def init-pair ((val p) (val a) (val d)) -> (val) (:inline)
+     (store (untag p) (raw 0) a)
+     (store (untag p) (raw 1) d)
+     p)
+
+(def cons ((val a) (val d)) -> (val) (:public :inline)
+     (init-pair (alloc (raw 2) 3) a d))
 
 (def fixnum? ((val x)) -> (val) (:inline)
      (tag=? x (raw 1)))
