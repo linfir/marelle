@@ -1,6 +1,6 @@
 #!/usr/bin/env -S scheme --script
 
-(load "utils.ss")
+(import (utils))
 (load "ir.ss")
 (load "frontend.ss")
 (load "backend.ss")

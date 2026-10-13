@@ -14,7 +14,7 @@ tmp/runtime-asm.o: runtime.s | tmp
 tmp/prelude.o: tmp/prelude.s
 	$(CC) -c -o $@ $<
 
-tmp/prelude.s: $(filter-out chez.ss,$(wildcard *.ss)) | tmp
+tmp/prelude.s: $(filter-out chez.ss,$(wildcard *.ss)) utils.sls | tmp
 	scheme --script compiler.ss --prelude > $@
 
 tmp:
