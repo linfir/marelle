@@ -29,13 +29,13 @@
        (type-error "`cdr` expected a pair" x))
      (as-val (load (untag x) (raw 1))))
 
-(def init-pair ((val p) (val a) (val d)) -> (val) (:inline)
-     (store (untag p) (raw 0) a)
-     (store (untag p) (raw 1) d)
-     p)
+(def init-pair ((raw p) (val a) (val d)) -> (val) (:inline)
+     (store p (raw 0) a)
+     (store p (raw 1) d)
+     (as-val (bit-or p (raw 3))))
 
 (def cons ((val a) (val d)) -> (val) (:public :inline)
-     (init-pair (alloc (raw 2) 3) a d))
+     (init-pair (alloc (raw 2)) a d))
 
 (def fixnum? ((val x)) -> (val) (:inline)
      (tag=? x (raw 1)))

@@ -133,6 +133,7 @@
 
 (define binary-ops
   '((bit-and . and)
+    (bit-or . or)
     (raw+ . add)
     (raw- . sub)
     (raw* . mul)
@@ -350,15 +351,12 @@
          (emit! `(store ,base ,index ,x))
          '(void)))
 
-      ;; (alloc nwords tag): a new zeroed object of nwords words, tagged with tag
+      ;; (alloc nwords): the raw address of nwords new zeroed words
       ((alloc)
-       (unless (and (= (length expr) 3)
-                    (memv (caddr expr) '(0 1 2 3 4 5 6 7)))
-         (error 'compile-value "invalid alloc" expr))
-       (let ((nwords (compile-kind env (cadr expr) 'raw expr)))
-         (when (and (eq? (car nwords) 'quad) (<= (cadr nwords) 0))
+       (let ((ops (compile-operands env expr '(raw))))
+         (when (and (eq? (caar ops) 'quad) (<= (cadar ops) 0))
            (error 'compile-value "invalid alloc" expr))
-         (emit-op! 'alloc 'val (list nwords (caddr expr)))))
+         (emit-op! 'alloc 'raw ops)))
 
       ((self)
        (unless (= (length expr) 1)

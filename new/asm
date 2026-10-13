@@ -230,12 +230,9 @@
 
     ((alloc)
      (let ((dst (cadr instr))
-           (nwords (caddr instr))
-           (tag (cadddr instr)))
+           (nwords (caddr instr)))
        (load! ctx 'rax nwords)
        (emit-asm! ctx '(call "alloc_object"))
-       (unless (= tag 0)
-         (emit-asm! ctx `(or rax ,tag)))
        (store! ctx dst 'rax)))
 
     ((store)
@@ -261,9 +258,9 @@
        (load! ctx 'rcx b)
        (emit-asm! ctx '(cmp rax rcx))))
 
-    ((add sub mul sal sar and)
+    ((add sub mul sal sar and or)
      (let ((op (cdr (assq (car instr) '((add . add) (sub . sub) (mul . imul)
-                                        (sal . sal) (sar . sar) (and . and)))))
+                                        (sal . sal) (sar . sar) (and . and) (or . or)))))
            (dst (cadr instr))
            (a (caddr instr))
            (b (cadddr instr)))
