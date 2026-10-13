@@ -70,9 +70,9 @@ alloc_frame:
     add rcx, [rip + scheme_mem]
 .Linit:
     mov [rcx + 8], rax
-    mov [rcx + 16], r11
-    mov [rcx + 24], rbp
-    mov [rcx + 32], r10
+    mov [rcx + 24], r11
+    mov [rcx + 32], rbp
+    mov [rcx + 40], r10
     lea r11, [rip + frame_type]
     mov [rcx], r11
     mov rbp, rcx

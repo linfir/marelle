@@ -3,13 +3,14 @@
 ;;
 ;;   rbp + 0            "frame_type"
 ;;   rbp + 8            length of the frame in words, header included (raw)
-;;   rbp + 16           return address (raw)
-;;   rbp + 24           caller's frame, or 0 for scheme_main
-;;   rbp + 32           (self), the procedure object passed in r10, or 0 for scheme_main
-;;   rbp + 40           (arg 1)
+;;   rbp + 16           number of raw slots at the end, not scanned (raw, always 0)
+;;   rbp + 24           return address (raw)
+;;   rbp + 32           caller's frame, or 0 for scheme_main
+;;   rbp + 40           (self), the procedure object passed in r10, or 0 for scheme_main
+;;   rbp + 48           (arg 1)
 ;;   ...
-;;   rbp + 8*(n+4)      (arg n)
-;;   rbp + 8*(n+5)      (tmp 1)
+;;   rbp + 8*(n+5)      (arg n)
+;;   rbp + 8*(n+6)      (tmp 1)
 ;;   ...
 ;;
 ;; C calls (ccall) follow the System V AMD64 ABI:
@@ -22,7 +23,8 @@
 ;;   - arguments in rdi, rsi, rdx, rcx, r8, r9 (at most 6), the procedure object
 ;;     in r10, the return address in r11, then a jmp to the code (no push)
 ;;   - the callee's prologue calls alloc_frame, which saves rbp, r10 and r11 in
-;;     the new frame; the arguments are then stored in it
+;;     the new frame; the number of raw slots and the arguments are then
+;;     stored in it
 ;;   - ret puts the result in rax, restores the caller's rbp and jumps to the
 ;;     saved return address
 ;;   - a tail call passes its own caller's frame and return address, so the
@@ -33,9 +35,10 @@
 (define arg-regs '(rdi rsi rdx rcx r8 r9))
 
 
-(define frame-ret 16)
-(define frame-caller 24)
-(define frame-self 32)
+(define frame-nraw 16)
+(define frame-ret 24)
+(define frame-caller 32)
+(define frame-self 40)
 
 
 (define (count-tmps x)
@@ -211,14 +214,15 @@
   (let* ((ctx (new-asm-context x))
          (fn (asm-context-fn ctx))
          (arity (asm-context-arity ctx))
-         (nwords (+ 5 arity (asm-context-ntmp ctx))))
+         (nwords (+ 6 arity (asm-context-ntmp ctx))))
     (when (> arity (length arg-regs))
       (error 'function->asm "too many parameters" fn))
     (emit-asm! ctx
                '(text)
                `(label ,fn)
                `(mov rax ,nwords)
-               '(call "alloc_frame"))
+               '(call "alloc_frame")
+               `(mov (mem rbp ,frame-nraw) 0))
     (let loop ((i 1)
                (regs arg-regs))
       (when (<= i arity)

@@ -239,15 +239,17 @@ static value forward(value x, value **free) {
 // Forwards the values of an object in the new space, returns its length
 static size_t scan(value *p, value **free) {
     size_t n = object_words(p);
+    size_t end = n;
     size_t i = 0;
     if (has_header(p, &frame_type)) {
-        i = 3;
+        i = 4;
+        end = n - p[2]; // raw slots are not scanned
     } else if (has_header(p, &procedure_type)) {
         i = PROC_CAPTURES;
     } else if (has_header(p, &box_type)) {
         i = 1;
     }
-    for (; i < n; i++) {
+    for (; i < end; i++) {
         p[i] = forward(p[i], free);
     }
     return n;
