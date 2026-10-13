@@ -16,12 +16,12 @@
 (def car ((val x)) -> (val) (:public :inline)
      (unless (pair? x)
        (type-error "`car` expected a pair" x))
-     (as-val (load (untag x))))
+     (as-val (load (untag x) (raw 0))))
 
 (def cdr ((val x)) -> (val) (:public :inline)
      (unless (pair? x)
        (type-error "`cdr` expected a pair" x))
-     (as-val (load (untag x) 1)))
+     (as-val (load (untag x) (raw 1))))
 
 (def fixnum? ((val x)) -> (val) (:inline)
      (tag=? x (raw 1)))

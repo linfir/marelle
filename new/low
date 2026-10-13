@@ -145,7 +145,7 @@
             raw as-raw as-val
             raw= raw< raw> raw<= raw>=
             c-call
-            load)))
+            load store alloc self address)))
 
 
 ;; (val x) => (x . val)
@@ -322,12 +322,44 @@
                  (cons (symbol->string (cadr expr))
                        (compile-exprs env (cddr expr) (map (lambda (x) 'raw) (cddr expr)) expr))))
 
-      ;; (load address [index]): the raw word at word index of address
+      ;; (load address index): the raw word at word index of address
       ((load)
-       (let ((index (if (= (length expr) 3) (caddr expr) 0)))
-         (unless (and (<= 2 (length expr) 3) (integer? index) (exact? index) (>= index 0))
-           (error 'compile-value "invalid load" expr))
-         (emit-op! 'load 'raw (list (compile-kind env (cadr expr) 'raw expr) `(quad ,index)))))
+       (emit-op! 'load 'raw (compile-operands env expr '(raw raw))))
+
+      ;; (store address index x): sets the word at word index of address to x
+      ((store)
+       (unless (= (length expr) 4)
+         (error 'compile-value "invalid store" expr))
+       (let* ((base (compile-kind env (cadr expr) 'raw expr))
+              (index (compile-kind env (caddr expr) 'raw expr))
+              (x (compile-value env (cadddr expr))))
+         (unless (memq (kind x) '(val raw))
+           (error 'compile-value "expected a val or a raw" expr))
+         (emit! `(store ,base ,index ,x))
+         '(void)))
+
+      ;; (alloc nwords tag): a new zeroed object of nwords words, tagged with tag
+      ((alloc)
+       (unless (and (= (length expr) 3)
+                    (memv (caddr expr) '(0 1 2 3 4 5 6 7)))
+         (error 'compile-value "invalid alloc" expr))
+       (let ((nwords (compile-kind env (cadr expr) 'raw expr)))
+         (when (and (eq? (car nwords) 'quad) (<= (cadr nwords) 0))
+           (error 'compile-value "invalid alloc" expr))
+         (emit-op! 'alloc 'val (list nwords (caddr expr)))))
+
+      ((self)
+       (unless (= (length expr) 1)
+         (error 'compile-value "invalid self" expr))
+       '(self))
+
+      ;; (address "name"): the address of symbol name
+      ((address)
+       (unless (and (= (length expr) 2)
+                    (string? (cadr expr)))
+         (error 'compile-value "invalid address" expr))
+       (cadr expr))
+
       (else
        (error 'compile-value "unsupported operation" expr))))
 

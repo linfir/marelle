@@ -232,9 +232,8 @@
      (let ((dst (cadr instr))
            (nwords (caddr instr))
            (tag (cadddr instr)))
-       (emit-asm! ctx
-                  `(mov rax ,nwords)
-                  '(call "alloc_object"))
+       (load! ctx 'rax nwords)
+       (emit-asm! ctx '(call "alloc_object"))
        (unless (= tag 0)
          (emit-asm! ctx `(or rax ,tag)))
        (store! ctx dst 'rax)))
