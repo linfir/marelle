@@ -577,13 +577,13 @@
       (close-block!)
       (let ((body (reverse blocks)))
         (check-gc-safety (def-name def) body)
-        (for-each print-entry
-                  (append (if (def-public? def) (list `(export ,proc)) '())
-                          (list `(string ,name ,(symbol->string (def-as def)))
-                                `(data ,proc (quad "procedure_type") (quad ,arity)
-                                       (quad ,(def-code def)) (quad ,name) (quad 0))
-                                `(function ,(def-code def) (arity ,arity)
-                                           ,@(map lower-block body)))))))))
+        (when (def-public? def)
+          (print-entry `(export ,proc)))
+        (print-entry `(string ,name ,(symbol->string (def-as def))))
+        (print-entry `(data ,proc (quad "procedure_type") (quad ,arity)
+                            (quad ,(def-code def)) (quad ,name) (quad 0)))
+        (print-entry `(function ,(def-code def) (arity ,arity)
+                                ,@(map lower-block body)))))))
 
 
 (let loop ()
