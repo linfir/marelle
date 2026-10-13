@@ -254,6 +254,12 @@
     (and def (def-inline? def) def)))
 
 
+;; Emits the code of expr and returns its operand, one of:
+;; - a slot: (val n), (raw n), (arg n), (self)
+;; - a constant: (quad n), or a string, the address of a symbol
+;; - a marker: (void), (never)
+;; - a cast: (as-val x) or (as-raw x), only for kind, removed by lower-operand
+;; A (raw n) is never inside a cast: as-val copies it into a tmp
 (define (compile-value env expr)
   (cond
    ((symbol? expr)
@@ -307,12 +313,16 @@
          (error 'compile-value "invalid raw literal" expr))
        `(quad ,(cadr expr)))
 
-      ;; Casts emit nothing, the operand is only wrapped
+      ;; Casts only wrap the operand,
+      ;; except that as-val copies a raw slot into a tmp, since the GC scans only tmps
       ((as-raw as-val)
        (unless (= (length expr) 2)
          (error 'compile-value "invalid cast" expr))
-       (list (car expr)
-             (compile-kind env (cadr expr) (if (eq? (car expr) 'as-raw) 'val 'raw) expr)))
+       (let ((op (compile-kind env (cadr expr) (if (eq? (car expr) 'as-raw) 'val 'raw) expr)))
+         (if (and (eq? (car expr) 'as-val)
+                  (not (zero? (raws-in op))))
+             (emit-op! 'mov 'val (list op))
+             (list (car expr) op))))
 
       ;; (c-call name arg ...): raw arguments and result, not a safepoint
       ((c-call)
