@@ -26,6 +26,8 @@
 (define defs '())
 (define fn-counter (make-counter))
 
+(define globals? #f)
+
 (define blocks '())
 (define block-label #f)
 (define code '())
@@ -628,11 +630,30 @@
                                 ,@(map lower-block body)))))))
 
 
+;; (globals n): the n global cells, initialized to undef
+(define (emit-globals form)
+  (unless (and (= (length form) 2) (integer? (cadr form)) (exact? (cadr form)) (>= (cadr form) 0))
+    (error 'emit-globals "invalid globals" form))
+  (when globals?
+    (error 'emit-globals "globals already defined" form))
+  (set! globals? #t)
+  (let ((n (cadr form)))
+    (print-entry '(export "scheme_globals" "scheme_nglobals"))
+    (print-entry `(cells "scheme_globals" ,n ,(cadr (lower-operand (immediate 'undef)))))
+    (print-entry `(data "scheme_nglobals" (quad ,n)))))
+
+
 (let loop ()
   (let ((form (read)))
     (unless (eof-object? form)
-      (let ((def (parse-def form)))
-        (when (def-n def)
-          (emit-def def))
-        (set! defs (acons (def-name def) def defs)))
+      (case (and (pair? form) (car form))
+        ((def)
+         (let ((def (parse-def form)))
+           (when (def-n def)
+             (emit-def def))
+           (set! defs (acons (def-name def) def defs))))
+        ((globals)
+         (emit-globals form))
+        (else
+         (error 'low "unknown top-level form" form)))
       (loop))))
