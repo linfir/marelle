@@ -121,7 +121,10 @@
 
 
 (define (def-proc def) (format "proc~a" (def-n def)))
-(define (def-code def) (format "fn~a" (def-n def)))
+(define (def-code def)
+  (if (eq? (def-name def) 'main)
+      "scheme_main"
+      (format "fn~a" (def-n def))))
 (define (def-params-names def) (map car (def-params def)))
 (define (def-params-kinds def) (map cdr (def-params def)))
 
@@ -195,6 +198,9 @@
       (error 'parse-def ":as requires :public" name))
     (when (or (memq name keywords) (lookup-def name))
       (error 'parse-def "name already defined" name))
+    (when (and (eq? name 'main)
+               (or inline? (not (null? (caddr form))) (not (equal? (list-ref form 4) '(val)))))
+      (error 'parse-def "main must be a non-inline def with no parameters and a val result" form))
     (make-def name
               (map parse-param (caddr form))
               (parse-result (list-ref form 4))
@@ -649,6 +655,8 @@
         (check-gc-safety (def-name def) body)
         (when (def-public? def)
           (print-entry `(export ,proc)))
+        (when (eq? (def-name def) 'main)
+          (print-entry '(export "scheme_main")))
         (print-entry `(string ,name ,(symbol->string (def-as def))))
         (print-entry `(data ,proc (quad "procedure_type") (quad ,arity)
                             (quad ,(def-code def)) (quad ,name) (quad 0)))
@@ -683,3 +691,7 @@
         (else
          (error 'low "unknown top-level form" form)))
       (loop))))
+
+;; The runtime needs the global cells
+(when (and (lookup-def 'main) (not globals?))
+  (emit-globals '(globals 0)))

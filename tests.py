@@ -12,7 +12,7 @@ from run import PipelineFailure, build_runtime, run_chez, run_pipeline
 
 ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
-STAGES = {"compiler", "cc", "executable", "result"}
+STAGES = {"compiler", "low", "asm", "cc", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", *OUTPUT_FIELDS}
 SKIP = "skip"
@@ -76,7 +76,9 @@ def check_case(path, chez=False, gc_stress=None):
     except (OSError, TestFormatError) as error:
         return "format", [str(error)]
 
-    if chez and expected.get("chez") == SKIP:
+    # Cases under tests/low/ are low programs
+    low = path.relative_to(TEST_ROOT).parts[0] == "low"
+    if chez and (low or expected.get("chez") == SKIP):
         return SKIP
     if gc_stress and expected.get("gc_stress") == SKIP:
         return SKIP
@@ -86,7 +88,7 @@ def check_case(path, chez=False, gc_stress=None):
         env = {"SCHEME_GC_STRESS": str(gc_stress)} | env
 
     try:
-        result = run_chez(source) if chez else run_pipeline(source, build=False, env=env)
+        result = run_chez(source) if chez else run_pipeline(source, build=False, env=env, low=low)
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result

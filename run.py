@@ -34,7 +34,17 @@ def build_runtime():
     return run_stage("setup", ["make", "-s"], cwd=ROOT)
 
 
-def run_pipeline(source, *, build=True, env=None):
+def compile_scheme(source):
+    return run_stage("compiler", ["scheme", "--script", ROOT / "compiler.ss"], input=source).stdout
+
+
+def compile_low(source):
+    prelude = (ROOT / "prelude.low").read_text()
+    ir = run_stage("low", ["scheme", "--script", ROOT / "low"], input=prelude + source, cwd=ROOT).stdout
+    return run_stage("asm", ["scheme", "--script", ROOT / "asm"], input=ir, cwd=ROOT).stdout
+
+
+def run_pipeline(source, *, build=True, env=None, low=False):
     if build:
         build_runtime()
 
@@ -43,12 +53,7 @@ def run_pipeline(source, *, build=True, env=None):
         assembly = work / "out.s"
         executable = work / "out"
 
-        compiler = run_stage(
-            "compiler",
-            ["scheme", "--script", ROOT / "compiler.ss"],
-            input=source,
-        )
-        assembly.write_text(compiler.stdout)
+        assembly.write_text(compile_low(source) if low else compile_scheme(source))
 
         run_stage("cc", ["cc", "-o", executable, assembly, ROOT / "tmp" / "runtime.o"])
         return run_stage("executable", [executable], env=os.environ | (env or {}))
@@ -63,6 +68,7 @@ def parse_args():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("-e", metavar="STRING")
     source.add_argument("file", nargs="?", type=Path)
+    parser.add_argument("--low", action="store_true", help="the source is a low program")
     return parser.parse_args()
 
 
@@ -71,7 +77,7 @@ def main():
     source = args.e if args.e is not None else args.file.read_text()
 
     try:
-        result = run_pipeline(source)
+        result = run_pipeline(source, low=args.low)
     except PipelineFailure as error:
         sys.stdout.write(error.result.stdout)
         sys.stderr.write(f"run.py: {error}\n")
