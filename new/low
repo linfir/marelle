@@ -327,7 +327,7 @@
        (let ((index (if (= (length expr) 3) (caddr expr) 0)))
          (unless (and (<= 2 (length expr) 3) (integer? index) (exact? index) (>= index 0))
            (error 'compile-value "invalid load" expr))
-         (emit-op! 'load 'raw (list (compile-kind env (cadr expr) 'raw expr) index))))
+         (emit-op! 'load 'raw (list (compile-kind env (cadr expr) 'raw expr) `(quad ,index)))))
       (else
        (error 'compile-value "unsupported operation" expr))))
 

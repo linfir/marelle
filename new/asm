@@ -100,8 +100,10 @@
   (fields fn arity ntmp nraw (mutable code) ret-counter))
 
 
-;; x is (function name (arity n) block ...), a block being
-;; (block n instr ...), n being its label, and falling through to the next one
+;; x is (function name (arity n) block ...),
+;; a block being (block n instr ...),
+;; n being its label,
+;; and falling through to the next one
 (define (new-asm-context x)
   (let ((blocks (cdddr x)))
     (make-asm-context (cadr x) (cadr (caddr x))
@@ -164,6 +166,18 @@
 (define (ret-label! ctx)
   (string-append ".L" (asm-context-fn ctx) "_ret"
                  (number->string ((asm-context-ret-counter ctx)))))
+
+
+;; The memory operand for word index of the address in rax, using rcx
+(define (element! ctx index)
+  (case (car index)
+    ((quad)
+     `(mem rax ,(* 8 (cadr index))))
+    ((raw)
+     (load! ctx 'rcx index)
+     '(mem rax rcx 8))
+    (else
+     (error 'element! "invalid index" index))))
 
 
 (define (leave! ctx)
@@ -230,15 +244,15 @@
            (index (caddr instr))
            (src (cadddr instr)))
        (load! ctx 'rax base)
-       (load! ctx 'rcx src)
-       (emit-asm! ctx `(mov (mem rax ,(* 8 index)) rcx))))
+       (load! ctx 'rdx src)
+       (emit-asm! ctx `(mov ,(element! ctx index) rdx))))
 
     ((load)
      (let ((dst (cadr instr))
            (base (caddr instr))
            (index (cadddr instr)))
        (load! ctx 'rax base)
-       (emit-asm! ctx `(mov rax (mem rax ,(* 8 index))))
+       (emit-asm! ctx `(mov rax ,(element! ctx index)))
        (store! ctx dst 'rax)))
 
     ((cmp)
@@ -357,6 +371,8 @@
     (display x))
    ((string? x)
     (write x))
+   ((and (eq? (car x) 'mem) (= (length x) 4))
+    (printf "qword ptr [~a + ~a*~a]" (cadr x) (caddr x) (cadddr x)))
    ((eq? (car x) 'mem)
     (let ((off (caddr x)))
       (printf "qword ptr [~a ~a ~a]" (cadr x) (if (< off 0) "-" "+") (abs off))))
