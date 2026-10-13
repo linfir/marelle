@@ -143,7 +143,7 @@
 
 (define keywords
   (append (map car binary-ops)
-          '(if when unless
+          '(if when unless let
             and or not
             raw as-raw as-val
             raw= raw< raw> raw<= raw>=
@@ -295,6 +295,9 @@
          (error 'compile-value "invalid if" expr))
        (compile-if env (cadr expr) (caddr expr) (cadddr expr)))
 
+      ((let)
+       (compile-let env expr compile-value))
+
       ((when unless)
        (unless (>= (length expr) 3)
          (error 'compile-value "invalid when or unless" expr))
@@ -428,12 +431,30 @@
       (check-kind op result (def-name def)) op))))
 
 
-;; The callee body, its parameters bound to the compiled arguments
 (define (compile-inline env def expr compile-last)
   (let* ((names (def-params-names def))
          (args (compile-args env def expr))
          (callee-env (map cons names args)))
     (compile-seq callee-env (def-body def) compile-last)))
+
+
+(define (compile-let env expr compile-last)
+  (unless (and (>= (length expr) 3)
+               (list? (cadr expr))
+               (for-all (lambda (b)
+                          (and (list? b)
+                               (= (length b) 2)
+                               (symbol? (car b))))
+                        (cadr expr)))
+    (error 'compile-let "invalid let" expr))
+  (let loop ((bindings (cadr expr))
+             (body-env env))
+    (if (null? bindings)
+        (compile-seq body-env (cddr expr) compile-last)
+        (let ((op (compile-value env (cadar bindings))))
+          (unless (memq (kind op) '(val raw))
+            (error 'compile-let "expected a val or a raw" (car bindings)))
+          (loop (cdr bindings) (acons (caar bindings) op body-env))))))
 
 
 ;; and/or in a test: short is the truth that ends the evaluation early
@@ -460,21 +481,28 @@
   (cond
    ((and (pair? test) (memq (car test) '(and or)))
     (compile-logic-branch env test jump-if label))
+
    ((and (pair? test) (eq? (car test) 'not))
     (unless (= (length test) 2)
       (error 'compile-branch "invalid not" test))
     (compile-branch env (cadr test) (not jump-if) label))
+
    ((test-form? test)
     => (lambda (entry)
          (let ((ops (compile-operands env test '(raw raw))))
            (emit! `(cmp ,@ops))
            (emit! `(,(if jump-if (cadr entry) (caddr entry)) ,label)))))
+
+   ((and (pair? test) (eq? (car test) 'let))
+    (compile-let env test (lambda (env x) (compile-branch env x jump-if label))))
+
    ((inline-call? test)
     => (lambda (def)
          (unless (eq? (def-result def) 'val)
            (error 'compile-branch "expected a val" test))
          (compile-inline env def test
                          (lambda (env x) (compile-branch env x jump-if label)))))
+
    (else
     (let ((op (compile-kind env test 'val test)))
       (emit! `(cmp ,op ,(immediate #f)))
