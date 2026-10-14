@@ -104,6 +104,8 @@
   ;; - a cast: (as-val x) or (as-raw x), only for kind, removed by lower-operand
   (define (compile-value env expr)
     (cond
+     ((immediate expr))
+
      ((and (symbol? expr)
            (not (assq expr env))
            (lookup-def expr))
@@ -121,8 +123,6 @@
         (if (and (pair? op) (eq? (car op) 'mutable))
             (emit-op! 'mov (kind (cadr op)) (cdr op))
             op)))
-
-     ((immediate expr)) ;; after symbol? because of 'undef
 
      ((string? expr)
       (intern-string! expr))

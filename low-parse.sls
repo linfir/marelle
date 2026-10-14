@@ -51,7 +51,7 @@
             '(if when unless let let* begin set!
               and or not
               raw as-raw as-val
-              c-call quote
+              c-call quote undef
               load store alloc self address)))
 
 
@@ -88,6 +88,8 @@
   (define (bind-name! x kind)
     (let ((old (hashtable-ref name-kinds x #f)))
       (cond
+       ((and (eq? kind 'local) (memq x keywords))
+        (error 'bind-name! "local variable named like a keyword" x))
        ((not old))
        ((eq? kind 'def)
         (error 'bind-name! (if (eq? old 'def) "name already defined" "def named like a local") x))
