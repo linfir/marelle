@@ -151,7 +151,7 @@
             and or not
             raw as-raw as-val
             raw= raw< raw> raw<= raw>=
-            c-call
+            c-call quote
             load store alloc self address)))
 
 
@@ -319,6 +319,13 @@
     (and def (def-inline? def) def)))
 
 
+(define (indirect-call? expr)
+  (and (pair? expr)
+       (not (and (symbol? (car expr))
+                 (or (memq (car expr) keywords)
+                     (lookup-def (car expr)))))))
+
+
 ;; Emits the code of expr and returns its operand, one of:
 ;; - a slot: (val n), (raw n), (arg n), (self)
 ;; - a constant: (quad n), or a string, the address of a symbol
@@ -326,6 +333,14 @@
 ;; - a cast: (as-val x) or (as-raw x), only for kind, removed by lower-operand
 (define (compile-value env expr)
   (cond
+   ((and (symbol? expr)
+         (not (assq expr env))
+         (lookup-def expr))
+    => (lambda (def)
+         (unless (def-n def)
+           (error 'compile-value "inline def without a procedure object" expr))
+         `(as-val ,(def-proc def))))
+
    ((symbol? expr)
     (let ((op (lookup-var env expr)))
       ;; Copied, so a later set! does not change an operand already computed
@@ -351,6 +366,9 @@
    ((binary-op? expr)
     => (lambda (entry)
          (emit-op! (cdr entry) 'raw (compile-operands env expr '(raw raw)))))
+
+   ((indirect-call? expr)
+    (emit-op! 'call 'val (compile-indirect env expr)))
 
    ((and (pair? expr)
          (symbol? (car expr)))
@@ -489,6 +507,16 @@
   (compile-operands env expr (def-params-kinds def)))
 
 
+;; (code proc arg ...) for a call or tailcall of the procedure value (car expr)
+(define (compile-indirect env expr)
+  (unless (list? expr)
+    (error 'compile-indirect "invalid call" expr))
+  (let* ((ops (compile-exprs env expr (map (lambda (x) 'val) expr) expr))
+         (proc (car ops)))
+    (emit! `(ccall void "check_procedure" ,proc (quad ,(length (cdr ops)))))
+    (cons (emit-op! 'load 'raw (list proc '(quad 2))) ops)))
+
+
 ;; Every expression but the last for effect, then (compile-last env last)
 (define (compile-seq env exprs compile-last)
   (let-values (((init last) (split-last exprs)))
@@ -530,6 +558,9 @@
                            (lambda (env x) (compile-tail env callee x))))
           (else
            (compile-return env def x)))))
+
+   ((indirect-call? x)
+    (emit! `(tailcall ,@(compile-indirect env x))))
 
    ((pair? x)
     (case (car x)
