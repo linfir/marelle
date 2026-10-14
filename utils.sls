@@ -15,13 +15,13 @@
     (cons (cons k v) alist))
 
 
-  ;; Like map, but processes the list left to right
-  (define (map-in-order f lst)
-    (let loop ((lst lst)
+  ;; Like map, but processes the lists left to right
+  (define (map-in-order f lst . lsts)
+    (let loop ((lsts (cons lst lsts))
                (acc '()))
-      (if (null? lst)
+      (if (null? (car lsts))
           (reverse acc)
-          (loop (cdr lst) (cons (f (car lst)) acc)))))
+          (loop (map cdr lsts) (cons (apply f (map car lsts)) acc)))))
 
 
   (define (adjoin x xs)
