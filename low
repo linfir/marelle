@@ -26,8 +26,9 @@
 (define defs '())
 (define fn-counter (make-counter))
 (define name-kinds (make-eq-hashtable))
+(define inlining '())
 
-(define globals? #f)
+(define globals #f)
 
 (define blocks '())
 (define block-label #f)
@@ -44,7 +45,6 @@
    (else
     (let ((name (format "str~a" (strings-counter))))
       (set! strings (acons x name strings))
-      (print-entry (list 'string name x))
       name))))
 
 
@@ -514,12 +514,17 @@
 
 
 (define (compile-inline env def expr compile-last)
+  (when (memq def inlining)
+    (error 'compile-inline "recursive inline def" (def-name def)))
   (let* ((names (def-params-names def))
          (args (compile-args env def expr))
          (callee-env (map (lambda (name arg)
                             (bind-var name arg (def-body def) #f))
                           names args)))
-    (compile-seq callee-env (def-body def) compile-last)))
+    (set! inlining (cons def inlining))
+    (let ((result (compile-seq callee-env (def-body def) compile-last)))
+      (set! inlining (cdr inlining))
+      result)))
 
 
 (define (compile-let env expr compile-last)
@@ -757,15 +762,16 @@
                              name `(raw ,(bitwise-first-bit-set across)) instr))))))))
 
 
-;; Prints the def's strings, export, name, procedure object and function
-(define (emit-def def)
+;; The def's entries: export, name, procedure object and function;
+;; its strings are interned, printed later with the others
+(define (compile-def def)
   (let* ((params (def-params def))
          (arity (length params))
          (proc (def-proc def))
          (name (string-append proc "_name")))
     (unless (and (for-all (lambda (p) (eq? (cdr p) 'val)) params)
                  (eq? (def-result def) 'val))
-      (error 'emit-def "raw parameter or result in a non-inline def" (def-name def)))
+      (error 'compile-def "raw parameter or result in a non-inline def" (def-name def)))
     (set! blocks '())
     (set! block-label 0)
     (set! code '())
@@ -782,45 +788,60 @@
       (close-block!)
       (let ((body (reverse blocks)))
         (check-gc-safety (def-name def) body)
-        (when (def-public? def)
-          (print-entry `(export ,proc)))
-        (when (eq? (def-name def) 'main)
-          (print-entry '(export "scheme_main")))
-        (print-entry `(string ,name ,(symbol->string (def-as def))))
-        (print-entry `(data ,proc (quad "procedure_type") (quad ,arity)
-                            (quad ,(def-code def)) (quad ,name) (quad 0)))
-        (print-entry `(function ,(def-code def) (arity ,arity)
-                                ,@(map lower-block body)))))))
+        `(,@(if (def-public? def) `((export ,proc)) '())
+          ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
+          (string ,name ,(symbol->string (def-as def)))
+          (data ,proc (quad "procedure_type") (quad ,arity)
+                (quad ,(def-code def)) (quad ,name) (quad 0))
+          (function ,(def-code def) (arity ,arity)
+                    ,@(map lower-block body)))))))
 
 
-;; (globals n): the n global cells, initialized to undef
-(define (emit-globals form)
-  (unless (and (= (length form) 2) (integer? (cadr form)) (exact? (cadr form)) (>= (cadr form) 0))
-    (error 'emit-globals "invalid globals" form))
-  (when globals?
-    (error 'emit-globals "globals already defined" form))
-  (set! globals? #t)
-  (let ((n (cadr form)))
-    (print-entry '(export "scheme_globals" "scheme_nglobals"))
-    (print-entry `(cells "scheme_globals" ,n ,(cadr (lower-operand (immediate 'undef)))))
-    (print-entry `(data "scheme_nglobals" (quad ,n)))))
+;; (globals n): the number of global cells
+(define (parse-globals form)
+  (unless (and (= (length form) 2)
+               (integer? (cadr form))
+               (exact? (cadr form))
+               (>= (cadr form) 0))
+    (error 'parse-globals "invalid globals" form))
+  (when globals
+    (error 'parse-globals "globals already defined" form))
+  (set! globals (cadr form)))
 
 
+;; The global cells, initialized to undef
+(define (emit-globals n)
+  (print-entry '(export "scheme_globals" "scheme_nglobals"))
+  (print-entry `(cells "scheme_globals" ,n ,(cadr (lower-operand (immediate 'undef)))))
+  (print-entry `(data "scheme_nglobals" (quad ,n))))
+
+
+;; First pass: every def is known before any code is compiled
 (let loop ()
   (let ((form (read)))
     (unless (eof-object? form)
       (case (and (pair? form) (car form))
         ((def)
          (let ((def (parse-def form)))
-           (when (def-n def)
-             (emit-def def))
            (set! defs (acons (def-name def) def defs))))
         ((globals)
-         (emit-globals form))
+         (parse-globals form))
         (else
          (error 'low "unknown top-level form" form)))
       (loop))))
 
-;; The runtime needs the global cells
-(when (and (lookup-def 'main) (not globals?))
-  (emit-globals '(globals 0)))
+;; Second pass: the globals, then the strings the defs use, then the defs
+(let ((entries '()))
+  (for-each (lambda (entry)
+              (let ((def (cdr entry)))
+                (when (def-n def)
+                  (set! entries (append entries (compile-def def))))))
+            (reverse defs))
+
+  (emit-globals (or globals 0))
+
+  (for-each (lambda (s)
+              (print-entry `(string ,(cdr s) ,(car s))))
+            (reverse strings))
+
+  (for-each print-entry entries))
