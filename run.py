@@ -44,7 +44,7 @@ def compile_low(source):
     return run_stage("asm", ["scheme-script", ROOT / "asm"], input=ir, cwd=ROOT).stdout
 
 
-def run_pipeline(source, *, build=True, env=None, low=False, via_low=False):
+def run_pipeline(source, *, build=True, env=None, low=False):
     if build:
         build_runtime()
 
@@ -53,12 +53,7 @@ def run_pipeline(source, *, build=True, env=None, low=False, via_low=False):
         assembly = work / "out.s"
         executable = work / "out"
 
-        if low:
-            assembly.write_text(compile_low(source))
-        elif via_low:
-            assembly.write_text(compile_low(compile_scheme(source, "--low")))
-        else:
-            assembly.write_text(compile_scheme(source))
+        assembly.write_text(compile_low(source if low else compile_scheme(source, "--low")))
 
         run_stage("cc", ["cc", "-o", executable, assembly, ROOT / "tmp" / "runtime.o"])
         return run_stage("executable", [executable], env=os.environ | (env or {}))
@@ -74,7 +69,6 @@ def parse_args():
     source.add_argument("-e", metavar="STRING")
     source.add_argument("file", nargs="?", type=Path)
     parser.add_argument("--low", action="store_true", help="the source is a low program")
-    parser.add_argument("--via-low", action="store_true", help="compile Scheme through low")
     return parser.parse_args()
 
 
@@ -83,7 +77,7 @@ def main():
     source = args.e if args.e is not None else args.file.read_text()
 
     try:
-        result = run_pipeline(source, low=args.low, via_low=args.via_low)
+        result = run_pipeline(source, low=args.low)
     except PipelineFailure as error:
         sys.stdout.write(error.result.stdout)
         sys.stderr.write(f"run.py: {error}\n")

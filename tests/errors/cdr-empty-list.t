@@ -1,4 +1,4 @@
 (cdr '())
 ---
 stage = "executable"
-stderr_contains = "Error: cdr: expected pair: ()\n"
+stderr_contains = "Error: `cdr` expected a pair: ()\n"
