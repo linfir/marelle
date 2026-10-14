@@ -34,8 +34,8 @@ def build_runtime():
     return run_stage("setup", ["make", "-s"], cwd=ROOT)
 
 
-def compile_scheme(source, *flags):
-    return run_stage("compiler", ["scheme", "--script", ROOT / "compiler.ss", *flags], input=source, cwd=ROOT).stdout
+def compile_scheme(source):
+    return run_stage("compiler", ["scheme", "--script", ROOT / "compiler.ss"], input=source, cwd=ROOT).stdout
 
 
 def compile_low(source):
@@ -53,7 +53,7 @@ def run_pipeline(source, *, build=True, env=None, low=False):
         assembly = work / "out.s"
         executable = work / "out"
 
-        assembly.write_text(compile_low(source if low else compile_scheme(source, "--low")))
+        assembly.write_text(compile_low(source if low else compile_scheme(source)))
 
         run_stage("cc", ["cc", "-o", executable, assembly, ROOT / "tmp" / "runtime.o"])
         return run_stage("executable", [executable], env=os.environ | (env or {}))

@@ -283,7 +283,7 @@
          (prelude-names (map-in-order (lambda (d) (fresh-name prog (prelude-def-name d)))
                                       prelude-defs))
          (env (append (map (lambda (p)
-                             (cons (car p) (make-primitive-binding (cadr p) (caddr p) #f #f)))
+                             (cons (car p) (make-primitive-binding (cadr p) (caddr p))))
                            low-primitives)
                       (map (lambda (d name)
                              (cons (prelude-def-name d)

@@ -64,14 +64,6 @@ static int64_t integer_value(value x) {
     return (int64_t)x >> 3;
 }
 
-static value int_to_value(int64_t x) {
-    return ((value)x << 3) | 1;
-}
-
-static value bool_to_value(bool b) {
-    return b ? BOOL_TRUE : BOOL_FALSE;
-}
-
 static value *untag(value x) {
     return (value *)(uintptr_t)(x & ~(value)7);
 }
@@ -100,15 +92,6 @@ _Noreturn void scheme_error(const char *msg, value x) {
     exit(1);
 }
 
-static void check_integers(const char *msg, value x, value y) {
-    if (!is_integer(x)) {
-        scheme_error(msg, x);
-    }
-    if (!is_integer(y)) {
-        scheme_error(msg, y);
-    }
-}
-
 void check_procedure(value x, uint64_t nargs) {
     value *ptr = untag(x);
     if (!is_pointer(x) || ptr == NULL || !has_header(ptr, &procedure_type)) {
@@ -121,64 +104,12 @@ void check_procedure(value x, uint64_t nargs) {
     }
 }
 
-value int_add(value x, value y) {
-    check_integers("+: expected integer", x, y);
-    return x + y - 1;
-}
-
-value int_sub(value x, value y) {
-    check_integers("-: expected integer", x, y);
-    return x - y + 1;
-}
-
-value int_mul(value x, value y) {
-    check_integers("*: expected integer", x, y);
-    value product = (value)integer_value(x) * (value)integer_value(y);
-    return int_to_value((int64_t)product);
-}
-
-value int_eq(value x, value y) {
-    check_integers("=: expected integer", x, y);
-    return bool_to_value(x == y);
-}
-
-value int_lt(value x, value y) {
-    check_integers("<: expected integer", x, y);
-    return bool_to_value((int64_t)x < (int64_t)y);
-}
-
-value int_leq(value x, value y) {
-    check_integers("<=: expected integer", x, y);
-    return bool_to_value((int64_t)x <= (int64_t)y);
-}
-
-value int_gt(value x, value y) {
-    check_integers(">: expected integer", x, y);
-    return bool_to_value((int64_t)x > (int64_t)y);
-}
-
-value int_geq(value x, value y) {
-    check_integers(">=: expected integer", x, y);
-    return bool_to_value((int64_t)x >= (int64_t)y);
-}
-
-// ----------------------------------------------------------------------------
-
-value pair_p(value x) {
-    return bool_to_value(is_pair(x));
-}
-
-value car(value pair) {
-    if (!is_pair(pair)) {
-        scheme_error("car: expected pair", pair);
-    }
+// For printing, on pairs only
+static value car(value pair) {
     return untag(pair)[0];
 }
 
-value cdr(value pair) {
-    if (!is_pair(pair)) {
-        scheme_error("cdr: expected pair", pair);
-    }
+static value cdr(value pair) {
     return untag(pair)[1];
 }
 
