@@ -49,10 +49,10 @@
     (append (map car binary-ops)
             (map car tests)
             '(if when unless let let* begin set!
-              and or not
-              raw as-raw as-val
-              c-call quote undef
-              load store alloc self address)))
+                 and or not
+                 raw as-raw as-val
+                 c-call quote undef
+                 load store alloc self address)))
 
 
   (define fn-counter (make-counter))

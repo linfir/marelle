@@ -48,10 +48,7 @@ def read_case(path):
 
     expected.setdefault("exit", 0 if stage == "result" else "nonzero")
     exit_status = expected["exit"]
-    if not (
-        (isinstance(exit_status, int) and not isinstance(exit_status, bool))
-        or exit_status == "nonzero"
-    ):
+    if not ((isinstance(exit_status, int) and not isinstance(exit_status, bool)) or exit_status == "nonzero"):
         raise TestFormatError('exit must be an integer or "nonzero"')
 
     env = expected.get("env", {})
@@ -91,11 +88,7 @@ def check_case(path, chez=False, gc_stress=None):
         env = {"SCHEME_GC_STRESS": str(gc_stress)} | env
 
     try:
-        result = (
-            run_chez(source)
-            if chez
-            else run_pipeline(source, build=False, env=env, low=low)
-        )
+        result = run_chez(source) if chez else run_pipeline(source, build=False, env=env, low=low)
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result
@@ -156,9 +149,7 @@ def check_case(path, chez=False, gc_stress=None):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("patterns", nargs="*", help="test name patterns")
-    parser.add_argument(
-        "-k", dest="patterns_k", action="append", default=[], metavar="PATTERN"
-    )
+    parser.add_argument("-k", dest="patterns_k", action="append", default=[], metavar="PATTERN")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
         "--chez",
@@ -182,17 +173,11 @@ def selected_cases(patterns):
     if not patterns:
         return paths
 
-    globs = [
-        pattern if any(c in pattern for c in "*?[") else f"*{pattern}*"
-        for pattern in patterns
-    ]
+    globs = [pattern if any(c in pattern for c in "*?[") else f"*{pattern}*" for pattern in patterns]
     return [
         path
         for path in paths
-        if any(
-            fnmatch.fnmatchcase(path.relative_to(TEST_ROOT).as_posix(), pattern)
-            for pattern in globs
-        )
+        if any(fnmatch.fnmatchcase(path.relative_to(TEST_ROOT).as_posix(), pattern) for pattern in globs)
     ]
 
 
@@ -223,9 +208,7 @@ def main():
     failures = []
     skipped = 0
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-        results = list(
-            pool.map(lambda path: check_case(path, args.chez, args.gc_stress), paths)
-        )
+        results = list(pool.map(lambda path: check_case(path, args.chez, args.gc_stress), paths))
     for path, failure in zip(paths, results):
         name = path.relative_to(TEST_ROOT).as_posix()
         if failure == SKIP:
