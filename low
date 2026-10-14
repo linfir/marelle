@@ -146,7 +146,7 @@
 
 (define keywords
   (append (map car binary-ops)
-          '(if when unless let
+          '(if when unless let let* begin set!
             and or not
             raw as-raw as-val
             raw= raw< raw> raw<= raw>=
@@ -272,7 +272,11 @@
 (define (compile-value env expr)
   (cond
    ((symbol? expr)
-    (lookup-var env expr))
+    (let ((op (lookup-var env expr)))
+      ;; Copied, so a later set! does not change an operand already computed
+      (if (and (pair? op) (eq? (car op) 'mutable))
+          (emit-op! 'mov (kind (cadr op)) (cdr op))
+          op)))
 
    ((immediate expr)) ;; after symbol? because of 'undef
 
@@ -303,6 +307,22 @@
 
       ((let)
        (compile-let env expr compile-value))
+
+      ((let*)
+       (compile-value env (let*->let expr)))
+
+      ((begin)
+       (compile-seq env (begin-body expr) compile-value))
+
+      ;; (set! x expr): x is a local variable
+      ((set!)
+       (unless (and (= (length expr) 3) (symbol? (cadr expr)))
+         (error 'compile-value "invalid set!" expr))
+       (let ((var (lookup-var env (cadr expr))))
+         (assert (eq? (car var) 'mutable))
+         (let ((slot (cadr var)))
+           (emit! `(mov ,slot ,(compile-kind env (caddr expr) (kind slot) expr)))
+           '(void))))
 
       ((when unless)
        (unless (>= (length expr) 3)
@@ -440,7 +460,9 @@
 (define (compile-inline env def expr compile-last)
   (let* ((names (def-params-names def))
          (args (compile-args env def expr))
-         (callee-env (map cons names args)))
+         (callee-env (map (lambda (name arg)
+                            (bind-var name arg (def-body def) #f))
+                          names args)))
     (compile-seq callee-env (def-body def) compile-last)))
 
 
@@ -460,7 +482,74 @@
         (let ((op (compile-value env (cadar bindings))))
           (unless (memq (kind op) '(val raw))
             (error 'compile-let "expected a val or a raw" (car bindings)))
-          (loop (cdr bindings) (acons (caar bindings) op body-env))))))
+          (loop (cdr bindings)
+                (cons (bind-var (caar bindings) op (cddr expr) #f) body-env))))))
+
+
+;; (let* (binding ...) body ...) => nested lets
+(define (let*->let expr)
+  (unless (and (>= (length expr) 3) (list? (cadr expr)))
+    (error 'let*->let "invalid let*" expr))
+  (let loop ((bindings (cadr expr)))
+    (if (or (null? bindings) (null? (cdr bindings)))
+        `(let ,bindings ,@(cddr expr))
+        `(let (,(car bindings)) ,(loop (cdr bindings))))))
+
+
+(define (begin-body expr)
+  (unless (>= (length expr) 2)
+    (error 'begin-body "invalid begin" expr))
+  (cdr expr))
+
+
+;; Whether x contains a set! of the variable name, outside its shadowing bindings;
+;; malformed forms are scanned as plain lists, the compiler rejects them later
+(define (assigns? name x)
+  (define (any-assigns? xs)
+    (exists (lambda (y) (assigns? name y)) xs))
+  (define (bindings? x)
+    (and (list? x)
+         (for-all (lambda (b)
+                    (and (list? b)
+                         (= (length b) 2) (symbol? (car b))))
+                  x)))
+  (cond
+   ((not (list? x)) #f)
+   ((null? x) #f)
+   ((eq? (car x) 'quote) #f)
+   ((and (eq? (car x) 'set!)
+         (= (length x) 3)
+         (eq? (cadr x) name))
+    #t)
+   ((and (memq (car x) '(let let*))
+         (>= (length x) 3)
+         (bindings? (cadr x)))
+    (let loop ((bindings (cadr x)))
+      (cond
+       ((null? bindings)
+        (and (not (and (eq? (car x) 'let)
+                       (assq name (cadr x))))
+             (any-assigns? (cddr x))))
+       ((assigns? name (cadar bindings))
+        #t)
+       ((and (eq? (car x) 'let*)
+             (eq? (caar bindings) name))
+        #f)
+       (else
+        (loop (cdr bindings))))))
+   (else (any-assigns? x))))
+
+
+;; The env entry of a variable bound to op, with body its scope;
+;; an assigned variable gets its own slot, unless op already is (own?)
+(define (bind-var name op body own?)
+  (cond
+   ((not (exists (lambda (x) (assigns? name x)) body))
+    (cons name op))
+   (own?
+    (cons name `(mutable ,op)))
+   (else
+    (cons name `(mutable ,(emit-op! 'mov (kind op) (list op)))))))
 
 
 ;; and/or in a test: short is the truth that ends the evaluation early
@@ -501,6 +590,13 @@
 
    ((and (pair? test) (eq? (car test) 'let))
     (compile-let env test (lambda (env x) (compile-branch env x jump-if label))))
+
+   ((and (pair? test) (eq? (car test) 'let*))
+    (compile-branch env (let*->let test) jump-if label))
+
+   ((and (pair? test) (eq? (car test) 'begin))
+    (compile-seq env (begin-body test)
+                 (lambda (env x) (compile-branch env x jump-if label))))
 
    ((inline-call? test)
     => (lambda (def)
@@ -644,7 +740,8 @@
     (set! tmp-counter (make-counter))
     (set! raw-counter (make-counter))
     (set! label-counter (make-counter))
-    (let ((result (compile-seq (map (lambda (p i) (cons (car p) (list 'arg (+ i 1))))
+    (let ((result (compile-seq (map (lambda (p i)
+                                      (bind-var (car p) (list 'arg (+ i 1)) (def-body def) #t))
                                     params (iota arity))
                                (def-body def)
                                (lambda (env x) (compile-result env def x)))))
