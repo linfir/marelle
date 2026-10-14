@@ -173,8 +173,8 @@
    (else (error 'parse-result "invalid result" x))))
 
 
-;; Bind x as a def or a local: a def name is never reused, and a local
-;; name only after the local that had it went out of scope (free)
+;; Bind x as a def or a local: a def name is never reused,
+;; and a local name only after the local that had it went out of scope (free)
 (define (bind-name! x kind)
   (let ((old (hashtable-ref name-kinds x #f)))
     (cond
@@ -324,7 +324,6 @@
 ;; - a constant: (quad n), or a string, the address of a symbol
 ;; - a marker: (void), (never)
 ;; - a cast: (as-val x) or (as-raw x), only for kind, removed by lower-operand
-;; A (raw n) is never inside a cast: as-val copies it into a tmp
 (define (compile-value env expr)
   (cond
    ((symbol? expr)
@@ -511,6 +510,58 @@
       '(void))
      (else
       (check-kind op result (def-name def)) op))))
+
+
+;; Ends the function with x: a call to a non-inline def becomes a tailcall,
+;; any other value is returned; def is the innermost def x ends, for its result
+(define (compile-tail env def x)
+  (define (tail env x)
+    (compile-tail env def x))
+
+  (cond
+   ((call-form? x)
+    => (lambda (callee)
+         (cond
+          ((not (def-inline? callee))
+           (emit! `(tailcall ,(def-code callee) ,(def-proc callee)
+                             ,@(compile-args env callee x))))
+          ((eq? (def-result callee) 'val)
+           (compile-inline env callee x
+                           (lambda (env x) (compile-tail env callee x))))
+          (else
+           (compile-return env def x)))))
+
+   ((pair? x)
+    (case (car x)
+      ((if)
+       (unless (= (length x) 4)
+         (error 'compile-tail "invalid if" x))
+       (let ((label-false (fresh-label)))
+         (compile-branch env (cadr x) #f label-false)
+         (tail env (caddr x))
+         (start-block! label-false)
+         (tail env (cadddr x))))
+
+      ((let)
+       (compile-let env x tail))
+
+      ((let*)
+       (tail env (let*->let x)))
+
+      ((begin)
+       (compile-seq env (begin-body x) tail))
+
+      (else
+       (compile-return env def x))))
+
+   (else
+    (compile-return env def x))))
+
+
+(define (compile-return env def x)
+  (let ((op (compile-result env def x)))
+    (unless (eq? (kind op) 'never)
+      (emit! `(ret ,op)))))
 
 
 (define (compile-inline env def expr compile-last)
@@ -778,23 +829,21 @@
     (set! tmp-counter (make-counter))
     (set! raw-counter (make-counter))
     (set! label-counter (make-counter))
-    (let ((result (compile-seq (map (lambda (p i)
-                                      (bind-var (car p) (list 'arg (+ i 1)) (def-body def) #t))
-                                    params (iota arity))
-                               (def-body def)
-                               (lambda (env x) (compile-result env def x)))))
-      (unless (eq? (kind result) 'never)
-        (emit! `(ret ,result)))
-      (close-block!)
-      (let ((body (reverse blocks)))
-        (check-gc-safety (def-name def) body)
-        `(,@(if (def-public? def) `((export ,proc)) '())
-          ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
-          (string ,name ,(symbol->string (def-as def)))
-          (data ,proc (quad "procedure_type") (quad ,arity)
-                (quad ,(def-code def)) (quad ,name) (quad 0))
-          (function ,(def-code def) (arity ,arity)
-                    ,@(map lower-block body)))))))
+    (compile-seq (map (lambda (p i)
+                        (bind-var (car p) (list 'arg (+ i 1)) (def-body def) #t))
+                      params (iota arity))
+                 (def-body def)
+                 (lambda (env x) (compile-tail env def x)))
+    (close-block!)
+    (let ((body (reverse blocks)))
+      (check-gc-safety (def-name def) body)
+      `(,@(if (def-public? def) `((export ,proc)) '())
+        ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
+        (string ,name ,(symbol->string (def-as def)))
+        (data ,proc (quad "procedure_type") (quad ,arity)
+              (quad ,(def-code def)) (quad ,name) (quad 0))
+        (function ,(def-code def) (arity ,arity)
+                  ,@(map lower-block body))))))
 
 
 ;; (globals n): the number of global cells
