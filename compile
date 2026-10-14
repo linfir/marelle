@@ -244,11 +244,15 @@
        #t))
 
 
+(define (define-form? form)
+  (and (non-empty-list? form)
+       (eq? (car form) 'define)))
+
+
 ;; (define (name arg ...) body ...) => (values name args body)
 ;; (define name init) => (values name #f (init))
 (define (parse-define form)
-  (unless (and (non-empty-list? form)
-               (eq? (car form) 'define))
+  (unless (define-form? form)
     (error 'parse-define "non define form in define position" form))
   (unless (and (>= (length form) 3)
                (or (pair? (cadr form))
@@ -600,7 +604,10 @@
                 (lift-procedure! prog env name (prelude-def-name d)
                                  (prelude-def-args d) (prelude-def-body d)))
               prelude-defs prelude-names)
-    (let-values (((forms expr) (split-last program)))
+    ;; A program ending with a define evaluates to undef
+    (let-values (((forms expr) (if (define-form? (car (last-pair program)))
+                                   (values program undef)
+                                   (split-last program))))
       (let* ((globals (scan-defs forms make-global-def))
              (env (append (map (lambda (g)
                                  (cons (global-def-name g)
