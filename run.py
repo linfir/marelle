@@ -35,12 +35,16 @@ def build_runtime():
 
 
 def compile_scheme(source):
-    return run_stage("compiler", ["scheme", "--script", ROOT / "compiler.ss"], input=source, cwd=ROOT).stdout
+    return run_stage(
+        "compiler", ["scheme-script", ROOT / "compile"], input=source, cwd=ROOT
+    ).stdout
 
 
 def compile_low(source):
     prelude = (ROOT / "prelude.low").read_text()
-    ir = run_stage("low", ["scheme-script", ROOT / "low"], input=prelude + source, cwd=ROOT).stdout
+    ir = run_stage(
+        "low", ["scheme-script", ROOT / "low"], input=prelude + source, cwd=ROOT
+    ).stdout
     return run_stage("asm", ["scheme-script", ROOT / "asm"], input=ir, cwd=ROOT).stdout
 
 
@@ -68,7 +72,9 @@ def parse_args():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("-e", metavar="STRING")
     source.add_argument("file", nargs="?", type=Path)
-    parser.add_argument("--low", action="store_true", help="the source is a low program")
+    parser.add_argument(
+        "--low", action="store_true", help="the source is a low program"
+    )
     return parser.parse_args()
 
 

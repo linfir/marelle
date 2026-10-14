@@ -48,7 +48,10 @@ def read_case(path):
 
     expected.setdefault("exit", 0 if stage == "result" else "nonzero")
     exit_status = expected["exit"]
-    if not ((isinstance(exit_status, int) and not isinstance(exit_status, bool)) or exit_status == "nonzero"):
+    if not (
+        (isinstance(exit_status, int) and not isinstance(exit_status, bool))
+        or exit_status == "nonzero"
+    ):
         raise TestFormatError('exit must be an integer or "nonzero"')
 
     env = expected.get("env", {})
@@ -88,7 +91,11 @@ def check_case(path, chez=False, gc_stress=None):
         env = {"SCHEME_GC_STRESS": str(gc_stress)} | env
 
     try:
-        result = run_chez(source) if chez else run_pipeline(source, build=False, env=env, low=low)
+        result = (
+            run_chez(source)
+            if chez
+            else run_pipeline(source, build=False, env=env, low=low)
+        )
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result
@@ -98,7 +105,10 @@ def check_case(path, chez=False, gc_stress=None):
     if chez and expected_stage != "result":
         # Chez has no separate stages and its own error messages: only check that it fails.
         if actual_stage == "result":
-            return actual_stage, ["expected an error", f"stdout: {describe_stream(result.stdout)}"]
+            return actual_stage, [
+                "expected an error",
+                f"stdout: {describe_stream(result.stdout)}",
+            ]
         return None
 
     if actual_stage != expected_stage:
@@ -146,10 +156,21 @@ def check_case(path, chez=False, gc_stress=None):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("patterns", nargs="*", help="test name patterns")
-    parser.add_argument("-k", dest="patterns_k", action="append", default=[], metavar="PATTERN")
+    parser.add_argument(
+        "-k", dest="patterns_k", action="append", default=[], metavar="PATTERN"
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("--chez", action="store_true", help="run the tests with Chez Scheme instead of the compiler")
-    parser.add_argument("--gc-stress", type=int, metavar="N", help="collect every N allocations (SCHEME_GC_STRESS)")
+    parser.add_argument(
+        "--chez",
+        action="store_true",
+        help="run the tests with Chez Scheme instead of the compiler",
+    )
+    parser.add_argument(
+        "--gc-stress",
+        type=int,
+        metavar="N",
+        help="collect every N allocations (SCHEME_GC_STRESS)",
+    )
     args = parser.parse_args()
     if args.gc_stress is not None and args.gc_stress < 1:
         parser.error("--gc-stress must be at least 1")
@@ -161,11 +182,17 @@ def selected_cases(patterns):
     if not patterns:
         return paths
 
-    globs = [pattern if any(c in pattern for c in "*?[") else f"*{pattern}*" for pattern in patterns]
+    globs = [
+        pattern if any(c in pattern for c in "*?[") else f"*{pattern}*"
+        for pattern in patterns
+    ]
     return [
         path
         for path in paths
-        if any(fnmatch.fnmatchcase(path.relative_to(TEST_ROOT).as_posix(), pattern) for pattern in globs)
+        if any(
+            fnmatch.fnmatchcase(path.relative_to(TEST_ROOT).as_posix(), pattern)
+            for pattern in globs
+        )
     ]
 
 
@@ -196,7 +223,9 @@ def main():
     failures = []
     skipped = 0
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-        results = list(pool.map(lambda path: check_case(path, args.chez, args.gc_stress), paths))
+        results = list(
+            pool.map(lambda path: check_case(path, args.chez, args.gc_stress), paths)
+        )
     for path, failure in zip(paths, results):
         name = path.relative_to(TEST_ROOT).as_posix()
         if failure == SKIP:
