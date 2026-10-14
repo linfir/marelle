@@ -1,9 +1,3 @@
-(def box-ref ((val b)) -> (val) (:inline)
-     (as-val (load (as-raw b) (raw 1))))
-
-(def box-set! ((val b) (val v)) -> () (:inline)
-     (store (as-raw b) (raw 1) v))
-
 ;; Allocates boxes to force collections while one is live
 (def churn ((val n)) -> (val) ()
      (if (= n 0)

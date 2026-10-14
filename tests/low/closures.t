@@ -8,13 +8,13 @@
 
 (def make-adder ((val k)) -> (val) ()
      (let ((c (alloc-closure adder)))
-       (store c (raw 5) k)
+       (closure-set! c (raw 0) k)
        (as-val c)))
 
 (def make-pairer ((val a) (val b)) -> (val) ()
      (let ((c (alloc-closure pairer)))
-       (store c (raw 5) a)
-       (store c (raw 6) b)
+       (closure-set! c (raw 0) a)
+       (closure-set! c (raw 1) b)
        (as-val c)))
 
 ;; Allocates closures to force collections while some are live

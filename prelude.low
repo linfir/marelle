@@ -41,6 +41,12 @@
        (store b (raw 1) v)
        (as-val b)))
 
+(def box-ref ((val b)) -> (val) (:inline)
+     (as-val (load (as-raw b) (raw 1))))
+
+(def box-set! ((val b) (val v)) -> () (:inline)
+     (store (as-raw b) (raw 1) v))
+
 ;; Capture i of the current closure: only valid inlined in its lifted function
 (def closure-ref ((raw i)) -> (val) (:inline)
      (as-val (load (as-raw (self)) (raw+ i (raw 5)))))
@@ -55,6 +61,10 @@
        (store c (raw 3) (load proc (raw 3)))
        (store c (raw 4) (load proc (raw 4)))
        c))
+
+;; Sets capture i of the closure c from alloc-closure
+(def closure-set! ((raw c) (raw i) (val v)) -> () (:inline)
+     (store c (raw+ i (raw 5)) v))
 
 (def fixnum? ((val x)) -> (val) (:inline)
      (tag=? x (raw 1)))
