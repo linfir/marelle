@@ -70,7 +70,7 @@ def describe_stream(value):
     return repr(value) if "\n" not in value else "\n" + value
 
 
-def check_case(path, chez=False, gc_stress=None):
+def check_case(path, chez=False, gc_stress=None, via_low=False):
     try:
         source, expected = read_case(path)
     except (OSError, TestFormatError) as error:
@@ -88,7 +88,7 @@ def check_case(path, chez=False, gc_stress=None):
         env = {"SCHEME_GC_STRESS": str(gc_stress)} | env
 
     try:
-        result = run_chez(source) if chez else run_pipeline(source, build=False, env=env, low=low)
+        result = run_chez(source) if chez else run_pipeline(source, build=False, env=env, low=low, via_low=via_low)
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result
@@ -149,6 +149,7 @@ def parse_args():
     parser.add_argument("-k", dest="patterns_k", action="append", default=[], metavar="PATTERN")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--chez", action="store_true", help="run the tests with Chez Scheme instead of the compiler")
+    parser.add_argument("--via-low", action="store_true", help="compile Scheme through low")
     parser.add_argument("--gc-stress", type=int, metavar="N", help="collect every N allocations (SCHEME_GC_STRESS)")
     args = parser.parse_args()
     if args.gc_stress is not None and args.gc_stress < 1:
@@ -196,7 +197,7 @@ def main():
     failures = []
     skipped = 0
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-        results = list(pool.map(lambda path: check_case(path, args.chez, args.gc_stress), paths))
+        results = list(pool.map(lambda path: check_case(path, args.chez, args.gc_stress, args.via_low), paths))
     for path, failure in zip(paths, results):
         name = path.relative_to(TEST_ROOT).as_posix()
         if failure == SKIP:

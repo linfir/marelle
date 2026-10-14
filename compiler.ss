@@ -3,6 +3,7 @@
 (import (utils))
 (load "ir.ss")
 (load "frontend.ss")
+(load "scheme-low.ss")
 (load "backend.ss")
 
 
@@ -44,6 +45,13 @@
 
 (define *prelude-defs* (scan-prelude (with-input-from-file "prelude.ss" read-all)))
 (set! *env* (bind-prelude-defs *env* *prelude-defs*))
+
+
+(when (member "--low" (command-line-arguments))
+  (parameterize ((print-brackets #f))
+    (for-each pretty-print
+              (program->low (with-input-from-file "prelude.ss" read-all) (read-all))))
+  (exit))
 
 
 (let* ((prelude? (member "--prelude" (command-line-arguments)))
