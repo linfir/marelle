@@ -1,6 +1,7 @@
 (library (low-parse)
   (export parse-program binary-ops tests keywords bindings?
           def-name def-params def-result def-inline? def-public? def-body def-n def-as
+          def-anonymous? def-captures
           def-proc def-code def-params-names def-params-kinds)
   (import (chezscheme)
           (utils))
@@ -10,8 +11,10 @@
   ;; result   kind
   ;; n        number of the emitted function, #f when the def is only inlined
   ;; as       name Scheme sees, from (:as name), else the def name
+  ;; anonymous? from :anonymous, the procedure object has no name
+  ;; captures number of captures from (:captures n), 0 for a static procedure
   (define-record-type def
-    (fields name params result inline? public? body n as))
+    (fields name params result inline? public? body n as anonymous? captures))
 
 
   (define (def-proc def) (format "proc~a" (def-n def)))
@@ -54,6 +57,12 @@
 
   (define fn-counter (make-counter))
   (define name-kinds (make-eq-hashtable))
+
+
+  ;; (key x) in attrs => x, else #f
+  (define (attr-value attrs key)
+    (let ((a (find (lambda (a) (and (pair? a) (eq? (car a) key))) attrs)))
+      (and a (cadr a))))
 
 
   ;; (val x) => (x . val)
@@ -145,15 +154,22 @@
            (name (cadr form))
            (inline? (and (memq ':inline attrs) #t))
            (public? (and (memq ':public attrs) #t))
-           (as (find pair? attrs)))
+           (anonymous? (and (memq ':anonymous attrs) #t))
+           (as (attr-value attrs ':as))
+           (captures (or (attr-value attrs ':captures) 0)))
       (for-each (lambda (a)
-                  (unless (or (memq a '(:inline :public))
-                              (and (pair? a) (eq? (car a) ':as)
-                                   (= (length a) 2) (symbol? (cadr a))))
+                  (unless (or (memq a '(:inline :public :anonymous))
+                              (and (pair? a) (= (length a) 2)
+                                   (or (and (eq? (car a) ':as) (symbol? (cadr a)))
+                                       (and (eq? (car a) ':captures)
+                                            (integer? (cadr a)) (exact? (cadr a))
+                                            (>= (cadr a) 0)))))
                     (error 'parse-def "unknown attribute" a)))
                 attrs)
-      (when (and as (not public?))
-        (error 'parse-def ":as requires :public" name))
+      (when (and as anonymous?)
+        (error 'parse-def ":as and :anonymous" name))
+      (when (and (> captures 0) (or inline? public? (eq? name 'main)))
+        (error 'parse-def ":captures requires a non-inline, non-public def other than main" name))
       (when (memq name keywords)
         (error 'parse-def "name already defined" name))
       (when (and (eq? name 'main)
@@ -171,7 +187,7 @@
             (error 'parse-def "raw parameter or result in a non-inline def" name))
           (make-def name params result inline? public? body
                     (and emitted? (fn-counter))
-                    (if as (cadr as) name))))))
+                    (or as name) anonymous? captures)))))
 
 
   ;; (globals n): the number of global cells; seen is the count already given, or #f

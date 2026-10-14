@@ -110,7 +110,10 @@
       => (lambda (def)
            (unless (def-n def)
              (error 'compile-value "inline def without a procedure object" expr))
-           `(as-val ,(def-proc def))))
+           ;; A closure def gives the raw address of its template, for alloc-closure
+           (if (zero? (def-captures def))
+               `(as-val ,(def-proc def))
+               (def-proc def))))
 
      ((symbol? expr)
       (let ((op (lookup-var env expr)))
@@ -131,8 +134,7 @@
       => (lambda (def)
            (if (def-inline? def)
                (compile-inline env def expr (lambda (env x) (compile-result env def x)))
-               (emit-op! 'call 'val
-                         (cons* (def-code def) (def-proc def) (compile-args env def expr))))))
+               (emit-op! 'call 'val (compile-direct env def expr)))))
 
      ((binary-op? expr)
       => (lambda (entry)
@@ -270,6 +272,14 @@
     (compile-operands env expr (def-params-kinds def)))
 
 
+  ;; (code proc arg ...) for a call or tailcall of the non-inline def;
+  ;; a closure def has no static procedure to pass, only a template
+  (define (compile-direct env def expr)
+    (unless (zero? (def-captures def))
+      (error 'compile-direct "direct call of a closure def" expr))
+    (cons* (def-code def) (def-proc def) (compile-args env def expr)))
+
+
   ;; (code proc arg ...) for a call or tailcall of the procedure value (car expr)
   (define (compile-indirect env expr)
     (unless (list? expr)
@@ -314,8 +324,7 @@
       => (lambda (callee)
            (cond
             ((not (def-inline? callee))
-             (emit! `(tailcall ,(def-code callee) ,(def-proc callee)
-                               ,@(compile-args env callee x))))
+             (emit! `(tailcall ,@(compile-direct env callee x))))
             ((eq? (def-result callee) 'val)
              (compile-inline env callee x
                              (lambda (env x) (compile-tail env callee x))))
@@ -515,12 +524,13 @@
 
 
   ;; The def's entries: export, name, procedure object and function;
-  ;; its strings are interned, printed later with the others
+  ;; its strings are interned, printed later with the others;
+  ;; a closure def's object is the template alloc-closure copies, with its ncaptures
   (define (compile-def def)
     (let* ((params (def-params def))
            (arity (length params))
            (proc (def-proc def))
-           (name (string-append proc "_name")))
+           (name (and (not (def-anonymous? def)) (string-append proc "_name"))))
       (let ((body (with-function
                    (lambda ()
                      (compile-seq (map (lambda (p i)
@@ -531,9 +541,9 @@
         (check-gc-safety (def-name def) body)
         `(,@(if (def-public? def) `((export ,proc)) '())
           ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
-          (string ,name ,(symbol->string (def-as def)))
+          ,@(if name `((string ,name ,(symbol->string (def-as def)))) '())
           (data ,proc (quad "procedure_type") (quad ,arity)
-                (quad ,(def-code def)) (quad ,name) (quad 0))
+                (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
           (function ,(def-code def) (arity ,arity)
                     ,@(map lower-block body))))))
 
