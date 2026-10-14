@@ -318,12 +318,24 @@
 (define *directives* '(intel_syntax globl text section balign quad asciz))
 
 
+;; Writes s as a GNU as string: printable ASCII as is, other bytes in octal
+(define (write-gas-string s)
+  (write-char #\")
+  (for-each (lambda (b)
+              (cond
+               ((memv b '(34 92)) (printf "\\~a" (integer->char b)))
+               ((<= 32 b 126) (write-char (integer->char b)))
+               (else (printf "\\~3,'0o" b))))
+            (bytevector->u8-list (string->utf8 s)))
+  (write-char #\"))
+
+
 (define (print-operand x)
   (cond
    ((or (symbol? x) (number? x))
     (display x))
    ((string? x)
-    (write x))
+    (write-gas-string x))
    ((and (eq? (car x) 'mem) (= (length x) 4))
     (printf "qword ptr [~a + ~a*~a]" (cadr x) (caddr x) (cadddr x)))
    ((eq? (car x) 'mem)
