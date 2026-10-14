@@ -2,8 +2,7 @@
      (let ((x 1))
        (let* ((y 2)
               (x 3))
-         (set! x 4)
-         (set! y x))
-       x))
+         x)))
 ---
-stdout = "1"
+stage = "low"
+stderr_contains = "shadowed variable"

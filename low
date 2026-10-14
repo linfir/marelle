@@ -25,6 +25,7 @@
 
 (define defs '())
 (define fn-counter (make-counter))
+(define name-kinds (make-eq-hashtable))
 
 (define globals? #f)
 
@@ -172,6 +173,59 @@
    (else (error 'parse-result "invalid result" x))))
 
 
+;; Bind x as a def or a local: a def name is never reused, and a local
+;; name only after the local that had it went out of scope (free)
+(define (bind-name! x kind)
+  (let ((old (hashtable-ref name-kinds x #f)))
+    (cond
+     ((not old))
+     ((eq? kind 'def)
+      (error 'bind-name! (if (eq? old 'def) "name already defined" "def named like a local") x))
+     ((eq? old 'def)
+      (error 'bind-name! "local variable named like a def" x))
+     ((eq? old 'local)
+      (error 'bind-name! "shadowed variable" x)))
+    (hashtable-set! name-kinds x kind)))
+
+
+(define (unbind-local! x)
+  (hashtable-set! name-kinds x 'free))
+
+
+;; Bind the params, then the variables of each let in body while it is in scope;
+;; malformed forms are scanned as plain lists, the compiler rejects them later
+(define (bind-locals! params body)
+  (define (bindings? x)
+    (and (list? x)
+         (for-all (lambda (b)
+                    (and (list? b)
+                         (= (length b) 2) (symbol? (car b))))
+                  x)))
+  (define (walk x)
+    (cond
+     ((not (list? x)))
+     ((null? x))
+     ((eq? (car x) 'quote))
+     ((and (memq (car x) '(let let*))
+           (>= (length x) 3)
+           (bindings? (cadr x)))
+      (let ((star? (eq? (car x) 'let*))
+            (vars (map car (cadr x))))
+        (for-each (lambda (b)
+                    (walk (cadr b))
+                    (when star?
+                      (bind-name! (car b) 'local)))
+                  (cadr x))
+        (unless star?
+          (for-each (lambda (v) (bind-name! v 'local)) vars))
+        (for-each walk (cddr x))
+        (for-each unbind-local! vars)))
+     (else (for-each walk x))))
+  (for-each (lambda (p) (bind-name! p 'local)) params)
+  (for-each walk body)
+  (for-each unbind-local! params))
+
+
 ;; (def name (param ...) -> (kind ...) (attr ...) body ...)
 (define (parse-def form)
   (unless (and (list? form)
@@ -196,17 +250,19 @@
               attrs)
     (when (and as (not public?))
       (error 'parse-def ":as requires :public" name))
-    (when (or (memq name keywords) (lookup-def name))
+    (when (memq name keywords)
       (error 'parse-def "name already defined" name))
     (when (and (eq? name 'main)
                (or inline? (not (null? (caddr form))) (not (equal? (list-ref form 4) '(val)))))
       (error 'parse-def "main must be a non-inline def with no parameters and a val result" form))
-    (make-def name
-              (map parse-param (caddr form))
-              (parse-result (list-ref form 4))
-              inline? public? body
-              (and (or public? (not inline?)) (fn-counter))
-              (if as (cadr as) name))))
+    (let ((params (map parse-param (caddr form))))
+      (bind-name! name 'def)
+      (bind-locals! (map car params) body)
+      (make-def name params
+                (parse-result (list-ref form 4))
+                inline? public? body
+                (and (or public? (not inline?)) (fn-counter))
+                (if as (cadr as) name)))))
 
 
 (define (lookup-var env x)
@@ -502,17 +558,9 @@
   (cdr expr))
 
 
-;; Whether x contains a set! of the variable name, outside its shadowing bindings;
+;; Whether x contains a set! of the variable name;
 ;; malformed forms are scanned as plain lists, the compiler rejects them later
 (define (assigns? name x)
-  (define (any-assigns? xs)
-    (exists (lambda (y) (assigns? name y)) xs))
-  (define (bindings? x)
-    (and (list? x)
-         (for-all (lambda (b)
-                    (and (list? b)
-                         (= (length b) 2) (symbol? (car b))))
-                  x)))
   (cond
    ((not (list? x)) #f)
    ((null? x) #f)
@@ -521,23 +569,7 @@
          (= (length x) 3)
          (eq? (cadr x) name))
     #t)
-   ((and (memq (car x) '(let let*))
-         (>= (length x) 3)
-         (bindings? (cadr x)))
-    (let loop ((bindings (cadr x)))
-      (cond
-       ((null? bindings)
-        (and (not (and (eq? (car x) 'let)
-                       (assq name (cadr x))))
-             (any-assigns? (cddr x))))
-       ((assigns? name (cadar bindings))
-        #t)
-       ((and (eq? (car x) 'let*)
-             (eq? (caar bindings) name))
-        #f)
-       (else
-        (loop (cdr bindings))))))
-   (else (any-assigns? x))))
+   (else (exists (lambda (y) (assigns? name y)) x))))
 
 
 ;; The env entry of a variable bound to op, with body its scope;
