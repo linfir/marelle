@@ -135,10 +135,7 @@
   (values (cadr form) (caddr form)))
 
 
-;; compile expr in value position
-;;   env is an alist of pairs (symbol . binding)
-;;   code is accumulated in ctx
-;; returns dst or throw an error
+;; An application: neither an immediate nor a special form
 (define (call? env expr)
   (and (non-empty-list? expr)
        (not (immediate? expr))
@@ -341,7 +338,7 @@
 (define (lookup-binding env x)
   (let ((entry (assq x env)))
     (unless entry
-      (error 'compile-value "unknown symbol" x))
+      (error 'lookup-binding "unknown symbol" x))
     (cdr entry)))
 
 
@@ -355,7 +352,7 @@
     (lower-immediate expr))
 
    ((number? expr)
-    (error 'compile-value "unsupported number" expr))
+    (error 'lower-value "unsupported number" expr))
 
    ((special? env expr)
     (case (car expr)
@@ -394,7 +391,7 @@
        (else (procedure-binding-proc b)))))
 
    (else
-    (error 'compile-value "unknown form" expr))))
+    (error 'lower-value "unknown form" expr))))
 
 
 ;; expr as the test of an if: and, or and not stay low's, which branch
@@ -558,7 +555,7 @@
      ((global-binding? b)
       `(begin (global-set! (raw ,(global-binding-index b)) ,src) undef))
      (else
-      (error 'compile-set! "set! of a prelude procedure or primitive" var)))))
+      (error 'lower-set! "set! of a prelude procedure or primitive" var)))))
 
 
 (define (lower-call prog env form)
@@ -567,7 +564,7 @@
     (if (and entry (primitive-binding? (cdr entry)))
         (begin
           (unless (= (length args) (procedure-binding-arity (cdr entry)))
-            (error 'compile-primitive-call "wrong number of arguments" form))
+            (error 'lower-call "wrong number of arguments" form))
           (cons (procedure-binding-proc (cdr entry)) args))
         (lower-apply prog (lower-value prog env (car form)) args))))
 
@@ -584,7 +581,7 @@
 ;; The low defs of the prelude and the program, after (globals n)
 (define (program->low prelude program)
   (when (null? program)
-    (error 'program->ir "empty program"))
+    (error 'program->low "empty program"))
   (let* ((prog (make-low-program))
          (prelude-defs (scan-prelude prelude))
          (prelude-names (map-in-order (lambda (d) (fresh-name prog (prelude-def-name d)))
