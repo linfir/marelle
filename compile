@@ -30,7 +30,7 @@
 
 
 (define-record-type local-binding
-  (fields operand assigned?))
+  (fields operand))
 
 
 (define-record-type box-binding
@@ -46,12 +46,6 @@
 
 (define-record-type primitive-binding
   (parent procedure-binding))
-
-
-(define (binding-value binding)
-  (if (local-binding? binding)
-      (local-binding-operand binding)
-      (procedure-binding-proc binding)))
 
 
 (define *special-forms* '(if and or let let* lambda begin set!))
@@ -310,8 +304,8 @@
 ;; A captured local is either boxed or never assigned
 (define (capture-binding operand binding)
   (if (box-binding? binding)
-      (make-box-binding operand #t)
-      (make-local-binding operand #f)))
+      (make-box-binding operand)
+      (make-local-binding operand)))
 
 
 ;; names  counter of the fresh names
@@ -396,7 +390,8 @@
       (cond
        ((global-binding? b) `(global-ref (raw ,(global-binding-index b))))
        ((box-binding? b) `(box-ref ,(local-binding-operand b)))
-       (else (binding-value b)))))
+       ((local-binding? b) (local-binding-operand b))
+       (else (procedure-binding-proc b)))))
 
    (else
     (error 'compile-value "unknown form" expr))))
@@ -481,8 +476,8 @@
   (let* ((name (fresh-name prog var))
          (init (lower-named prog env var init)))
     (if (boxed? var vars)
-        (cons `(,name (make-box ,init)) (cons var (make-box-binding name #t)))
-        (cons `(,name ,init) (cons var (make-local-binding name #f))))))
+        (cons `(,name (make-box ,init)) (cons var (make-box-binding name)))
+        (cons `(,name ,init) (cons var (make-local-binding name))))))
 
 
 (define (lower-body prog env exprs lower-last)
@@ -523,8 +518,8 @@
          (body-env (append (map (lambda (x p)
                                   (cons x (let ((box (assq p boxes)))
                                             (if box
-                                                (make-box-binding (cdr box) #t)
-                                                (make-local-binding p #f)))))
+                                                (make-box-binding (cdr box))
+                                                (make-local-binding p)))))
                                 args params)
                            inner-env))
          (body (lower-body prog body-env body lower-value))

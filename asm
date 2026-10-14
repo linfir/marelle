@@ -47,38 +47,6 @@
   (filter (lambda (x) (eq? (car x) tag)) tops))
 
 
-;; Symbol of the C string naming the procedure proc
-(define (proc-name-label proc)
-  (string-append proc "_name"))
-
-
-;; (string label text): a C string in read-only data
-(define (proc-name-string proc name)
-  (list 'string (proc-name-label proc) (symbol->string name)))
-
-
-;; name is a symbol of the C string, or #f
-(define (proc-data proc arity code name)
-  (list 'data proc
-        (list 'quad "procedure_type")
-        (list 'quad arity)
-        (list 'quad code)
-        (list 'quad (or name 0))
-        (list 'quad 0)))
-
-
-;; (primitive name proc code arity result block ...): a procedure whose
-;; body the compiler can inline, (arg i) being the i-th operand
-(define (primitive->ir x)
-  (apply (lambda (tag name proc code arity result . blocks)
-           (let-values (((init last) (split-last blocks)))
-             (list (proc-name-string proc name)
-                   (proc-data proc arity code (proc-name-label proc))
-                   `(function ,code (arity ,arity) ,@init
-                              ,(append last `((ret ,result)))))))
-         x))
-
-
 (define arg-regs '(rdi rsi rdx rcx r8 r9))
 
 
@@ -269,17 +237,6 @@
        (emit-asm! ctx `(,op rax ,(if (memq op '(sal sar)) 'cl 'rcx)))
        (store! ctx dst 'rax)))
 
-    ((tag-je tag-jne)
-     (let ((op (if (eq? (car instr) 'tag-je) 'je 'jne))
-           (src (cadr instr))
-           (tag (caddr instr))
-           (label (cadddr instr)))
-       (load! ctx 'rax src)
-       (emit-asm! ctx
-                  '(and rax 7)
-                  `(cmp rax ,tag)
-                  `(,op ,(label-name ctx label)))))
-
     ((je jne jl jle jg jge jmp)
      (let ((op (car instr))
            (label (cadr instr)))
@@ -394,7 +351,6 @@
 (define (expand-top x)
   (case (car x)
     ((export) '())
-    ((primitive) (primitive->ir x))
     (else (list x))))
 
 
