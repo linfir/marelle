@@ -65,19 +65,20 @@ __attribute__((format(printf, 1, 2))) _Noreturn static void scheme_fatal(const c
 // scheme_mem is the current one, scheme_len its used words out of scheme_cap.
 // The inline path of alloc_frame bumps scheme_len up to scheme_limit, 0 in stress mode.
 // Each space is zero past its used part, so frame slots not yet written hold 0.
-value *scheme_mem;
-size_t scheme_len, scheme_cap, scheme_limit;
-static value *spare_mem;
+// The GC state is in prelude.low.
+extern value *scheme_mem;
+extern size_t scheme_len, scheme_cap, scheme_limit;
+extern value *spare_mem;
 
 // Cells of the top-level defines, from the compiled program
 extern value scheme_globals[];
 extern const uint64_t scheme_nglobals;
 
 // Statistics, printed at exit when SCHEME_GC_STATS is set
-static uint64_t gc_count, gc_copied, gc_max_live, gc_used_before;
+extern uint64_t gc_count, gc_copied, gc_max_live, gc_used_before;
 
 // Stress mode (SCHEME_GC_STRESS): collect every gc_stress allocations
-static uint64_t gc_stress, gc_countdown;
+extern uint64_t gc_stress, gc_countdown;
 
 static size_t object_words(const value *p) {
     if (has_header(p, FRAME_TYPE)) {

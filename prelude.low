@@ -1,3 +1,17 @@
+;; GC state, read and written by runtime.c and runtime.s
+(data scheme-mem 1 ((:c-name "scheme_mem")))
+(data scheme-len 1 ((:c-name "scheme_len")))
+(data scheme-cap 1 ((:c-name "scheme_cap")))
+(data scheme-limit 1 ((:c-name "scheme_limit")))
+(data spare-mem 1 ((:c-name "spare_mem")))
+(data gc-count 1 ((:c-name "gc_count")))
+(data gc-copied 1 ((:c-name "gc_copied")))
+(data gc-max-live 1 ((:c-name "gc_max_live")))
+(data gc-used-before 1 ((:c-name "gc_used_before")))
+(data gc-stress 1 ((:c-name "gc_stress")))
+(data gc-countdown 1 ((:c-name "gc_countdown")))
+
+
 (def tag ((val x)) -> (raw) (:inline)
      (bit-and (as-raw x) (raw 7)))
 
