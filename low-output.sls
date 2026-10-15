@@ -52,5 +52,5 @@
   ;; The global cells, initialized to undef
   (define (emit-globals n)
     (print-entry '(export "scheme_globals" "scheme_nglobals"))
-    (print-entry `(cells "scheme_globals" ,n ,(cadr (lower-operand (immediate 'undef)))))
-    (print-entry `(data "scheme_nglobals" (quad ,n)))))
+    (print-entry `(data "scheme_globals" ,n ,(cadr (lower-operand (immediate 'undef)))))
+    (print-entry `(rodata "scheme_nglobals" (quad ,n)))))

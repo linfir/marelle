@@ -32,6 +32,8 @@
 
   ;; The (name . def) alist of the program
   (define current-defs (make-parameter '()))
+  ;; The (name . data) alist of the program
+  (define current-datas (make-parameter '()))
   ;; The (string . name) alist of the interned strings, newest first
   (define current-strings (make-parameter '()))
   (define inlining (make-parameter '()))
@@ -109,6 +111,11 @@
   (define (compile-value env expr)
     (cond
      ((immediate expr))
+
+     ;; A data name gives the raw address of its first word
+     ((and (symbol? expr)
+           (assq expr (current-datas)))
+      => (lambda (entry) (data-symbol (cdr entry))))
 
      ((and (symbol? expr)
            (not (assq expr env))
@@ -701,8 +708,8 @@
       `(,@(if (def-public? def) `((export ,proc)) '())
         ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
         ,@(if name `((string ,name ,(symbol->string (def-as def)))) '())
-        (data ,proc (quad ,procedure-type) (quad ,arity)
-              (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
+        (rodata ,proc (quad ,procedure-type) (quad ,arity)
+                (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
         (function ,(def-code def) (arity ,arity)
                   ,@(map lower-block body)))))
 
@@ -710,13 +717,20 @@
   ;; Prints the IR of the program made of forms
   (define (compile-low forms)
     ;; First pass: every def is known before any code is compiled
-    (let-values (((defs globals) (parse-program forms)))
+    (let-values (((defs datas globals) (parse-program forms)))
       (parameterize ((current-defs defs)
+                     (current-datas datas)
                      (current-strings '()))
-        ;; Second pass: the globals, then the strings the defs use, then the defs
+        ;; Second pass: the globals and data, then the strings the defs use, then the defs
         (let ((entries (apply append (map-in-order compile-def (filter def-n (map cdr defs))))))
 
           (emit-globals globals)
+
+          (for-each (lambda (d)
+                      (when (data-export? d)
+                        (print-entry `(export ,(data-symbol d))))
+                      (print-entry `(data ,(data-symbol d) ,(data-nwords d) 0)))
+                    (map cdr datas))
 
           (for-each (lambda (s)
                       (print-entry `(string ,(cdr s) ,(car s))))

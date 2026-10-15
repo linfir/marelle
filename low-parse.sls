@@ -2,7 +2,8 @@
   (export parse-program binary-ops tests keywords bindings?
           def-name def-params def-result def-inline? def-public? def-body def-n def-as
           def-anonymous? def-captures def-native? def-c-name
-          def-proc def-code def-params-names def-params-kinds)
+          def-proc def-code def-params-names def-params-kinds
+          data-name data-nwords data-symbol data-export?)
   (import (chezscheme)
           (utils))
 
@@ -17,6 +18,13 @@
   ;; c-name   from (:c-name "name"), the exported symbol of a native def, else #f
   (define-record-type def
     (fields name params result inline? public? body n as anonymous? captures native? c-name))
+
+
+  ;; nwords   number of words, zeroed
+  ;; symbol   from (:c-name "name"), else a local label
+  ;; export?  from (:c-name "name")
+  (define-record-type data
+    (fields name nwords symbol export?))
 
 
   (define (def-proc def) (format "proc~a" (def-n def)))
@@ -59,6 +67,7 @@
 
 
   (define fn-counter (make-counter))
+  (define data-counter (make-counter))
   (define name-kinds (make-eq-hashtable))
 
 
@@ -225,19 +234,49 @@
     (cadr form))
 
 
-  ;; The (name . def) alist in source order, and the number of global cells
+  ;; (data name nwords (attr ...)): static words outside the heap
+  (define (parse-data form)
+    (unless (and (list? form)
+                 (= (length form) 4)
+                 (symbol? (cadr form))
+                 (integer? (caddr form))
+                 (exact? (caddr form))
+                 (> (caddr form) 0)
+                 (list? (cadddr form)))
+      (error 'parse-data "invalid data" form))
+    (let ((name (cadr form))
+          (attrs (cadddr form)))
+      (for-each (lambda (a)
+                  (unless (and (pair? a) (= (length a) 2)
+                               (eq? (car a) ':c-name) (string? (cadr a)))
+                    (error 'parse-data "unknown attribute" a)))
+                attrs)
+      (when (memq name keywords)
+        (error 'parse-data "name already defined" name))
+      (bind-name! name 'def)
+      (let ((c-name (attr-value attrs ':c-name)))
+        (make-data name (caddr form)
+                   (or c-name (format "data~a" (data-counter)))
+                   (and c-name #t)))))
+
+
+  ;; The (name . def) and (name . data) alists in source order, and the number of global cells
   (define (parse-program forms)
     (let loop ((forms forms)
                (defs '())
+               (datas '())
                (globals #f))
       (if (null? forms)
-          (values (reverse defs) (or globals 0))
+          (values (reverse defs) (reverse datas) (or globals 0))
           (let ((form (car forms)))
             (case (and (pair? form) (car form))
               ((def)
                (let ((def (parse-def form)))
-                 (loop (cdr forms) (acons (def-name def) def defs) globals)))
+                 (loop (cdr forms) (acons (def-name def) def defs) datas globals)))
+              ((data)
+               (let ((d (parse-data form)))
+                 (loop (cdr forms) defs (acons (data-name d) d datas) globals)))
               ((globals)
-               (loop (cdr forms) defs (parse-globals form globals)))
+               (loop (cdr forms) defs datas (parse-globals form globals)))
               (else
                (error 'low "unknown top-level form" form))))))))

@@ -166,11 +166,9 @@
     (case (car index)
       ((quad)
        `(mem rax ,(* 8 (cadr index))))
-      ((raw)
-       (load! ctx 'rcx index)
-       '(mem rax rcx 8))
       (else
-       (error 'element! "invalid index" index))))
+       (load! ctx 'rcx index)
+       '(mem rax rcx 8))))
 
 
   (define (leave! ctx)
@@ -338,7 +336,8 @@
 
   (define (top->asm x)
     (case (car x)
-      ((data)
+      ;; (rodata name (quad x) ...): read-only words, which may hold relocated addresses
+      ((rodata)
        `((section ".data.rel.ro")
          (balign 8)
          (label ,(cadr x))
@@ -347,8 +346,8 @@
        `((section ".rodata")
          (label ,(cadr x))
          (asciz ,(caddr x))))
-      ;; (cells name n word): n words, each initialized to word
-      ((cells)
+      ;; (data name n word): n words, each initialized to word
+      ((data)
        (let ((n (caddr x)))
          `((section ".data")
            (balign 8)
