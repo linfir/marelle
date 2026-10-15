@@ -3,7 +3,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -50,14 +49,8 @@ static bool has_header(const value *p, value type) {
     return p[0] == type;
 }
 
-__attribute__((format(printf, 1, 2))) _Noreturn static void scheme_fatal(const char *fmt, ...) {
-    fflush(stdout);
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-    exit(1);
-}
+// Prints fmt, a printf format using up to two string arguments, and exits; in prelude.low
+_Noreturn void scheme_fatal(const char *fmt, const char *a, const char *b);
 
 // ----------------------------------------------------------------------------
 
@@ -170,7 +163,7 @@ value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
     if (stress || nwords > scheme_cap - scheme_len) {
         scheme_collect(roots, nroots);
         if (nwords > scheme_cap - scheme_len) {
-            scheme_fatal("Out of memory\n");
+            scheme_fatal("Out of memory\n", NULL, NULL);
         }
     }
     value *ptr = &scheme_mem[scheme_len];
@@ -223,7 +216,7 @@ int main(void) {
     scheme_mem = calloc(scheme_cap, sizeof(value));
     spare_mem = calloc(scheme_cap, sizeof(value));
     if (scheme_mem == NULL || spare_mem == NULL) {
-        scheme_fatal("Memory allocation failed\n");
+        scheme_fatal("Memory allocation failed\n", NULL, NULL);
     }
     value v = scheme_enter();
     scheme_display(stdout, v);

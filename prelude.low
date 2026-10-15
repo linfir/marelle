@@ -93,6 +93,13 @@
                    (c-call fprintf out "#<procedure %s>" name)))
              (c-call fputs "#<unknown ptr>" out))))
 
+;; Prints fmt, a printf format using up to two arguments a and b, and exits;
+;; for runtime.c, before the program runs or when it cannot go on
+(def fatal ((raw fmt) (raw a) (raw b)) -> ! (:native (:c-name "scheme_fatal"))
+     (c-call fflush (raw 0))
+     (c-call fprintf (stderr) fmt a b)
+     (c-call exit (raw 1)))
+
 ;; Prints "Error: msg: x" and exits
 (def scheme-error ((raw msg) (val x)) -> ! (:native)
      (c-call fflush (raw 0))
