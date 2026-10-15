@@ -125,6 +125,8 @@
 
      ((symbol? expr)
       (let ((op (lookup-var env expr)))
+        (when (and (pair? op) (eq? (car op) 'loop))
+          (error 'compile-value "named let used as a value or called not in exit position" expr))
         ;; Copied, so a later set! does not change an operand already computed
         (if (and (pair? op) (eq? (car op) 'mutable))
             (emit-op! 'mov (kind (cadr op)) (cdr op))
@@ -166,7 +168,9 @@
            (compile-if env test then else)))
 
         ((let)
-         (compile-let env expr compile-value))
+         (if (named-let? expr)
+             (compile-loop-value env expr)
+             (compile-let env expr compile-value)))
 
         ((let*)
          (compile-value env (let*->let expr)))
@@ -341,28 +345,20 @@
         (check-kind op result (def-name def)) op))))
 
 
-  ;; Ends the function with x: a call to a non-inline def becomes a tailcall,
-  ;; any other value is returned; def is the innermost def x ends, for its result
-  (define (compile-tail env def x)
-    (define (tail env x)
-      (compile-tail env def x))
+  ;; Compiles x, whose value ends an evaluation: through if, let, let*, begin
+  ;; and named lets, a call to a named let jumps back to it,
+  ;; and any other expression goes to (leaf env x)
+  (define (compile-exit env x leaf)
+    (define (exit env x)
+      (compile-exit env x leaf))
 
     (cond
-     ((call-form? x)
-      => (lambda (callee)
-           (cond
-            ((def-native? callee)
-             (compile-return env def x))
-            ((not (def-inline? callee))
-             (emit! `(tailcall ,@(compile-direct env callee x))))
-            ((eq? (def-result callee) 'val)
-             (compile-inline env callee x
-                             (lambda (env x) (compile-tail env callee x))))
-            (else
-             (compile-return env def x)))))
+     ((loop-call env x)
+      => (lambda (loop)
+           (compile-loop-call env x loop)))
 
-     ((indirect-call? x)
-      (emit! `(tailcall ,@(compile-indirect env x))))
+     ((named-let? x)
+      (compile-loop env x exit))
 
      ((pair? x)
       (case (car x)
@@ -370,24 +366,126 @@
          (let-values (((test then else) (if-parts x)))
            (let ((label-false (fresh-label)))
              (compile-branch env test #f label-false)
-             (tail env then)
+             (exit env then)
              (start-block! label-false)
-             (tail env else))))
+             (exit env else))))
 
         ((let)
-         (compile-let env x tail))
+         (compile-let env x exit))
 
         ((let*)
-         (tail env (let*->let x)))
+         (exit env (let*->let x)))
 
         ((begin)
-         (compile-seq env (begin-body x) tail))
+         (compile-seq env (begin-body x) exit))
 
         (else
-         (compile-return env def x))))
+         (leaf env x))))
 
      (else
-      (compile-return env def x))))
+      (leaf env x))))
+
+
+  ;; Ends the function with x: a call to a non-inline def becomes a tailcall,
+  ;; any other value is returned; def is the innermost def x ends, for its result
+  (define (compile-tail env def x)
+    (compile-exit
+     env x
+     (lambda (env x)
+       (cond
+        ((call-form? x)
+         => (lambda (callee)
+              (cond
+               ((def-native? callee)
+                (compile-return env def x))
+               ((not (def-inline? callee))
+                (emit! `(tailcall ,@(compile-direct env callee x))))
+               ((eq? (def-result callee) 'val)
+                (compile-inline env callee x
+                                (lambda (env x) (compile-tail env callee x))))
+               (else
+                (compile-return env def x)))))
+
+        ((indirect-call? x)
+         (emit! `(tailcall ,@(compile-indirect env x))))
+
+        (else
+         (compile-return env def x))))))
+
+
+  (define (named-let? x)
+    (and (list? x)
+         (>= (length x) 2)
+         (eq? (car x) 'let)
+         (symbol? (cadr x))))
+
+
+  ;; The binding (loop label slot ...) when x calls a named let in env, else #f
+  (define (loop-call env x)
+    (and (pair? x)
+         (symbol? (car x))
+         (let ((entry (assq (car x) env)))
+           (and entry
+                (pair? (cdr entry))
+                (eq? (cadr entry) 'loop)
+                (cdr entry)))))
+
+
+  ;; (let name ((var init) ...) body ...): each var gets its own slot, then the body
+  ;; starts a block; a call (name arg ...) in exit position sets the slots and jumps back
+  (define (compile-loop env expr compile-last)
+    (unless (and (>= (length expr) 4)
+                 (bindings? (caddr expr)))
+      (error 'compile-loop "invalid named let" expr))
+    (let* ((bindings (caddr expr))
+           (slots (map (lambda (b)
+                         (let ((op (compile-value env (cadr b))))
+                           (unless (memq (kind op) '(val raw))
+                             (error 'compile-loop "expected a val or a raw" b))
+                           (let ((slot (fresh-tmp (kind op))))
+                             (emit! `(mov ,slot ,op))
+                             slot)))
+                       bindings))
+           (label (fresh-label)))
+      (start-block! label)
+      (compile-seq (append (map (lambda (b slot) (cons (car b) `(mutable ,slot))) bindings slots)
+                           (list (cons (cadr expr) `(loop ,label ,@slots)))
+                           env)
+                   (cdddr expr)
+                   compile-last)))
+
+
+  ;; Reading a var copies its slot, so the args are computed before any slot is set
+  (define (compile-loop-call env x loop)
+    (let ((label (cadr loop))
+          (slots (cddr loop)))
+      (unless (= (length (cdr x)) (length slots))
+        (error 'compile-loop-call "wrong number of arguments" x))
+      (let ((ops (map-in-order (lambda (arg slot) (compile-checked env arg (kind slot) x))
+                               (cdr x) slots)))
+        (for-each (lambda (slot op) (emit! `(mov ,slot ,op))) slots ops)
+        (emit! `(jmp ,label)))))
+
+
+  ;; A named let as a value: each exit stores its value and jumps to the end
+  (define (compile-loop-value env expr)
+    (let ((dst #f)
+          (label-end (fresh-label)))
+      (compile-loop env expr
+                    (lambda (env x)
+                      (compile-exit
+                       env x
+                       (lambda (env x)
+                         (let ((op (compile-value env x)))
+                           (unless (eq? (kind op) 'never)
+                             (if dst
+                                 (check-kind op (kind dst) expr)
+                                 (set! dst (if (memq (kind op) '(val raw)) (fresh-tmp (kind op)) op)))
+                             (when (memq (kind dst) '(val raw))
+                               (emit! `(mov ,dst ,op)))
+                             (emit! `(jmp ,label-end))))))))
+      (start-block! label-end)
+      (or dst '(never))))
 
 
   (define (compile-return env def x)
@@ -508,7 +606,7 @@
              (emit! `(cmp ,@ops))
              (emit! `(,(if jump-if (cadr entry) (caddr entry)) ,label)))))
 
-     ((and (pair? test) (eq? (car test) 'let))
+     ((and (pair? test) (eq? (car test) 'let) (not (named-let? test)))
       (compile-let env test (lambda (env x) (compile-branch env x jump-if label))))
 
      ((and (pair? test) (eq? (car test) 'let*))
