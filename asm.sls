@@ -16,6 +16,11 @@
 ;;   rbp + 8*(n+m+6)    (raw 1)
 ;;   ...
 ;;
+;; Native functions have their frame on the machine stack, rsp pointing to it:
+;;
+;;   rsp + 0            (arg 1)
+;;   ...                then the tmps and the raws, as above
+;;
 ;; C calls (ccall) follow the System V AMD64 ABI:
 ;;   - arguments in rdi, rsi, rdx, rcx, r8, r9, result in rax
 ;;   - al = 0 (no vector arguments), for variadic functions
@@ -64,16 +69,16 @@
 
 
   (define-record-type asm-context
-    (fields fn arity ntmp nraw (mutable code) ret-counter))
+    (fields fn native? arity ntmp nraw (mutable code) ret-counter))
 
 
-  ;; x is (function name (arity n) block ...),
+  ;; x is (function name (arity n) block ...) or (native name (arity n) block ...),
   ;; a block being (block n instr ...),
   ;; n being its label,
   ;; and falling through to the next one
   (define (new-asm-context x)
     (let ((blocks (cdddr x)))
-      (make-asm-context (cadr x) (cadr (caddr x))
+      (make-asm-context (cadr x) (eq? (car x) 'native) (cadr (caddr x))
                         (count-slots 'tmp blocks) (count-slots 'raw blocks)
                         '() (make-counter))))
 
@@ -82,18 +87,32 @@
     (asm-context-code-set! ctx (append (reverse instrs) (asm-context-code ctx))))
 
 
+  ;; Word i of the frame after the header, from 1: the args, the tmps, then the raws
+  (define (frame-word ctx i)
+    (if (asm-context-native? ctx)
+        `(mem rsp ,(* 8 (- i 1)))
+        `(mem rbp ,(+ frame-self (* 8 i)))))
+
+
   (define (slot ctx x)
     (case (car x)
       ((self)
        `(mem rbp ,frame-self))
       ((arg)
-       `(mem rbp ,(+ frame-self (* 8 (cadr x)))))
+       (frame-word ctx (cadr x)))
       ((tmp)
-       `(mem rbp ,(+ frame-self (* 8 (+ (asm-context-arity ctx) (cadr x))))))
+       (frame-word ctx (+ (asm-context-arity ctx) (cadr x))))
       ((raw)
-       `(mem rbp ,(+ frame-self (* 8 (+ (asm-context-arity ctx) (asm-context-ntmp ctx) (cadr x))))))
+       (frame-word ctx (+ (asm-context-arity ctx) (asm-context-ntmp ctx) (cadr x))))
       (else
        (error 'slot "not a slot operand" x))))
+
+
+  ;; The bytes of a native frame, keeping rsp 16-byte aligned at calls:
+  ;; it is 8 past a multiple of 16 on entry, the return address being pushed
+  (define (native-bytes ctx)
+    (let ((n (+ (asm-context-arity ctx) (asm-context-ntmp ctx) (asm-context-nraw ctx))))
+      (* 8 (if (even? n) (+ n 1) n))))
 
 
   (define (load! ctx reg x)
@@ -249,15 +268,23 @@
 
       ((ret)
        (let ((src (cadr instr)))
-         (load! ctx 'rax src)
-         (leave! ctx)
-         (emit-asm! ctx '(jmp r11))))
+         (cond
+          ((asm-context-native? ctx)
+           (unless (equal? src '(void))
+             (load! ctx 'rax src))
+           (emit-asm! ctx
+                      `(add rsp ,(native-bytes ctx))
+                      '(ret)))
+          (else
+           (load! ctx 'rax src)
+           (leave! ctx)
+           (emit-asm! ctx '(jmp r11))))))
 
       (else
        (error 'instr->asm! "unknown instruction" instr))))
 
 
-  ;; x is (function name (arity n) block ...), a block being
+  ;; x is (function|native name (arity n) block ...), a block being
   ;; (block n instr ...), n being its label, and falling through to the next one
   (define (function->asm x)
     (let* ((ctx (new-asm-context x))
@@ -269,10 +296,13 @@
         (error 'function->asm "too many parameters" fn))
       (emit-asm! ctx
                  '(text)
-                 `(label ,fn)
-                 `(mov rax ,nwords)
-                 '(call "alloc_frame")
-                 `(mov (mem rbp ,frame-nraw) ,nraw))
+                 `(label ,fn))
+      (if (asm-context-native? ctx)
+          (emit-asm! ctx `(sub rsp ,(native-bytes ctx)))
+          (emit-asm! ctx
+                     `(mov rax ,nwords)
+                     '(call "alloc_frame")
+                     `(mov (mem rbp ,frame-nraw) ,nraw)))
       (let loop ((i 1)
                  (regs arg-regs))
         (when (<= i arity)
@@ -305,7 +335,7 @@
            ,@(if (= n 0)
                  '()
                  (list (cons 'quad (make-list n (cadddr x))))))))
-      ((function)
+      ((function native)
        (function->asm x))
       (else (error 'top->asm "unknown top-level entry" x))))
 

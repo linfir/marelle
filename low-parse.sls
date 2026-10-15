@@ -1,7 +1,7 @@
 (library (low-parse)
   (export parse-program binary-ops tests keywords bindings?
           def-name def-params def-result def-inline? def-public? def-body def-n def-as
-          def-anonymous? def-captures
+          def-anonymous? def-captures def-native?
           def-proc def-code def-params-names def-params-kinds)
   (import (chezscheme)
           (utils))
@@ -13,8 +13,9 @@
   ;; as       name Scheme sees, from (:as name), else the def name
   ;; anonymous? from :anonymous, the procedure object has no name
   ;; captures number of captures from (:captures n), 0 for a static procedure
+  ;; native?  from :native, System V convention and a machine stack frame, never collects
   (define-record-type def
-    (fields name params result inline? public? body n as anonymous? captures))
+    (fields name params result inline? public? body n as anonymous? captures native?))
 
 
   (define (def-proc def) (format "proc~a" (def-n def)))
@@ -157,10 +158,11 @@
            (inline? (and (memq ':inline attrs) #t))
            (public? (and (memq ':public attrs) #t))
            (anonymous? (and (memq ':anonymous attrs) #t))
+           (native? (and (memq ':native attrs) #t))
            (as (attr-value attrs ':as))
            (captures (or (attr-value attrs ':captures) 0)))
       (for-each (lambda (a)
-                  (unless (or (memq a '(:inline :public :anonymous))
+                  (unless (or (memq a '(:inline :public :anonymous :native))
                               (and (pair? a) (= (length a) 2)
                                    (or (and (eq? (car a) ':as) (symbol? (cadr a)))
                                        (and (eq? (car a) ':captures)
@@ -172,6 +174,8 @@
         (error 'parse-def ":as and :anonymous" name))
       (when (and (> captures 0) (or inline? public? (eq? name 'main)))
         (error 'parse-def ":captures requires a non-inline, non-public def other than main" name))
+      (when (and native? (or inline? public? anonymous? as (> captures 0) (eq? name 'main)))
+        (error 'parse-def ":native with another attribute" name))
       (when (memq name keywords)
         (error 'parse-def "name already defined" name))
       (when (and (eq? name 'main)
@@ -184,12 +188,13 @@
               (emitted? (or public? (not inline?))))
           ;; An emitted def is called with the Scheme convention
           (unless (or (not emitted?)
+                      native?
                       (and (for-all (lambda (p) (eq? (cdr p) 'val)) params)
                            (memq result '(val never))))
             (error 'parse-def "raw parameter or result in a non-inline def" name))
           (make-def name params result inline? public? body
                     (and emitted? (fn-counter))
-                    (or as name) anonymous? captures)))))
+                    (or as name) anonymous? captures native?)))))
 
 
   ;; (globals n): the number of global cells; seen is the count already given, or #f

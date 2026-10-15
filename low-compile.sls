@@ -116,6 +116,8 @@
       => (lambda (def)
            (unless (def-n def)
              (error 'compile-value "inline def without a procedure object" expr))
+           (when (def-native? def)
+             (error 'compile-value "native def without a procedure object" expr))
            ;; A closure def gives the raw address of its template, for alloc-closure
            (if (zero? (def-captures def))
                `(as-val ,(def-proc def))
@@ -136,14 +138,18 @@
 
      ((call-form? expr)
       => (lambda (def)
-           (if (def-inline? def)
-               (compile-inline env def expr (lambda (env x) (compile-result env def x)))
-               (if (eq? (def-result def) 'never)
-                   (begin
-                     (emit! `(call void ,@(compile-direct env def expr)))
-                     (emit! '(unreachable))
-                     '(never))
-                   (emit-op! 'call 'val (compile-direct env def expr))))))
+           (cond
+            ((def-inline? def)
+             (compile-inline env def expr (lambda (env x) (compile-result env def x))))
+            ((def-native? def)
+             (compile-native env def expr))
+            (else
+             (if (eq? (def-result def) 'never)
+                 (begin
+                   (emit! `(call void ,@(compile-direct env def expr)))
+                   (emit! '(unreachable))
+                   '(never))
+                 (emit-op! 'call 'val (compile-direct env def expr)))))))
 
      ((binary-op? expr)
       => (lambda (entry)
@@ -289,13 +295,26 @@
     (cons* (def-code def) (def-proc def) (compile-args env def expr)))
 
 
+  ;; A call to the native def: a C call, so not a safepoint
+  (define (compile-native env def expr)
+    (let ((ops (cons (def-code def) (compile-args env def expr))))
+      (case (def-result def)
+        ((void never)
+         (emit! `(ccall void ,@ops))
+         (if (eq? (def-result def) 'never)
+             (begin (emit! '(unreachable)) '(never))
+             '(void)))
+        (else
+         (emit-op! 'ccall (def-result def) ops)))))
+
+
   ;; (code proc arg ...) for a call or tailcall of the procedure value (car expr)
   (define (compile-indirect env expr)
     (unless (list? expr)
       (error 'compile-indirect "invalid call" expr))
     (let* ((ops (compile-exprs env expr (map (lambda (x) 'val) expr) expr))
            (proc (car ops)))
-      (compile-value (list (cons 'proc proc)) `(check-procedure proc ,(length (cdr ops))))
+      (compile-value (list (cons 'proc proc)) `(check-procedure proc (raw ,(length (cdr ops)))))
       (cons (emit-op! 'load 'raw (list proc '(quad 2))) ops)))
 
 
@@ -332,6 +351,8 @@
      ((call-form? x)
       => (lambda (callee)
            (cond
+            ((def-native? callee)
+             (compile-return env def x))
             ((not (def-inline? callee))
              (emit! `(tailcall ,@(compile-direct env callee x))))
             ((eq? (def-result callee) 'val)
@@ -532,29 +553,59 @@
           (if (eq? (kind a) 'never) b dst)))))
 
 
-  ;; The def's entries: export, name, procedure object and function;
+  ;; The def's entries: export, name, procedure object and function, or a native function;
   ;; its strings are interned, printed later with the others;
   ;; a closure def's object is the template alloc-closure copies, with its ncaptures
   (define (compile-def def)
     (let* ((params (def-params def))
            (arity (length params))
-           (proc (def-proc def))
+           (body (with-function
+                  (lambda ()
+                    (compile-seq (map (lambda (p i)
+                                        (let ((arg (list 'arg (+ i 1))))
+                                          (bind-var (car p)
+                                                    (if (eq? (cdr p) 'raw) `(as-raw ,arg) arg)
+                                                    (def-body def) #t)))
+                                      params (iota arity))
+                                 (def-body def)
+                                 (lambda (env x) (compile-tail env def x)))))))
+      (check-gc-safety (def-name def) body)
+      (if (def-native? def)
+          (begin
+            (check-native (def-name def) body)
+            `((native ,(def-code def) (arity ,arity)
+                      ,@(map lower-block body))))
+          (procedure-entries def arity body))))
+
+
+  ;; A native def may run during a collection, so it never collects;
+  ;; it has no procedure object, so no self
+  (define (check-native name body)
+    (define (self? x)
+      (and (pair? x)
+           (or (equal? x '(self))
+               (self? (car x))
+               (self? (cdr x)))))
+
+    (for-each (lambda (block)
+                (for-each (lambda (instr)
+                            (when (or (memq (car instr) '(call tailcall alloc))
+                                      (self? instr))
+                              (error 'check-native "safepoint or self in a native def" name instr)))
+                          (cddr block)))
+              body))
+
+
+  (define (procedure-entries def arity body)
+    (let* ((proc (def-proc def))
            (name (and (not (def-anonymous? def)) (string-append proc "_name"))))
-      (let ((body (with-function
-                   (lambda ()
-                     (compile-seq (map (lambda (p i)
-                                         (bind-var (car p) (list 'arg (+ i 1)) (def-body def) #t))
-                                       params (iota arity))
-                                  (def-body def)
-                                  (lambda (env x) (compile-tail env def x)))))))
-        (check-gc-safety (def-name def) body)
-        `(,@(if (def-public? def) `((export ,proc)) '())
-          ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
-          ,@(if name `((string ,name ,(symbol->string (def-as def)))) '())
-          (data ,proc (quad ,procedure-type) (quad ,arity)
-                (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
-          (function ,(def-code def) (arity ,arity)
-                    ,@(map lower-block body))))))
+      `(,@(if (def-public? def) `((export ,proc)) '())
+        ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
+        ,@(if name `((string ,name ,(symbol->string (def-as def)))) '())
+        (data ,proc (quad ,procedure-type) (quad ,arity)
+              (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
+        (function ,(def-code def) (arity ,arity)
+                  ,@(map lower-block body)))))
 
 
   ;; Prints the IR of the program made of forms

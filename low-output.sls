@@ -20,9 +20,9 @@
 
 
   (define (print-entry x)
-    (if (eq? (car x) 'function)
+    (if (memq (car x) '(function native))
         (begin
-          (printf "(function ~s ~s" (cadr x) (caddr x))
+          (printf "(~s ~s ~s" (car x) (cadr x) (caddr x))
           (for-each (lambda (b)
                       (printf "\n  (block ~s" (cadr b))
                       (for-each (lambda (i) (printf "\n    ~s" i)) (cddr b))
