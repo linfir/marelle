@@ -1,7 +1,7 @@
 (library (low-parse)
   (export parse-program binary-ops tests keywords bindings?
           def-name def-params def-result def-inline? def-public? def-body def-n def-as
-          def-anonymous? def-captures def-native?
+          def-anonymous? def-captures def-native? def-c-name
           def-proc def-code def-params-names def-params-kinds)
   (import (chezscheme)
           (utils))
@@ -14,15 +14,17 @@
   ;; anonymous? from :anonymous, the procedure object has no name
   ;; captures number of captures from (:captures n), 0 for a static procedure
   ;; native?  from :native, System V convention and a machine stack frame, never collects
+  ;; c-name   from (:c-name "name"), the exported symbol of a native def, else #f
   (define-record-type def
-    (fields name params result inline? public? body n as anonymous? captures native?))
+    (fields name params result inline? public? body n as anonymous? captures native? c-name))
 
 
   (define (def-proc def) (format "proc~a" (def-n def)))
   (define (def-code def)
-    (if (eq? (def-name def) 'main)
-        "scheme_main"
-        (format "fn~a" (def-n def))))
+    (cond
+     ((def-c-name def))
+     ((eq? (def-name def) 'main) "scheme_main")
+     (else (format "fn~a" (def-n def)))))
   (define (def-params-names def) (map car (def-params def)))
   (define (def-params-kinds def) (map cdr (def-params def)))
 
@@ -169,12 +171,14 @@
            (public? (and (memq ':public attrs) #t))
            (anonymous? (and (memq ':anonymous attrs) #t))
            (native? (and (memq ':native attrs) #t))
+           (c-name (attr-value attrs ':c-name))
            (as (attr-value attrs ':as))
            (captures (or (attr-value attrs ':captures) 0)))
       (for-each (lambda (a)
                   (unless (or (memq a '(:inline :public :anonymous :native))
                               (and (pair? a) (= (length a) 2)
                                    (or (and (eq? (car a) ':as) (symbol? (cadr a)))
+                                       (and (eq? (car a) ':c-name) (string? (cadr a)))
                                        (and (eq? (car a) ':captures)
                                             (integer? (cadr a)) (exact? (cadr a))
                                             (>= (cadr a) 0)))))
@@ -186,6 +190,8 @@
         (error 'parse-def ":captures requires a non-inline, non-public def other than main" name))
       (when (and native? (or inline? public? anonymous? as (> captures 0) (eq? name 'main)))
         (error 'parse-def ":native with another attribute" name))
+      (when (and c-name (not native?))
+        (error 'parse-def ":c-name requires :native" name))
       (when (memq name keywords)
         (error 'parse-def "name already defined" name))
       (when (and (eq? name 'main)
@@ -204,7 +210,7 @@
             (error 'parse-def "raw parameter or result in a non-inline def" name))
           (make-def name params result inline? public? body
                     (and emitted? (fn-counter))
-                    (or as name) anonymous? captures native?)))))
+                    (or as name) anonymous? captures native? c-name)))))
 
 
   ;; (globals n): the number of global cells; seen is the count already given, or #f

@@ -671,7 +671,8 @@
       (if (def-native? def)
           (begin
             (check-native (def-name def) body)
-            `((native ,(def-code def) (arity ,arity)
+            `(,@(if (def-c-name def) `((export ,(def-c-name def))) '())
+              (native ,(def-code def) (arity ,arity)
                       ,@(map lower-block body))))
           (procedure-entries def arity body))))
 

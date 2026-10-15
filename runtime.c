@@ -21,7 +21,6 @@ enum {
 // Procedure objects: [type, arity, code, name, ncaptures, captures...],
 // name being a C string or NULL
 enum {
-    PROC_NAME = 3,
     PROC_NCAPTURES = 4,
     PROC_CAPTURES = 5,
 };
@@ -35,35 +34,12 @@ typedef uint64_t value;
 
 _Static_assert(sizeof(void *) == 8, "the runtime assumes 64-bit pointers");
 
-#define IMMEDIATE(x) ((value)(x) << 3 | 2)
-
-enum {
-    BOOL_FALSE = IMMEDIATE(0),
-    BOOL_TRUE = IMMEDIATE(1),
-    NIL = IMMEDIATE(2),
-    UNDEF = IMMEDIATE(3),
-};
-
-#undef IMMEDIATE
-
 static bool is_pointer(value x) {
     return (x & 7) == 0;
 }
 
-static bool is_integer(value x) {
-    return (x & 7) == 1;
-}
-
-static bool is_immediate(value x) {
-    return (x & 7) == 2;
-}
-
 static bool is_pair(value x) {
     return (x & 7) == 3;
-}
-
-static int64_t integer_value(value x) {
-    return (int64_t)x >> 3;
 }
 
 static value *untag(value x) {
@@ -81,17 +57,6 @@ __attribute__((format(printf, 1, 2))) _Noreturn static void scheme_fatal(const c
     vfprintf(stderr, fmt, args);
     va_end(args);
     exit(1);
-}
-
-void print_obj(FILE *out, value x);
-
-// For printing, on pairs only
-static value car(value pair) {
-    return untag(pair)[0];
-}
-
-static value cdr(value pair) {
-    return untag(pair)[1];
 }
 
 // ----------------------------------------------------------------------------
@@ -214,66 +179,10 @@ value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
 
 // ----------------------------------------------------------------------------
 
-static void print_pair(FILE *out, value x) {
-    fprintf(out, "(");
-    print_obj(out, car(x));
-    x = cdr(x);
-    while (is_pair(x)) {
-        fprintf(out, " ");
-        print_obj(out, car(x));
-        x = cdr(x);
-    }
-    if (x != NIL) {
-        fprintf(out, " . ");
-        print_obj(out, x);
-    }
-    fprintf(out, ")");
-}
-
-void print_obj(FILE *out, value x) {
-    if (is_integer(x)) {
-        fprintf(out, "%" PRId64, integer_value(x));
-    } else if (is_immediate(x)) {
-        switch (x) {
-        case BOOL_FALSE:
-            fprintf(out, "#f");
-            break;
-        case BOOL_TRUE:
-            fprintf(out, "#t");
-            break;
-        case NIL:
-            fprintf(out, "()");
-            break;
-        case UNDEF:
-            fprintf(out, "#<undef>");
-            break;
-        default:
-            fprintf(out, "#<err>");
-        }
-    } else if (is_pair(x)) {
-        print_pair(out, x);
-    } else if (is_pointer(x)) {
-        value *ptr = untag(x);
-        if (ptr == NULL) {
-            fprintf(out, "#<null>");
-        } else if (has_header(ptr, PROCEDURE_TYPE)) {
-            const char *name = (const char *)(uintptr_t)ptr[PROC_NAME];
-            if (name != NULL) {
-                fprintf(out, "#<procedure %s>", name);
-            } else {
-                fprintf(out, "#<procedure>");
-            }
-        } else {
-            fprintf(out, "#<unknown ptr>");
-        }
-    } else {
-        fprintf(out, "#<err>");
-    }
-}
-
-// ----------------------------------------------------------------------------
-
 value scheme_enter(void);
+
+// Prints x to out, in prelude.low
+void scheme_display(FILE *out, value x);
 
 // The positive integer in the environment variable name, or default_value if unset
 static uint64_t env_positive(const char *name, uint64_t default_value, uint64_t max) {
@@ -316,7 +225,7 @@ int main(void) {
         scheme_fatal("Memory allocation failed\n");
     }
     value v = scheme_enter();
-    print_obj(stdout, v);
+    scheme_display(stdout, v);
     free(scheme_mem);
     free(spare_mem);
     return 0;

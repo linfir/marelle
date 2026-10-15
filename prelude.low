@@ -16,14 +16,74 @@
 (def pair? ((val x)) -> (val) (:public :inline)
      (tag=? x (raw 3)))
 
+(def stdout () -> (raw) (:inline)
+     (load (address "stdout") (raw 0)))
+
 (def stderr () -> (raw) (:inline)
      (load (address "stderr") (raw 0)))
+
+(def procedure-type () -> (raw) (:inline)
+     (raw 336)) ; 42 << 3
+
+(def fixnum? ((val x)) -> (val) (:inline)
+     (tag=? x (raw 1)))
+
+(def null? ((val x)) -> (val) (:public :inline)
+     (raw= (as-raw x) (as-raw '())))
+
+(def eq? ((val x) (val y)) -> (val) (:public :inline)
+     (raw= (as-raw x) (as-raw y)))
+
+;; Prints x to the C stream out
+(def display ((raw out) (val x)) -> () (:native (:c-name "scheme_display"))
+     (if (fixnum? x)
+         (c-call fprintf out "%ld" (raw>> (as-raw x) (raw 3)))
+         (if (tag=? x (raw 2))
+             (c-call fputs
+                     (if (eq? x #f)
+                         "#f"
+                         (if (eq? x #t)
+                             "#t"
+                             (if (null? x)
+                                 "()"
+                                 (if (eq? x undef) "#<undef>" "#<err>"))))
+                     out)
+             (if (pair? x)
+                 (display-pair out x)
+                 (if (tag=? x (raw 0))
+                     (display-pointer out x)
+                     (c-call fputs "#<err>" out))))))
+
+(def display-pair ((raw out) (val x)) -> () (:native)
+     (c-call fputs "(" out)
+     (display out (car x))
+     (let more ((rest (cdr x)))
+       (if (pair? rest)
+           (begin
+             (c-call fputs " " out)
+             (display out (car rest))
+             (more (cdr rest)))
+           (begin
+             (unless (null? rest)
+               (c-call fputs " . " out)
+               (display out rest))
+             (c-call fputs ")" out)))))
+
+(def display-pointer ((raw out) (val x)) -> () (:native)
+     (if (raw= (as-raw x) (raw 0))
+         (c-call fputs "#<null>" out)
+         (if (raw= (load (as-raw x) (raw 0)) (procedure-type))
+             (let ((name (load (as-raw x) (raw 3))))
+               (if (raw= name (raw 0))
+                   (c-call fputs "#<procedure>" out)
+                   (c-call fprintf out "#<procedure %s>" name)))
+             (c-call fputs "#<unknown ptr>" out))))
 
 ;; Prints "Error: msg: x" and exits
 (def scheme-error ((raw msg) (val x)) -> ! (:native)
      (c-call fflush (raw 0))
      (c-call fprintf (stderr) "Error: %s: " msg)
-     (c-call print_obj (stderr) (as-raw x))
+     (display (stderr) x)
      (c-call fprintf (stderr) "\n")
      (c-call exit (raw 1)))
 
@@ -40,7 +100,7 @@
 (def check-procedure ((val proc) (raw nargs)) -> () (:native)
      (unless (and (tag=? proc (raw 0))
                   (not (raw= (as-raw proc) (raw 0)))
-                  (raw= (load (as-raw proc) (raw 0)) (raw 336))) ; procedure type, 42 << 3
+                  (raw= (load (as-raw proc) (raw 0)) (procedure-type)))
        (type-error "expected procedure" proc))
      (unless (raw= (load (as-raw proc) (raw 1)) nargs)
        (arity-error proc nargs)))
@@ -92,9 +152,6 @@
 (def closure-set! ((raw c) (raw i) (val v)) -> () (:inline)
      (store c (raw+ i (raw 5)) v))
 
-(def fixnum? ((val x)) -> (val) (:inline)
-     (tag=? x (raw 1)))
-
 (def check-fixnums ((val x) (val y) (raw msg)) -> () (:inline)
      (unless (fixnum? x)
        (type-error msg x))
@@ -135,12 +192,6 @@
 (def >= ((val x) (val y)) -> (val) (:public :inline)
      (check-fixnums x y "`>=` expected an integer")
      (raw>= (as-raw x) (as-raw y)))
-
-(def eq? ((val x) (val y)) -> (val) (:public :inline)
-     (raw= (as-raw x) (as-raw y)))
-
-(def null? ((val x)) -> (val) (:public :inline)
-     (raw= (as-raw x) (as-raw '())))
 
 ;; not is a low keyword, so the procedure is exported under that name
 (def scm-not ((val x)) -> (val) (:public :inline (:as not))
