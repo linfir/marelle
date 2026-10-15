@@ -38,6 +38,9 @@
 ;;     saved return address
 ;;   - a tail call passes its own caller's frame and return address, so the
 ;;     callee returns directly there
+;;   - a tail call to the function itself (known, or the code pointer compared
+;;     at runtime) reuses the frame: it stores r10 as self and jumps to the
+;;     prologue's argument stores
 ;;   - only rbp and rsp are preserved: all values live in frames
 ;;   - the arity is checked by the caller, not the callee
 
@@ -154,6 +157,10 @@
                    (number->string ((asm-context-ret-counter ctx)))))
 
 
+  (define (self-label ctx)
+    (string-append ".L" (asm-context-fn ctx) "_self"))
+
+
   ;; The memory operand for word index of the address in rax, using rcx
   (define (element! ctx index)
     (case (car index)
@@ -213,9 +220,22 @@
              (args (cdddr instr)))
          (load-args! ctx args)
          (load! ctx 'r10 proc)
-         (load! ctx 'rax target)
-         (leave! ctx)
-         (emit-asm! ctx '(jmp rax))))
+         (cond
+          ((equal? target (asm-context-fn ctx))
+           (emit-asm! ctx
+                      `(mov (mem rbp ,frame-self) r10)
+                      `(jmp ,(self-label ctx))))
+          (else
+           (load! ctx 'rax target)
+           (unless (string? target)
+             ;; The frame is dead if the jump is not taken
+             (emit-asm! ctx
+                        `(mov (mem rbp ,frame-self) r10)
+                        `(lea r11 (rip ,(asm-context-fn ctx)))
+                        '(cmp rax r11)
+                        `(je ,(self-label ctx))))
+           (leave! ctx)
+           (emit-asm! ctx '(jmp rax))))))
 
       ((alloc)
        (let ((dst (cadr instr))
@@ -302,7 +322,8 @@
           (emit-asm! ctx
                      `(mov rax ,nwords)
                      '(call "alloc_frame")
-                     `(mov (mem rbp ,frame-nraw) ,nraw)))
+                     `(mov (mem rbp ,frame-nraw) ,nraw)
+                     `(label ,(self-label ctx))))
       (let loop ((i 1)
                  (regs arg-regs))
         (when (<= i arity)
