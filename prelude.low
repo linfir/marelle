@@ -16,8 +16,35 @@
 (def pair? ((val x)) -> (val) (:public :inline)
      (tag=? x (raw 3)))
 
+(def stderr () -> (raw) (:inline)
+     (load (address "stderr") (raw 0)))
+
+;; Prints "Error: msg: x" and exits;
+;; msg is a C string, outside the heap, so the collector leaves it
+(def scheme-error ((val msg) (val x)) -> ! ()
+     (c-call fflush (raw 0))
+     (c-call fprintf (stderr) "Error: %s: " (as-raw msg))
+     (c-call print_obj (stderr) (as-raw x))
+     (c-call fprintf (stderr) "\n")
+     (c-call exit (raw 1)))
+
 (def type-error ((raw x) (val y)) -> ! (:inline)
-     (c-call scheme_error x (as-raw y)))
+     (scheme-error (as-val x) y))
+
+(def arity-error ((val proc) (val nargs)) -> ! ()
+     (c-call fflush (raw 0))
+     (c-call fprintf (stderr) "Error: procedure of arity %ld called with %ld arguments\n"
+             (load (as-raw proc) (raw 1)) (raw>> (as-raw nargs) (raw 3)))
+     (c-call exit (raw 1)))
+
+;; Checks that proc is a procedure taking nargs arguments
+(def check-procedure ((val proc) (val nargs)) -> () (:inline)
+     (unless (and (tag=? proc (raw 0))
+                  (not (raw= (as-raw proc) (raw 0)))
+                  (raw= (load (as-raw proc) (raw 0)) (raw 336))) ; procedure type, 42 << 3
+       (type-error "expected procedure" proc))
+     (unless (raw= (load (as-raw proc) (raw 1)) (raw>> (as-raw nargs) (raw 3)))
+       (arity-error proc nargs)))
 
 (def car ((val x)) -> (val) (:public :inline)
      (unless (pair? x)

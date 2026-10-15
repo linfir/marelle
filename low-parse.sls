@@ -185,7 +185,7 @@
           ;; An emitted def is called with the Scheme convention
           (unless (or (not emitted?)
                       (and (for-all (lambda (p) (eq? (cdr p) 'val)) params)
-                           (eq? result 'val)))
+                           (memq result '(val never))))
             (error 'parse-def "raw parameter or result in a non-inline def" name))
           (make-def name params result inline? public? body
                     (and emitted? (fn-counter))

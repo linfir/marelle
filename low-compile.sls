@@ -138,7 +138,12 @@
       => (lambda (def)
            (if (def-inline? def)
                (compile-inline env def expr (lambda (env x) (compile-result env def x)))
-               (emit-op! 'call 'val (compile-direct env def expr)))))
+               (if (eq? (def-result def) 'never)
+                   (begin
+                     (emit! `(call void ,@(compile-direct env def expr)))
+                     (emit! '(unreachable))
+                     '(never))
+                   (emit-op! 'call 'val (compile-direct env def expr))))))
 
      ((binary-op? expr)
       => (lambda (entry)
@@ -290,7 +295,7 @@
       (error 'compile-indirect "invalid call" expr))
     (let* ((ops (compile-exprs env expr (map (lambda (x) 'val) expr) expr))
            (proc (car ops)))
-      (emit! `(ccall void "check_procedure" ,proc (quad ,(length (cdr ops)))))
+      (compile-value (list (cons 'proc proc)) `(check-procedure proc ,(length (cdr ops))))
       (cons (emit-op! 'load 'raw (list proc '(quad 2))) ops)))
 
 

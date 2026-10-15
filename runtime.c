@@ -83,28 +83,7 @@ __attribute__((format(printf, 1, 2))) _Noreturn static void scheme_fatal(const c
     exit(1);
 }
 
-static void print_obj(FILE *out, value x);
-
-// Prints the message and the offending value, then exits
-_Noreturn void scheme_error(const char *msg, value x) {
-    fflush(stdout);
-    fprintf(stderr, "Error: %s: ", msg);
-    print_obj(stderr, x);
-    fprintf(stderr, "\n");
-    exit(1);
-}
-
-void check_procedure(value x, uint64_t nargs) {
-    value *ptr = untag(x);
-    if (!is_pointer(x) || ptr == NULL || !has_header(ptr, PROCEDURE_TYPE)) {
-        scheme_error("expected procedure", x);
-    }
-    uint64_t arity = ptr[1];
-    if (arity != nargs) {
-        scheme_fatal("Error: procedure of arity %" PRIu64 " called with %" PRIu64 " arguments\n",
-                     arity, nargs);
-    }
-}
+void print_obj(FILE *out, value x);
 
 // For printing, on pairs only
 static value car(value pair) {
@@ -251,7 +230,7 @@ static void print_pair(FILE *out, value x) {
     fprintf(out, ")");
 }
 
-static void print_obj(FILE *out, value x) {
+void print_obj(FILE *out, value x) {
     if (is_integer(x)) {
         fprintf(out, "%" PRId64, integer_value(x));
     } else if (is_immediate(x)) {

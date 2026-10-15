@@ -185,7 +185,8 @@
                       `(lea r11 (rip ,label))
                       '(jmp rax)
                       `(label ,label)))
-         (store! ctx dst 'rax)))
+         (unless (eq? dst 'void)
+           (store! ctx dst 'rax))))
 
       ((tailcall)
        (let ((target (cadr instr))
