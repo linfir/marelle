@@ -1,0 +1,29 @@
+#!/usr/bin/env scheme-script
+
+;; scheme-script run [--low] < SOURCE > ASM, run from the project root
+;; compile, low and asm in one process;
+;; with --low, the source is a low program
+
+(import (chezscheme)
+        (utils)
+        (compile)
+        (low-compile)
+        (asm))
+
+
+(define (stage f input)
+  (with-input-from-string input
+    (lambda ()
+      (with-output-to-string
+        (lambda () (f (read-all)))))))
+
+
+(let* ((source (get-string-all (current-input-port)))
+       (low (if (member "--low" (cdr (command-line)))
+                source
+                (stage (lambda (program)
+                         (compile-scheme (with-input-from-file "prelude.ss" read-all) program))
+                       source)))
+       (ir (stage compile-low
+                  (string-append (call-with-input-file "prelude.low" get-string-all) low))))
+  (display (stage compile-asm ir)))
