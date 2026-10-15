@@ -1,4 +1,6 @@
 .intel_syntax noprefix
+
+.set FRAME_TYPE, 43 << 3
 .text
 
 # Enter Scheme from C, following the System V ABI: call the Scheme function
@@ -73,8 +75,7 @@ alloc_frame:
     mov [rcx + 24], r11
     mov [rcx + 32], rbp
     mov [rcx + 40], r10
-    lea r11, [rip + frame_type]
-    mov [rcx], r11
+    mov qword ptr [rcx], FRAME_TYPE
     mov rbp, rcx
     pop rcx
     ret

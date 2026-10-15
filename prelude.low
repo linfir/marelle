@@ -37,7 +37,7 @@
 
 (def make-box ((val v)) -> (val) (:inline)
      (let ((b (alloc (raw 2))))
-       (store b (raw 0) (address "box_type"))
+       (store b (raw 0) (raw 360)) ; box type, 45 << 3
        (store b (raw 1) v)
        (as-val b)))
 

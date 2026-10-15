@@ -26,6 +26,10 @@
           (low-emit))
 
 
+  ;; Header of procedure objects, PROCEDURE_TYPE in runtime.c
+  (define procedure-type (* 42 8))
+
+
   ;; The (name . def) alist of the program
   (define current-defs (make-parameter '()))
   ;; The (string . name) alist of the interned strings, newest first
@@ -542,7 +546,7 @@
         `(,@(if (def-public? def) `((export ,proc)) '())
           ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
           ,@(if name `((string ,name ,(symbol->string (def-as def)))) '())
-          (data ,proc (quad "procedure_type") (quad ,arity)
+          (data ,proc (quad ,procedure-type) (quad ,arity)
                 (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
           (function ,(def-code def) (arity ,arity)
                     ,@(map lower-block body))))))

@@ -10,11 +10,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Their addresses are object headers, aligned so that they have a pointer tag
-_Alignas(8) char procedure_type;
-_Alignas(8) char frame_type;
-_Alignas(8) char forward_type;
-_Alignas(8) char box_type;
+// Object headers: tag 0 and pointing into page 0, so never a Scheme value
+enum {
+    PROCEDURE_TYPE = 42 << 3,
+    FRAME_TYPE = 43 << 3,
+    FORWARD_TYPE = 44 << 3,
+    BOX_TYPE = 45 << 3,
+};
 
 // Procedure objects: [type, arity, code, name, ncaptures, captures...],
 // name being a C string or NULL
@@ -68,8 +70,8 @@ static value *untag(value x) {
     return (value *)(uintptr_t)(x & ~(value)7);
 }
 
-static bool has_header(const value *p, const char *type) {
-    return p[0] == (value)(uintptr_t)type;
+static bool has_header(const value *p, value type) {
+    return p[0] == type;
 }
 
 __attribute__((format(printf, 1, 2))) _Noreturn static void scheme_fatal(const char *fmt, ...) {
@@ -94,7 +96,7 @@ _Noreturn void scheme_error(const char *msg, value x) {
 
 void check_procedure(value x, uint64_t nargs) {
     value *ptr = untag(x);
-    if (!is_pointer(x) || ptr == NULL || !has_header(ptr, &procedure_type)) {
+    if (!is_pointer(x) || ptr == NULL || !has_header(ptr, PROCEDURE_TYPE)) {
         scheme_error("expected procedure", x);
     }
     uint64_t arity = ptr[1];
@@ -134,17 +136,17 @@ static uint64_t gc_count, gc_copied, gc_max_live, gc_used_before;
 static uint64_t gc_stress, gc_countdown;
 
 static size_t object_words(const value *p) {
-    if (has_header(p, &frame_type)) {
+    if (has_header(p, FRAME_TYPE)) {
         return p[1];
     }
-    if (has_header(p, &procedure_type)) {
+    if (has_header(p, PROCEDURE_TYPE)) {
         return PROC_CAPTURES + p[PROC_NCAPTURES];
     }
     return 2; // pair or box
 }
 
 // Copies the object x points to, if in the current space, and returns its new address;
-// a moved object holds forward_type and its new address
+// a moved object holds FORWARD_TYPE and its new address
 static value forward(value x, value **free) {
     if (!is_pointer(x) && !is_pair(x)) {
         return x;
@@ -155,14 +157,14 @@ static value forward(value x, value **free) {
     if (addr < (uintptr_t)scheme_mem || addr >= (uintptr_t)(scheme_mem + scheme_len)) {
         return x; // null or static procedure
     }
-    if (has_header(p, &forward_type)) {
+    if (has_header(p, FORWARD_TYPE)) {
         return p[1] | tag;
     }
     size_t n = is_pair(x) ? 2 : object_words(p);
     value *q = *free;
     memcpy(q, p, n * sizeof(value));
     *free = q + n;
-    p[0] = (value)(uintptr_t)&forward_type;
+    p[0] = FORWARD_TYPE;
     p[1] = (value)(uintptr_t)q;
     return (value)(uintptr_t)q | tag;
 }
@@ -172,12 +174,12 @@ static size_t scan(value *p, value **free) {
     size_t n = object_words(p);
     size_t end = n;
     size_t i = 0;
-    if (has_header(p, &frame_type)) {
+    if (has_header(p, FRAME_TYPE)) {
         i = 4;
         end = n - p[2]; // raw slots are not scanned
-    } else if (has_header(p, &procedure_type)) {
+    } else if (has_header(p, PROCEDURE_TYPE)) {
         i = PROC_CAPTURES;
-    } else if (has_header(p, &box_type)) {
+    } else if (has_header(p, BOX_TYPE)) {
         i = 1;
     }
     for (; i < end; i++) {
@@ -275,7 +277,7 @@ static void print_obj(FILE *out, value x) {
         value *ptr = untag(x);
         if (ptr == NULL) {
             fprintf(out, "#<null>");
-        } else if (has_header(ptr, &procedure_type)) {
+        } else if (has_header(ptr, PROCEDURE_TYPE)) {
             const char *name = (const char *)(uintptr_t)ptr[PROC_NAME];
             if (name != NULL) {
                 fprintf(out, "#<procedure %s>", name);

@@ -1,7 +1,7 @@
 ;; Frames are heap objects, rbp pointing to the current one, n being the
 ;; function's arity and m its number of tmps:
 ;;
-;;   rbp + 0            "frame_type"
+;;   rbp + 0            frame type (43 << 3)
 ;;   rbp + 8            length of the frame in words, header included (raw)
 ;;   rbp + 16           number of raw slots at the end, not scanned (raw)
 ;;   rbp + 24           return address (raw)
