@@ -72,9 +72,10 @@
                  load store load8 store8 copy-words fill-words alloc self address)))
 
 
-  (define fn-counter (make-counter))
-  (define data-counter (make-counter))
-  (define name-kinds (make-eq-hashtable))
+  ;; Per program, set by parse-program
+  (define fn-counter (make-parameter #f))
+  (define data-counter (make-parameter #f))
+  (define name-kinds (make-parameter #f))
 
 
   ;; (key x) in attrs => x, else #f
@@ -104,7 +105,7 @@
   ;; Bind x as a def or a local: a def name is never reused,
   ;; and a local name only after the local that had it went out of scope (free)
   (define (bind-name! x kind)
-    (let ((old (hashtable-ref name-kinds x #f)))
+    (let ((old (hashtable-ref (name-kinds) x #f)))
       (cond
        ((and (eq? kind 'local) (memq x keywords))
         (error 'bind-name! "local variable named like a keyword" x))
@@ -115,11 +116,11 @@
         (error 'bind-name! "local variable named like a def" x))
        ((eq? old 'local)
         (error 'bind-name! "shadowed variable" x)))
-      (hashtable-set! name-kinds x kind)))
+      (hashtable-set! (name-kinds) x kind)))
 
 
   (define (unbind-local! x)
-    (hashtable-set! name-kinds x 'free))
+    (hashtable-set! (name-kinds) x 'free))
 
 
   ;; The bindings of a let: ((name expr) ...)
@@ -224,7 +225,7 @@
                            (memq result '(val never))))
             (error 'parse-def "raw parameter or result in a non-inline def" name))
           (make-def name params result inline? public? body
-                    (and emitted? (fn-counter))
+                    (and emitted? ((fn-counter)))
                     (or as name) anonymous? captures native? c-name)))))
 
 
@@ -262,27 +263,30 @@
       (bind-name! name 'def)
       (let ((c-name (attr-value attrs ':c-name)))
         (make-data name (caddr form)
-                   (or c-name (format "data~a" (data-counter)))
+                   (or c-name (format "data~a" ((data-counter))))
                    (and c-name #t)))))
 
 
   ;; The (name . def) and (name . data) alists in source order, and the number of global cells
   (define (parse-program forms)
-    (let loop ((forms forms)
-               (defs '())
-               (datas '())
-               (globals #f))
-      (if (null? forms)
-          (values (reverse defs) (reverse datas) (or globals 0))
-          (let ((form (car forms)))
-            (case (and (pair? form) (car form))
-              ((def)
-               (let ((def (parse-def form)))
-                 (loop (cdr forms) (acons (def-name def) def defs) datas globals)))
-              ((data)
-               (let ((d (parse-data form)))
-                 (loop (cdr forms) defs (acons (data-name d) d datas) globals)))
-              ((globals)
-               (loop (cdr forms) defs datas (parse-globals form globals)))
-              (else
-               (error 'low "unknown top-level form" form))))))))
+    (parameterize ((fn-counter (make-counter))
+                   (data-counter (make-counter))
+                   (name-kinds (make-eq-hashtable)))
+      (let loop ((forms forms)
+                 (defs '())
+                 (datas '())
+                 (globals #f))
+        (if (null? forms)
+            (values (reverse defs) (reverse datas) (or globals 0))
+            (let ((form (car forms)))
+              (case (and (pair? form) (car form))
+                ((def)
+                 (let ((def (parse-def form)))
+                   (loop (cdr forms) (acons (def-name def) def defs) datas globals)))
+                ((data)
+                 (let ((d (parse-data form)))
+                   (loop (cdr forms) defs (acons (data-name d) d datas) globals)))
+                ((globals)
+                 (loop (cdr forms) defs datas (parse-globals form globals)))
+                (else
+                 (error 'low "unknown top-level form" form)))))))))
