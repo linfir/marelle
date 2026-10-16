@@ -12,7 +12,7 @@ from run import PipelineFailure, run_chez, run_pipeline
 
 ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
-STAGES = {"compiler", "low", "asm", "as", "ld", "executable", "result"}
+STAGES = {"compiler", "low", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", *OUTPUT_FIELDS}
 SKIP = "skip"
