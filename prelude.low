@@ -1,4 +1,4 @@
-;; GC state, read and written by runtime.c and runtime.s
+;; GC state, read and written by runtime.c and the stubs in asm.sls
 (data scheme-mem 1 ((:c-name "scheme_mem")))
 (data scheme-len 1 ((:c-name "scheme_len")))
 (data scheme-cap 1 ((:c-name "scheme_cap")))
@@ -114,7 +114,7 @@
      (raw- (load scheme-cap (raw 0)) (load scheme-len (raw 0))))
 
 ;; nwords words of the current space, after a collection if it is full;
-;; called from runtime.s, the only place where a collection may happen
+;; called from the stubs in asm.sls, the only place where a collection may happen
 (def alloc-words ((raw nwords) (raw roots) (raw nroots)) -> (raw)
      (:native (:c-name "scheme_alloc"))
      (when (or (gc-stress-due?) (raw>u nwords (free-words)))

@@ -57,6 +57,7 @@
   (define arg-regs '(rdi rsi rdx rcx r8 r9))
 
 
+  (define frame-type (* 43 8))
   (define frame-nraw 16)
   (define frame-ret 24)
   (define frame-caller 32)
@@ -360,10 +361,123 @@
       (else (error 'top->asm "unknown top-level entry" x))))
 
 
+  ;; The allocation stubs and the entry from C, in every program
+  (define runtime-asm
+    `((text)
+      ;; Enter Scheme from C, following the System V ABI: call the Scheme function
+      ;; scheme_main in the Scheme calling convention and return its value
+      (label "scheme_enter")
+      (push rbx)
+      (push rbp)
+      (push r12)
+      (push r13)
+      (push r14)
+      (push r15)
+      (sub rsp 8)
+      (xor ebp ebp)
+      (xor r10d r10d)
+      (lea r11 (rip ".Lscheme_enter_resume"))
+      (jmp "scheme_main")
+      (label ".Lscheme_enter_resume")
+      (add rsp 8)
+      (pop r15)
+      (pop r14)
+      (pop r13)
+      (pop r12)
+      (pop rbp)
+      (pop rbx)
+      (ret)
+
+      ;; Allocate an object
+      ;; Parameters:
+      ;;   - rax: length (in words) of the object
+      ;;   - rbp: current frame, the only root
+      ;;   - rsp: 8 (mod 16), i.e. aligned before the call
+      ;; Output:
+      ;;   - rax: the object
+      ;;   - rbp: the current frame, moved if a collection happened
+      ;; Clobbers: rdi, rsi, rdx, rcx, r8, r9, r10, r11
+      (label "alloc_object")
+      (push rbp)                        ; roots[0], also realigns rsp to 16
+      (mov rdi rax)
+      (mov rsi rsp)
+      (mov edx 1)
+      (call "scheme_alloc")
+      (pop rbp)
+      (ret)
+
+      ;; Allocate a frame
+      ;; Parameters:
+      ;;   - rax: length (in words) of the frame
+      ;;   - rbp: caller's frame
+      ;;   - r11: return address
+      ;;   - r10: procedure object, or 0 for scheme_main
+      ;;   - argument registers, as many as the procedure's arity
+      ;;   - rsp: 8 (mod 16), i.e. aligned before the call
+      ;; Output:
+      ;;   - rbp: the new frame
+      ;;   - r10 and argument registers, moved if a collection happened
+      ;; Clobbers: rax, r11
+      (label "alloc_frame")
+      (push rcx)                        ; also realigns rsp to 16
+      (mov rcx (rip "scheme_len"))
+      (add rcx rax)
+      (cmp rcx (rip "scheme_limit"))
+      (ja ".Lalloc_frame_slow")
+      (mov (rip "scheme_len") rcx)
+      (sub rcx rax)
+      (shl rcx 3)
+      (add rcx (rip "scheme_mem"))
+      (label ".Lalloc_frame_init")
+      (mov (mem rcx 8) rax)
+      (mov (mem rcx ,frame-ret) r11)
+      (mov (mem rcx ,frame-caller) rbp)
+      (mov (mem rcx ,frame-self) r10)
+      (mov (mem rcx 0) ,frame-type)
+      (mov rbp rcx)
+      (pop rcx)
+      (ret)
+      (label ".Lalloc_frame_slow")
+      (mov rcx (mem rsp 0))             ; argument 4
+      (push r11)
+      (push rax)
+      (push r9)                         ; roots: rbp, r10, then the arguments
+      (push r8)
+      (push rcx)
+      (push rdx)
+      (push rsi)
+      (push rdi)
+      (push r10)
+      (push rbp)
+      (mov rdi rax)
+      (mov rsi rsp)
+      (mov edx 2)
+      (test r10 r10)
+      (jz ".Lalloc_frame_roots")
+      (add rdx (mem r10 8))             ; arity
+      (label ".Lalloc_frame_roots")
+      (call "scheme_alloc")
+      (pop rbp)
+      (pop r10)
+      (pop rdi)
+      (pop rsi)
+      (pop rdx)
+      (pop rcx)
+      (pop r8)
+      (pop r9)
+      (mov (mem rsp 16) rcx)            ; replaces the copy popped by .Lalloc_frame_init
+      (mov rcx rax)
+      (pop rax)
+      (pop r11)
+      (jmp ".Lalloc_frame_init")))
+
+
   (define (program->asm tops exports)
     (append '((intel_syntax noprefix))
             (map (lambda (name) `(globl ,name)) exports)
             (apply append (map top->asm tops))
+            '((globl "scheme_enter"))
+            runtime-asm
             '((section ".note.GNU-stack" "" %progbits))))
 
 
