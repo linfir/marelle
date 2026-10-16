@@ -198,22 +198,22 @@ def main():
     failures = []
     skipped = 0
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-        results = list(pool.map(lambda path: check_case(path, args.chez, args.gc_stress), paths))
-    for path, failure in zip(paths, results):
-        name = path.relative_to(TEST_ROOT).as_posix()
-        if failure == SKIP:
-            skipped += 1
-            if args.verbose:
-                print(f"SKIP {name}")
-            else:
-                print("s", end="", flush=True)
-            continue
-        if args.verbose and not failure:
-            print(f"PASS {name}")
-        elif not args.verbose:
-            print("F" if failure else ".", end="", flush=True)
-        if failure:
-            failures.append((name, failure))
+        results = pool.map(lambda path: check_case(path, args.chez, args.gc_stress), paths)
+        for path, failure in zip(paths, results):
+            name = path.relative_to(TEST_ROOT).as_posix()
+            if failure == SKIP:
+                skipped += 1
+                if args.verbose:
+                    print(f"SKIP {name}")
+                else:
+                    print("s", end="", flush=True)
+                continue
+            if args.verbose and not failure:
+                print(f"PASS {name}")
+            elif not args.verbose:
+                print("F" if failure else ".", end="", flush=True)
+            if failure:
+                failures.append((name, failure))
 
     if not args.verbose:
         print()
