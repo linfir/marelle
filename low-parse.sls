@@ -53,7 +53,11 @@
       (raw<  jl  jge)
       (raw<= jle jg)
       (raw>  jg  jle)
-      (raw>= jge jl)))
+      (raw>= jge jl)
+      (raw<u  jb  jae)
+      (raw<=u jbe ja)
+      (raw>u  ja  jbe)
+      (raw>=u jae jb)))
 
 
   (define keywords

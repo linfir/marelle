@@ -3,7 +3,7 @@
   (import (chezscheme))
 
 
-  (define jumps '(je jne jl jle jg jge jmp))
+  (define jumps '(je jne jl jle jg jge jb jbe ja jae jmp))
 
 
   ;; Sets of raws are integers: bit n stands for (raw n)

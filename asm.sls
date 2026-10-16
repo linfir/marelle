@@ -276,7 +276,7 @@
          (emit-asm! ctx `(,op rax ,(if (memq op '(sal sar)) 'cl 'rcx)))
          (store! ctx dst 'rax)))
 
-      ((je jne jl jle jg jge jmp)
+      ((je jne jl jle jg jge jb jbe ja jae jmp)
        (let ((op (car instr))
              (label (cadr instr)))
          (emit-asm! ctx `(,op ,(label-name ctx label)))))
