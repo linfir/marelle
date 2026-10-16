@@ -20,7 +20,7 @@
 
   ;; Instructions without a destination
   (define (no-dst? instr)
-    (memq (car instr) `(cmp store store8 ret tailcall unreachable ,@jumps)))
+    (memq (car instr) `(cmp store store8 copy fill ret tailcall unreachable ,@jumps)))
 
 
   (define (instr-defs instr)

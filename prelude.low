@@ -249,22 +249,6 @@
              (raw+ (load p (raw 4)) (raw 5))
              (raw 2)))) ; pair or box
 
-(def copy-words ((raw dst) (raw src) (raw n)) -> () (:native)
-     (let copy-next ((i (raw 0)))
-       (if (raw= i n)
-           undef
-           (begin
-             (store dst i (load src i))
-             (copy-next (raw+ i (raw 1)))))))
-
-(def zero-words ((raw p) (raw n)) -> () (:native)
-     (let zero-next ((i (raw 0)))
-       (if (raw= i n)
-           undef
-           (begin
-             (store p i (raw 0))
-             (zero-next (raw+ i (raw 1)))))))
-
 ;; The new address of the object x points to, copied to gc-free if it is in the
 ;; current space; a moved object holds forward-type and its new address
 (def forward ((raw x)) -> (raw) (:native)
@@ -280,7 +264,11 @@
                      (bit-or (load p (raw 1)) t)
                      (let ((new (load gc-free (raw 0)))
                            (n (if (raw= t (raw 3)) (raw 2) (object-words p))))
-                       (copy-words new p n)
+                       (if (raw= t (raw 3))
+                           (begin
+                             (store new (raw 0) (load p (raw 0)))
+                             (store new (raw 1) (load p (raw 1))))
+                           (copy-words new p n))
                        (store gc-free (raw 0) (raw+ new (raw<< n (raw 3))))
                        (store p (raw 0) (forward-type))
                        (store p (raw 1) new)
@@ -327,7 +315,7 @@
          (store gc-used-before (raw 0) (raw+ (load gc-used-before (raw 0)) len))
          (when (raw>u copied (load gc-max-live (raw 0)))
            (store gc-max-live (raw 0) copied))
-         (zero-words (load scheme-mem (raw 0)) len)
+         (fill-words (load scheme-mem (raw 0)) len (raw 0))
          (store spare-mem (raw 0) (load scheme-mem (raw 0)))
          (store scheme-mem (raw 0) to)
          (store scheme-len (raw 0) copied))))

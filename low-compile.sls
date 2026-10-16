@@ -264,6 +264,16 @@
          (emit! `(store8 ,@(compile-operands env expr '(raw raw raw))))
          '(void))
 
+        ;; (copy-words dst src n): copies n words from src to dst, which do not overlap
+        ((copy-words)
+         (emit! `(copy ,@(compile-operands env expr '(raw raw raw))))
+         '(void))
+
+        ;; (fill-words address n x): sets n words from address to x
+        ((fill-words)
+         (emit! `(fill ,@(compile-operands env expr '(raw raw raw))))
+         '(void))
+
         ;; (alloc nwords): the raw address of nwords new zeroed words
         ((alloc)
          (let ((ops (compile-operands env expr '(raw))))
