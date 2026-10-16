@@ -26,7 +26,7 @@
           (low-emit))
 
 
-  ;; Header of procedure objects, PROCEDURE_TYPE in runtime.c
+  ;; Header of procedure objects, procedure-type in prelude.low
   (define procedure-type (* 42 8))
 
 
@@ -227,14 +227,6 @@
                (emit-op! 'mov 'val (list op))
                (list (car expr) op))))
 
-        ;; (c-call name arg ...): raw arguments and result, not a safepoint
-        ((c-call)
-         (unless (and (>= (length expr) 2) (symbol? (cadr expr)))
-           (error 'compile-value "invalid c-call" expr))
-         (emit-op! 'ccall 'raw
-                   (cons (symbol->string (cadr expr))
-                         (compile-exprs env (cddr expr) (map (lambda (x) 'raw) (cddr expr)) expr))))
-
         ;; (syscall n arg ...): a Linux system call, raw arguments and result
         ;; (a negative errno on failure), not a safepoint
         ((syscall)
@@ -327,7 +319,7 @@
     (cons* (def-code def) (def-proc def) (compile-args env def expr)))
 
 
-  ;; A call to the native def: a C call, so not a safepoint
+  ;; A call to the native def: a System V call, so not a safepoint
   (define (compile-native env def expr)
     (let ((ops (cons (def-code def) (compile-args env def expr))))
       (case (def-result def)

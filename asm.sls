@@ -21,9 +21,8 @@
 ;;   rsp + 0            (arg 1)
 ;;   ...                then the tmps and the raws, as above
 ;;
-;; C calls (ccall) follow the System V AMD64 ABI:
+;; Native calls (ccall) follow the System V AMD64 ABI:
 ;;   - arguments in rdi, rsi, rdx, rcx, r8, r9, result in rax
-;;   - al = 0 (no vector arguments), for variadic functions
 ;;   - rbx, rbp, rsp, r12-r15 are preserved, all other registers are clobbered
 ;;   - rsp is 16-byte aligned at the call; Scheme code never pushes, and
 ;;     it is aligned at _start, so a plain call is always aligned
@@ -202,9 +201,7 @@
              (target (caddr instr))
              (args (cdddr instr)))
          (load-args! ctx args arg-regs)
-         (emit-asm! ctx
-                    '(xor eax eax)
-                    `(call ,target))
+         (emit-asm! ctx `(call ,target))
          (unless (eq? dst 'void)
            (store! ctx dst 'rax))))
 

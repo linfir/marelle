@@ -1,15 +1,17 @@
-;; GC state, read and written by runtime.c and the stubs in asm.sls
+;; GC state; the stubs in asm.sls use the words with a :c-name
 (data scheme-mem 1 ((:c-name "scheme_mem")))
 (data scheme-len 1 ((:c-name "scheme_len")))
-(data scheme-cap 1 ((:c-name "scheme_cap")))
+(data scheme-cap 1 ())
 (data scheme-limit 1 ((:c-name "scheme_limit")))
-(data spare-mem 1 ((:c-name "spare_mem")))
-(data gc-count 1 ((:c-name "gc_count")))
-(data gc-copied 1 ((:c-name "gc_copied")))
-(data gc-max-live 1 ((:c-name "gc_max_live")))
-(data gc-used-before 1 ((:c-name "gc_used_before")))
-(data gc-stress 1 ((:c-name "gc_stress")))
-(data gc-countdown 1 ((:c-name "gc_countdown")))
+(data spare-mem 1 ())
+;; Statistics, printed at exit when SCHEME_GC_STATS is set
+(data gc-count 1 ())
+(data gc-copied 1 ())
+(data gc-max-live 1 ())
+(data gc-used-before 1 ())
+;; Stress mode (SCHEME_GC_STRESS): collect every gc-stress allocations
+(data gc-stress 1 ())
+(data gc-countdown 1 ())
 ;; The to-space allocation pointer during a collection
 (data gc-free 1 ())
 ;; The environment variables, NAME=VALUE C strings ending with 0
@@ -97,7 +99,7 @@
              (digit-next (raw/ m (raw 10)) j)))))
 
 ;; Prints x to the file descriptor out
-(def display ((raw out) (val x)) -> () (:native (:c-name "scheme_display"))
+(def display ((raw out) (val x)) -> () (:native)
      (if (fixnum? x)
          (put-int out (raw>> (as-raw x) (raw 3)))
          (if (tag=? x (raw 2))
