@@ -2,8 +2,8 @@
   (export make-global-binding global-binding? global-binding-index
           make-local-binding local-binding? local-binding-operand
           make-box-binding box-binding?
-          make-procedure-binding procedure-binding-proc procedure-binding-arity
-          make-primitive-binding primitive-binding?
+          make-procedure-binding procedure-binding-proc
+          make-primitive-binding primitive-binding? primitive-binding-arity
           no-vars free-vars walk-let* bind-scope captured-vars boxed?)
   (import (chezscheme)
           (utils)
@@ -26,11 +26,12 @@
 
 
   (define-record-type procedure-binding
-    (fields proc arity))
+    (fields proc))
 
 
   (define-record-type primitive-binding
-    (parent procedure-binding))
+    (parent procedure-binding)
+    (fields arity))
 
 
   ;; Free variables of exprs, not bound to a bound-binding in env:

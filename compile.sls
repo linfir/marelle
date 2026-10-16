@@ -274,7 +274,7 @@
           (args (map-in-order (lambda (x) (lower-value prog env x)) (cdr form))))
       (if (and entry (primitive-binding? (cdr entry)))
           (begin
-            (unless (= (length args) (procedure-binding-arity (cdr entry)))
+            (unless (= (length args) (primitive-binding-arity (cdr entry)))
               (error 'lower-call "wrong number of arguments" form))
             (cons (procedure-binding-proc (cdr entry)) args))
           (lower-apply prog (lower-value prog env (car form)) args))))
@@ -301,8 +301,7 @@
                                (cons (car p) (make-primitive-binding (cadr p) (caddr p))))
                              low-primitives)
                         (map (lambda (d name)
-                               (cons (prelude-def-name d)
-                                     (make-procedure-binding name (length (prelude-def-args d)))))
+                               (cons (prelude-def-name d) (make-procedure-binding name)))
                              prelude-defs prelude-names))))
       (for-each (lambda (d name)
                   (hashtable-set! (low-program-arity prog) name (length (prelude-def-args d))))
