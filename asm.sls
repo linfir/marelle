@@ -210,11 +210,12 @@
              (args (cddddr instr)))
          (load-args! ctx args arg-regs)
          (load! ctx 'r10 proc)
-         (load! ctx 'rax target)
+         (unless (string? target)
+           (load! ctx 'rax target))
          (let ((label (ret-label! ctx)))
            (emit-asm! ctx
                       `(lea r11 (rip ,label))
-                      '(jmp rax)
+                      `(jmp ,(if (string? target) target 'rax))
                       `(label ,label)))
          (unless (eq? dst 'void)
            (store! ctx dst 'rax))))
@@ -230,15 +231,17 @@
            (emit-asm! ctx
                       `(mov (mem rbp ,frame-self) r10)
                       `(jmp ,(self-label ctx))))
+          ((string? target)
+           (leave! ctx)
+           (emit-asm! ctx `(jmp ,target)))
           (else
            (load! ctx 'rax target)
-           (unless (string? target)
-             ;; The frame is dead if the jump is not taken
-             (emit-asm! ctx
-                        `(mov (mem rbp ,frame-self) r10)
-                        `(lea r11 (rip ,(asm-context-fn ctx)))
-                        '(cmp rax r11)
-                        `(je ,(self-label ctx))))
+           ;; The frame is dead if the jump is not taken
+           (emit-asm! ctx
+                      `(mov (mem rbp ,frame-self) r10)
+                      `(lea r11 (rip ,(asm-context-fn ctx)))
+                      '(cmp rax r11)
+                      `(je ,(self-label ctx)))
            (leave! ctx)
            (emit-asm! ctx '(jmp rax))))))
 
