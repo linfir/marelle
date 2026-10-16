@@ -100,6 +100,31 @@
      (c-call fprintf (stderr) fmt a b)
      (c-call exit (raw 1)))
 
+;; Counts down to the next forced collection in stress mode (SCHEME_GC_STRESS)
+(def gc-stress-due? () -> (val) (:inline)
+     (and (not (raw= (load gc-stress (raw 0)) (raw 0)))
+          (begin
+            (store gc-countdown (raw 0) (raw- (load gc-countdown (raw 0)) (raw 1)))
+            (raw= (load gc-countdown (raw 0)) (raw 0)))
+          (begin
+            (store gc-countdown (raw 0) (load gc-stress (raw 0)))
+            #t)))
+
+(def free-words () -> (raw) (:inline)
+     (raw- (load scheme-cap (raw 0)) (load scheme-len (raw 0))))
+
+;; nwords words of the current space, after a collection if it is full;
+;; called from runtime.s, the only place where a collection may happen
+(def alloc-words ((raw nwords) (raw roots) (raw nroots)) -> (raw)
+     (:native (:c-name "scheme_alloc"))
+     (when (or (gc-stress-due?) (raw>u nwords (free-words)))
+       (c-call scheme_collect roots nroots)
+       (when (raw>u nwords (free-words))
+         (fatal "Out of memory\n" (raw 0) (raw 0))))
+     (let ((len (load scheme-len (raw 0))))
+       (store scheme-len (raw 0) (raw+ len nwords))
+       (raw+ (load scheme-mem (raw 0)) (raw<< len (raw 3)))))
+
 ;; Prints "Error: msg: x" and exits
 (def scheme-error ((raw msg) (val x)) -> ! (:native)
      (c-call fflush (raw 0))

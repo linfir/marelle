@@ -127,8 +127,8 @@ static size_t scan(value *p, value **free) {
 }
 
 // Moves the live objects and updates the roots, which must hold every heap pointer in use;
-// the rest is reached through them
-static void scheme_collect(value *roots, uint64_t nroots) {
+// the rest is reached through them; called from scheme_alloc in prelude.low
+void scheme_collect(value *roots, uint64_t nroots) {
     value *to = spare_mem;
     value *free = to;
     for (uint64_t i = 0; i < nroots; i++) {
@@ -152,23 +152,6 @@ static void scheme_collect(value *roots, uint64_t nroots) {
     scheme_mem = to;
     scheme_len = copied;
     assert(scheme_len <= scheme_cap);
-}
-
-// Called from runtime.s, the only place where a collection may happen
-value *scheme_alloc(uint64_t nwords, value *roots, uint64_t nroots) {
-    bool stress = gc_stress != 0 && --gc_countdown == 0;
-    if (stress) {
-        gc_countdown = gc_stress;
-    }
-    if (stress || nwords > scheme_cap - scheme_len) {
-        scheme_collect(roots, nroots);
-        if (nwords > scheme_cap - scheme_len) {
-            scheme_fatal("Out of memory\n", NULL, NULL);
-        }
-    }
-    value *ptr = &scheme_mem[scheme_len];
-    scheme_len += nwords;
-    return ptr;
 }
 
 // ----------------------------------------------------------------------------
