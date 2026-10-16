@@ -66,7 +66,7 @@
             '(if when unless let let* begin set!
                  and or not
                  raw as-raw as-val
-                 c-call quote undef
+                 c-call syscall quote undef
                  load store alloc self address)))
 
 

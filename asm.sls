@@ -55,6 +55,7 @@
 
 
   (define arg-regs '(rdi rsi rdx rcx r8 r9))
+  (define syscall-regs '(rdi rsi rdx r10 r8 r9))
 
 
   (define frame-type (* 43 8))
@@ -139,11 +140,11 @@
     (emit-asm! ctx `(mov ,(slot ctx x) ,reg)))
 
 
-  (define (load-args! ctx args)
-    (when (> (length args) (length arg-regs))
+  (define (load-args! ctx args regs)
+    (when (> (length args) (length regs))
       (error 'load-args! "too many arguments" args))
     (let loop ((args args)
-               (regs arg-regs))
+               (regs regs))
       (unless (null? args)
         (load! ctx (car regs) (car args))
         (loop (cdr args) (cdr regs)))))
@@ -190,19 +191,29 @@
        (let ((dst (cadr instr))
              (target (caddr instr))
              (args (cdddr instr)))
-         (load-args! ctx args)
+         (load-args! ctx args arg-regs)
          (emit-asm! ctx
                     '(xor eax eax)
                     `(call ,target))
          (unless (eq? dst 'void)
            (store! ctx dst 'rax))))
 
+      ;; The kernel clobbers rcx and r11, which nothing keeps live
+      ((syscall)
+       (let ((dst (cadr instr))
+             (n (caddr instr))
+             (args (cdddr instr)))
+         (load-args! ctx args syscall-regs)
+         (load! ctx 'eax n)
+         (emit-asm! ctx '(syscall))
+         (store! ctx dst 'rax)))
+
       ((call)
        (let ((dst (cadr instr))
              (target (caddr instr))
              (proc (cadddr instr))
              (args (cddddr instr)))
-         (load-args! ctx args)
+         (load-args! ctx args arg-regs)
          (load! ctx 'r10 proc)
          (load! ctx 'rax target)
          (let ((label (ret-label! ctx)))
@@ -217,7 +228,7 @@
        (let ((target (cadr instr))
              (proc (caddr instr))
              (args (cdddr instr)))
-         (load-args! ctx args)
+         (load-args! ctx args arg-regs)
          (load! ctx 'r10 proc)
          (cond
           ((equal? target (asm-context-fn ctx))

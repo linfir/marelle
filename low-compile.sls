@@ -235,6 +235,18 @@
                    (cons (symbol->string (cadr expr))
                          (compile-exprs env (cddr expr) (map (lambda (x) 'raw) (cddr expr)) expr))))
 
+        ;; (syscall n arg ...): a Linux system call, raw arguments and result
+        ;; (a negative errno on failure), not a safepoint
+        ((syscall)
+         (unless (and (<= 2 (length expr) 8)
+                      (integer? (cadr expr))
+                      (exact? (cadr expr))
+                      (>= (cadr expr) 0))
+           (error 'compile-value "invalid syscall" expr))
+         (emit-op! 'syscall 'raw
+                   (cons `(quad ,(cadr expr))
+                         (compile-exprs env (cddr expr) (map (lambda (x) 'raw) (cddr expr)) expr))))
+
         ;; (load address index): the raw word at word index of address
         ((load)
          (emit-op! 'load 'raw (compile-operands env expr '(raw raw))))
