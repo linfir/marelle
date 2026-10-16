@@ -423,11 +423,7 @@
 ;; nothing may allocate before the captures are stored
 (def alloc-closure ((raw proc)) -> (raw) (:inline)
      (let ((c (alloc (raw+ (load proc (raw 4)) (raw 5)))))
-       (store c (raw 0) (load proc (raw 0)))
-       (store c (raw 1) (load proc (raw 1)))
-       (store c (raw 2) (load proc (raw 2)))
-       (store c (raw 3) (load proc (raw 3)))
-       (store c (raw 4) (load proc (raw 4)))
+       (copy-words c proc (raw 5))
        c))
 
 ;; Sets capture i of the closure c from alloc-closure
