@@ -34,8 +34,13 @@
 
   ;; The operand for x, or #f when x is not an immediate
   (define (immediate x)
+    (let ((word (immediate-word x)))
+      (and word `(as-val (quad ,word)))))
+
+
+  (define (immediate-word x)
     (define (tag t x)
-      `(as-val (quad ,(+ t (* x 8)))))
+      (+ t (* x 8)))
     (cond
      ((and (integer? x) (exact? x)
            (<= (- (expt 2 60)) x (- (expt 2 60) 1)))
@@ -52,5 +57,5 @@
   ;; The global cells, initialized to undef
   (define (emit-globals n)
     (print-entry '(export "scheme_globals" "scheme_nglobals"))
-    (print-entry `(data "scheme_globals" ,n ,(cadr (lower-operand (immediate 'undef)))))
+    (print-entry `(data "scheme_globals" ,n ,(immediate-word 'undef)))
     (print-entry `(rodata "scheme_nglobals" (quad ,n)))))
