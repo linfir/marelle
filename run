@@ -18,7 +18,8 @@
         (lambda () (f (read-all)))))))
 
 
-(let* ((source (get-string-all (current-input-port)))
+(let* ((source (let ((s (get-string-all (current-input-port))))
+                 (if (eof-object? s) "" s)))
        (low (if (member "--low" (cdr (command-line)))
                 source
                 (stage (lambda (program)

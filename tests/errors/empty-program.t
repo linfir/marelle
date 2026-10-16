@@ -1,0 +1,4 @@
+---
+stage = "compiler"
+stderr_contains = "empty program"
+chez = "skip"
