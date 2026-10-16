@@ -10,6 +10,8 @@
 (data gc-used-before 1 ((:c-name "gc_used_before")))
 (data gc-stress 1 ((:c-name "gc_stress")))
 (data gc-countdown 1 ((:c-name "gc_countdown")))
+;; The to-space allocation pointer during a collection
+(data gc-free 1 ())
 
 
 (def tag ((val x)) -> (raw) (:inline)
@@ -38,6 +40,15 @@
 
 (def procedure-type () -> (raw) (:inline)
      (raw 336)) ; 42 << 3
+
+(def frame-type () -> (raw) (:inline)
+     (raw 344)) ; 43 << 3
+
+(def forward-type () -> (raw) (:inline)
+     (raw 352)) ; 44 << 3
+
+(def box-type () -> (raw) (:inline)
+     (raw 360)) ; 45 << 3
 
 (def fixnum? ((val x)) -> (val) (:inline)
      (tag=? x (raw 1)))
@@ -110,6 +121,100 @@
             (store gc-countdown (raw 0) (load gc-stress (raw 0)))
             #t)))
 
+;; Copying collector (Cheney) with two semispaces:
+;; scheme-mem is the current one, scheme-len its used words out of scheme-cap;
+;; each space is zero past its used part, so frame slots not yet written hold 0
+
+(def object-words ((raw p)) -> (raw) (:native)
+     (if (raw= (load p (raw 0)) (frame-type))
+         (load p (raw 1))
+         (if (raw= (load p (raw 0)) (procedure-type))
+             (raw+ (load p (raw 4)) (raw 5))
+             (raw 2)))) ; pair or box
+
+(def copy-words ((raw dst) (raw src) (raw n)) -> () (:native)
+     (let copy-next ((i (raw 0)))
+       (if (raw= i n)
+           undef
+           (begin
+             (store dst i (load src i))
+             (copy-next (raw+ i (raw 1)))))))
+
+(def zero-words ((raw p) (raw n)) -> () (:native)
+     (let zero-next ((i (raw 0)))
+       (if (raw= i n)
+           undef
+           (begin
+             (store p i (raw 0))
+             (zero-next (raw+ i (raw 1)))))))
+
+;; The new address of the object x points to, copied to gc-free if it is in the
+;; current space; a moved object holds forward-type and its new address
+(def forward ((raw x)) -> (raw) (:native)
+     (let ((t (bit-and x (raw 7))))
+       (if (not (or (raw= t (raw 0)) (raw= t (raw 3))))
+           x
+           (let ((p (bit-and x (raw -8)))
+                 (mem (load scheme-mem (raw 0))))
+             (if (or (raw<u p mem)
+                     (raw>=u p (raw+ mem (raw<< (load scheme-len (raw 0)) (raw 3)))))
+                 x ; null or static procedure
+                 (if (raw= (load p (raw 0)) (forward-type))
+                     (bit-or (load p (raw 1)) t)
+                     (let ((new (load gc-free (raw 0)))
+                           (n (if (raw= t (raw 3)) (raw 2) (object-words p))))
+                       (copy-words new p n)
+                       (store gc-free (raw 0) (raw+ new (raw<< n (raw 3))))
+                       (store p (raw 0) (forward-type))
+                       (store p (raw 1) new)
+                       (bit-or new t))))))))
+
+(def forward-words ((raw p) (raw n)) -> () (:native)
+     (let forward-next ((i (raw 0)))
+       (if (raw= i n)
+           undef
+           (begin
+             (store p i (forward (load p i)))
+             (forward-next (raw+ i (raw 1)))))))
+
+;; Forwards the values of the object at p in the new space, returns its length;
+;; the raw slots of a frame are not scanned
+(def scan ((raw p)) -> (raw) (:native)
+     (let* ((n (object-words p))
+            (header (load p (raw 0)))
+            (frame? (raw= header (frame-type)))
+            (start (if frame?
+                       (raw 4)
+                       (if (raw= header (procedure-type))
+                           (raw 5)
+                           (if (raw= header (box-type)) (raw 1) (raw 0))))))
+       (forward-words (raw+ p (raw<< start (raw 3)))
+                      (raw- (if frame? (raw- n (load p (raw 2))) n) start))
+       n))
+
+;; Moves the live objects and updates the roots, which must hold every heap pointer in use;
+;; the rest is reached through them
+(def collect ((raw roots) (raw nroots)) -> () (:native)
+     (let ((to (load spare-mem (raw 0))))
+       (store gc-free (raw 0) to)
+       (forward-words roots nroots)
+       (forward-words (address "scheme_globals") (load (address "scheme_nglobals") (raw 0)))
+       (let scan-next ((p to))
+         (if (raw<u p (load gc-free (raw 0)))
+             (scan-next (raw+ p (raw<< (scan p) (raw 3))))
+             undef))
+       (let ((copied (raw>> (raw- (load gc-free (raw 0)) to) (raw 3)))
+             (len (load scheme-len (raw 0))))
+         (store gc-count (raw 0) (raw+ (load gc-count (raw 0)) (raw 1)))
+         (store gc-copied (raw 0) (raw+ (load gc-copied (raw 0)) copied))
+         (store gc-used-before (raw 0) (raw+ (load gc-used-before (raw 0)) len))
+         (when (raw>u copied (load gc-max-live (raw 0)))
+           (store gc-max-live (raw 0) copied))
+         (zero-words (load scheme-mem (raw 0)) len)
+         (store spare-mem (raw 0) (load scheme-mem (raw 0)))
+         (store scheme-mem (raw 0) to)
+         (store scheme-len (raw 0) copied))))
+
 (def free-words () -> (raw) (:inline)
      (raw- (load scheme-cap (raw 0)) (load scheme-len (raw 0))))
 
@@ -118,7 +223,7 @@
 (def alloc-words ((raw nwords) (raw roots) (raw nroots)) -> (raw)
      (:native (:c-name "scheme_alloc"))
      (when (or (gc-stress-due?) (raw>u nwords (free-words)))
-       (c-call scheme_collect roots nroots)
+       (collect roots nroots)
        (when (raw>u nwords (free-words))
          (fatal "Out of memory\n" (raw 0) (raw 0))))
      (let ((len (load scheme-len (raw 0))))
@@ -169,7 +274,7 @@
 
 (def make-box ((val v)) -> (val) (:inline)
      (let ((b (alloc (raw 2))))
-       (store b (raw 0) (raw 360)) ; box type, 45 << 3
+       (store b (raw 0) (box-type))
        (store b (raw 1) v)
        (as-val b)))
 

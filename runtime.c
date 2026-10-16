@@ -1,158 +1,30 @@
 // runtime.c
 
-#include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
-// Object headers: tag 0 and pointing into page 0, so never a Scheme value
-enum {
-    PROCEDURE_TYPE = 42 << 3,
-    FRAME_TYPE = 43 << 3,
-    FORWARD_TYPE = 44 << 3,
-    BOX_TYPE = 45 << 3,
-};
-
-// Procedure objects: [type, arity, code, name, ncaptures, captures...],
-// name being a C string or NULL
-enum {
-    PROC_NCAPTURES = 4,
-    PROC_CAPTURES = 5,
-};
-
-// tagged value, tag is 3 lower bits
-// 0 pointer
-// 1 integer
-// 2 immediate
-// 3 pointer to cons cell
 typedef uint64_t value;
 
 _Static_assert(sizeof(void *) == 8, "the runtime assumes 64-bit pointers");
-
-static bool is_pointer(value x) {
-    return (x & 7) == 0;
-}
-
-static bool is_pair(value x) {
-    return (x & 7) == 3;
-}
-
-static value *untag(value x) {
-    return (value *)(uintptr_t)(x & ~(value)7);
-}
-
-static bool has_header(const value *p, value type) {
-    return p[0] == type;
-}
 
 // Prints fmt, a printf format using up to two string arguments, and exits; in prelude.low
 _Noreturn void scheme_fatal(const char *fmt, const char *a, const char *b);
 
 // ----------------------------------------------------------------------------
 
-// Copying collector (Cheney) with two semispaces.
-// scheme_mem is the current one, scheme_len its used words out of scheme_cap.
-// The inline path of alloc_frame bumps scheme_len up to scheme_limit, 0 in stress mode.
-// Each space is zero past its used part, so frame slots not yet written hold 0.
-// The GC state is in prelude.low.
+// The GC state, in prelude.low
 extern value *scheme_mem;
 extern size_t scheme_len, scheme_cap, scheme_limit;
 extern value *spare_mem;
-
-// Cells of the top-level defines, from the compiled program
-extern value scheme_globals[];
-extern const uint64_t scheme_nglobals;
 
 // Statistics, printed at exit when SCHEME_GC_STATS is set
 extern uint64_t gc_count, gc_copied, gc_max_live, gc_used_before;
 
 // Stress mode (SCHEME_GC_STRESS): collect every gc_stress allocations
 extern uint64_t gc_stress, gc_countdown;
-
-static size_t object_words(const value *p) {
-    if (has_header(p, FRAME_TYPE)) {
-        return p[1];
-    }
-    if (has_header(p, PROCEDURE_TYPE)) {
-        return PROC_CAPTURES + p[PROC_NCAPTURES];
-    }
-    return 2; // pair or box
-}
-
-// Copies the object x points to, if in the current space, and returns its new address;
-// a moved object holds FORWARD_TYPE and its new address
-static value forward(value x, value **free) {
-    if (!is_pointer(x) && !is_pair(x)) {
-        return x;
-    }
-    value tag = x & 7;
-    value *p = untag(x);
-    uintptr_t addr = (uintptr_t)p;
-    if (addr < (uintptr_t)scheme_mem || addr >= (uintptr_t)(scheme_mem + scheme_len)) {
-        return x; // null or static procedure
-    }
-    if (has_header(p, FORWARD_TYPE)) {
-        return p[1] | tag;
-    }
-    size_t n = is_pair(x) ? 2 : object_words(p);
-    value *q = *free;
-    memcpy(q, p, n * sizeof(value));
-    *free = q + n;
-    p[0] = FORWARD_TYPE;
-    p[1] = (value)(uintptr_t)q;
-    return (value)(uintptr_t)q | tag;
-}
-
-// Forwards the values of an object in the new space, returns its length
-static size_t scan(value *p, value **free) {
-    size_t n = object_words(p);
-    size_t end = n;
-    size_t i = 0;
-    if (has_header(p, FRAME_TYPE)) {
-        i = 4;
-        end = n - p[2]; // raw slots are not scanned
-    } else if (has_header(p, PROCEDURE_TYPE)) {
-        i = PROC_CAPTURES;
-    } else if (has_header(p, BOX_TYPE)) {
-        i = 1;
-    }
-    for (; i < end; i++) {
-        p[i] = forward(p[i], free);
-    }
-    return n;
-}
-
-// Moves the live objects and updates the roots, which must hold every heap pointer in use;
-// the rest is reached through them; called from scheme_alloc in prelude.low
-void scheme_collect(value *roots, uint64_t nroots) {
-    value *to = spare_mem;
-    value *free = to;
-    for (uint64_t i = 0; i < nroots; i++) {
-        roots[i] = forward(roots[i], &free);
-    }
-    for (uint64_t i = 0; i < scheme_nglobals; i++) {
-        scheme_globals[i] = forward(scheme_globals[i], &free);
-    }
-    for (value *p = to; p < free;) {
-        p += scan(p, &free);
-    }
-    size_t copied = (size_t)(free - to);
-    gc_count++;
-    gc_copied += copied;
-    gc_used_before += scheme_len;
-    if (copied > gc_max_live) {
-        gc_max_live = copied;
-    }
-    memset(scheme_mem, 0, scheme_len * sizeof(value));
-    spare_mem = scheme_mem;
-    scheme_mem = to;
-    scheme_len = copied;
-    assert(scheme_len <= scheme_cap);
-}
 
 // ----------------------------------------------------------------------------
 
