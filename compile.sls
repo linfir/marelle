@@ -123,11 +123,16 @@
       (lower-value prog env expr))))
 
 
-  (define (primitive-named? env x low-name)
+  (define (primitive-of env x)
     (let ((entry (and (symbol? x) (assq x env))))
       (and entry
            (primitive-binding? (cdr entry))
-           (eq? (procedure-binding-proc (cdr entry)) low-name))))
+           (cdr entry))))
+
+
+  (define (primitive-named? env x low-name)
+    (let ((p (primitive-of env x)))
+      (and p (eq? (procedure-binding-proc p) low-name))))
 
 
   ;; The value of the deciding operand
@@ -270,13 +275,13 @@
 
 
   (define (lower-call prog env form)
-    (let ((entry (and (symbol? (car form)) (assq (car form) env)))
+    (let ((p (primitive-of env (car form)))
           (args (map-in-order (lambda (x) (lower-value prog env x)) (cdr form))))
-      (if (and entry (primitive-binding? (cdr entry)))
+      (if p
           (begin
-            (unless (= (length args) (primitive-binding-arity (cdr entry)))
+            (unless (= (length args) (primitive-binding-arity p))
               (error 'lower-call "wrong number of arguments" form))
-            (cons (procedure-binding-proc (cdr entry)) args))
+            (cons (procedure-binding-proc p) args))
           (lower-apply prog (lower-value prog env (car form)) args))))
 
 
