@@ -430,7 +430,7 @@
                 (compile-return env def x))
                ((not (def-inline? callee))
                 (emit! `(tailcall ,@(compile-direct env callee x))))
-               ((eq? (def-result callee) 'val)
+               ((and (eq? (def-result def) 'val) (eq? (def-result callee) 'val))
                 (compile-inline env callee x
                                 (lambda (env x) (compile-tail env callee x))))
                (else
