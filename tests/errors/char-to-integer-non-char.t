@@ -1,0 +1,4 @@
+(char->integer 5)
+---
+stage = "executable"
+stderr = "Error: `char->integer` expected a character: 5\n"

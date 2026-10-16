@@ -1,0 +1,4 @@
+(integer->char 57343)
+---
+stage = "executable"
+stderr = "Error: `integer->char` expected a Unicode scalar value: 57343\n"

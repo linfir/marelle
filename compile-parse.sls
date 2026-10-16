@@ -21,6 +21,7 @@
              (exact? x)
              (<= int-min x int-max))
         (boolean? x)
+        (char? x)
         (equal? x ''())
         (eq? x undef)))
 

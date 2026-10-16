@@ -87,35 +87,91 @@
 ;; Room for the digits of any raw, written backwards
 (data digits 3 ())
 
+;; Writes the nonnegative n in base radix, at most 16, with uppercase letters
+(def put-digits ((raw fd) (raw n) (raw radix)) -> () (:native)
+     (let digit-next ((m n)
+                      (i (raw 24)))
+       (let ((j (raw- i (raw 1)))
+             (d (raw% m radix)))
+         (store8 digits j (raw+ d (if (raw< d (raw 10)) (raw 48) (raw 55)))) ; 0, A - 10
+         (if (raw= (raw/ m radix) (raw 0))
+             (write-bytes fd (raw+ digits j) (raw- (raw 24) j))
+             (digit-next (raw/ m radix) j)))))
+
 (def put-int ((raw fd) (raw n)) -> () (:native)
      (when (raw< n (raw 0))
        (put-string fd "-"))
-     (let digit-next ((m (if (raw< n (raw 0)) (raw- (raw 0) n) n))
-                      (i (raw 24)))
-       (let ((j (raw- i (raw 1))))
-         (store8 digits j (raw+ (raw% m (raw 10)) (raw 48)))
-         (if (raw= (raw/ m (raw 10)) (raw 0))
-             (write-bytes fd (raw+ digits j) (raw- (raw 24) j))
-             (digit-next (raw/ m (raw 10)) j)))))
+     (put-digits fd (if (raw< n (raw 0)) (raw- (raw 0) n) n) (raw 10)))
+
+;; Writes the UTF-8 encoding of the code point n
+(def put-utf8 ((raw fd) (raw n)) -> () (:native)
+     (let ((nbytes (if (raw<u n (raw 128))
+                       (raw 1)
+                       (if (raw<u n (raw 2048))
+                           (raw 2)
+                           (if (raw<u n (raw 65536)) (raw 3) (raw 4))))))
+       (let byte-next ((m n)
+                       (i (raw- nbytes (raw 1))))
+         (if (raw= i (raw 0))
+             (begin
+               ;; The lead byte: 0, else 0xFF00 >> nbytes is 0xC0, 0xE0 or 0xF0
+               (store8 digits i (if (raw= nbytes (raw 1))
+                                    m
+                                    (bit-or m (bit-and (raw>> (raw 65280) nbytes) (raw 255)))))
+               (write-bytes fd digits nbytes))
+             (begin
+               (store8 digits i (bit-or (bit-and m (raw 63)) (raw 128)))
+               (byte-next (raw>> m (raw 6)) (raw- i (raw 1))))))))
 
 ;; Prints x to the file descriptor out
 (def display ((raw out) (val x)) -> () (:native)
      (if (fixnum? x)
          (put-int out (raw>> (as-raw x) (raw 3)))
          (if (tag=? x (raw 2))
-             (put-string out
-                         (if (eq? x #f)
-                             "#f"
-                             (if (eq? x #t)
-                                 "#t"
-                                 (if (null? x)
-                                     "()"
-                                     (if (eq? x undef) "#<undef>" "#<err>")))))
+             (if (char? x)
+                 (display-char out x)
+                 (put-string out
+                             (if (eq? x #f)
+                                 "#f"
+                                 (if (eq? x #t)
+                                     "#t"
+                                     (if (null? x)
+                                         "()"
+                                         (if (eq? x undef) "#<undef>" "#<err>"))))))
              (if (pair? x)
                  (display-pair out x)
                  (if (tag=? x (raw 0))
                      (display-pointer out x)
                      (put-string out "#<err>"))))))
+
+;; The name of the character n, or 0
+(def char-name ((raw n)) -> (raw) (:native)
+     (if (raw= n (raw 0)) "nul"
+     (if (raw= n (raw 7)) "alarm"
+     (if (raw= n (raw 8)) "backspace"
+     (if (raw= n (raw 9)) "tab"
+     (if (raw= n (raw 10)) "newline"
+     (if (raw= n (raw 11)) "vtab"
+     (if (raw= n (raw 12)) "page"
+     (if (raw= n (raw 13)) "return"
+     (if (raw= n (raw 27)) "esc"
+     (if (raw= n (raw 32)) "space"
+     (if (raw= n (raw 127)) "delete"
+         (raw 0)))))))))))))
+
+;; Prints c like Chez's write: a name, hexadecimal for the other control
+;; characters and the line separators U+0085 and U+2028, else UTF-8
+(def display-char ((raw out) (val c)) -> () (:native)
+     (let* ((n (raw>> (as-raw c) (raw 8)))
+            (name (char-name n)))
+       (put-string out "#\\")
+       (if (not (raw= name (raw 0)))
+           (put-string out name)
+           (if (or (raw< n (raw 32)) (raw= n (raw 133)) (raw= n (raw 8232)))
+               (begin
+                 (put-string out "x")
+                 (put-digits out n (raw 16)))
+               (put-utf8 out n)))))
 
 (def display-pair ((raw out) (val x)) -> () (:native)
      (put-string out "(")
@@ -466,6 +522,51 @@
 
 (def >= ((val x) (val y)) -> (val) (:public :inline)
      (check-fixnums x y "`>=` expected an integer")
+     (raw>= (as-raw x) (as-raw y)))
+
+;; Characters: the immediate (code << 8) | 34
+(def char? ((val x)) -> (val) (:public :inline)
+     (raw= (bit-and (as-raw x) (raw 255)) (raw 34)))
+
+;; ((code << 8) | 34) >> 5 is (code << 3) | 1, the fixnum code
+(def char->integer ((val x)) -> (val) (:public :inline)
+     (unless (char? x)
+       (scheme-error "`char->integer` expected a character" x))
+     (as-val (raw>> (as-raw x) (raw 5))))
+
+(def integer->char ((val x)) -> (val) (:public :inline)
+     (unless (and (fixnum? x)
+                  (let ((n (raw>> (as-raw x) (raw 3))))
+                    (and (raw<=u n (raw 1114111))
+                         (not (and (raw>= n (raw 55296)) (raw<= n (raw 57343))))))) ; surrogates
+       (scheme-error "`integer->char` expected a Unicode scalar value" x))
+     (as-val (bit-or (raw<< (as-raw x) (raw 5)) (raw 2))))
+
+(def check-chars ((val x) (val y) (raw msg)) -> () (:inline)
+     (unless (char? x)
+       (scheme-error msg x))
+     (unless (char? y)
+       (scheme-error msg y)))
+
+;; Comparing characters compares their codes
+(def char=? ((val x) (val y)) -> (val) (:public :inline)
+     (check-chars x y "`char=?` expected a character")
+     (raw= (as-raw x) (as-raw y)))
+
+(def char<? ((val x) (val y)) -> (val) (:public :inline)
+     (check-chars x y "`char<?` expected a character")
+     (raw< (as-raw x) (as-raw y)))
+
+(def char<=? ((val x) (val y)) -> (val) (:public :inline)
+     (check-chars x y "`char<=?` expected a character")
+     (raw<= (as-raw x) (as-raw y)))
+
+(def char>? ((val x) (val y)) -> (val) (:public :inline)
+     (check-chars x y "`char>?` expected a character")
+     (raw> (as-raw x) (as-raw y)))
+
+(def char>=? ((val x) (val y)) -> (val) (:public :inline)
+     (check-chars x y "`char>=?` expected a character")
      (raw>= (as-raw x) (as-raw y)))
 
 ;; not is a low keyword, so the procedure is exported under that name

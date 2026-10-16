@@ -34,7 +34,9 @@
       (= = 2) (< < 2) (<= <= 2) (> > 2) (>= >= 2)
       (null? null? 1) (pair? pair? 1)
       (cons cons 2) (car car 1) (cdr cdr 1)
-      (not scm-not 1)))
+      (not scm-not 1)
+      (char? char? 1) (char->integer char->integer 1) (integer->char integer->char 1)
+      (char=? char=? 2) (char<? char<? 2) (char>? char>? 2) (char<=? char<=? 2) (char>=? char>=? 2)))
 
 
   ;; Every local and def gets a name x.N, unique in the program

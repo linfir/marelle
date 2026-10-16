@@ -1,0 +1,4 @@
+(integer->char #\a)
+---
+stage = "executable"
+stderr = "Error: `integer->char` expected a Unicode scalar value: #\\a\n"
