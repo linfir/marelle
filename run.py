@@ -30,12 +30,9 @@ def run_stage(stage, command, **kwargs):
     return result
 
 
-def compile_scheme(source):
-    return run_stage("compiler", ["scheme-script", ROOT / "run"], input=source, cwd=ROOT).stdout
-
-
-def compile_low(source):
-    return run_stage("low", ["scheme-script", ROOT / "run", "--low"], input=source, cwd=ROOT).stdout
+def compile_source(source, low):
+    stage, flags = ("low", ["--low"]) if low else ("compiler", [])
+    return run_stage(stage, ["scheme-script", ROOT / "run", *flags], input=source, cwd=ROOT).stdout
 
 
 def run_pipeline(source, *, env=None, low=False):
@@ -45,7 +42,7 @@ def run_pipeline(source, *, env=None, low=False):
         obj = work / "out.o"
         executable = work / "out"
 
-        assembly.write_text(compile_low(source) if low else compile_scheme(source))
+        assembly.write_text(compile_source(source, low))
 
         run_stage("as", ["as", "-o", obj, assembly])
         run_stage("ld", ["ld", "-o", executable, obj])
