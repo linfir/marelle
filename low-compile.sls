@@ -150,15 +150,11 @@
            (cond
             ((def-inline? def)
              (compile-inline env def expr (lambda (env x) (compile-result env def x))))
+            ;; A System V call, so not a safepoint
             ((def-native? def)
-             (compile-native env def expr))
+             (emit-call! 'ccall (def-result def) (cons (def-code def) (compile-args env def expr))))
             (else
-             (if (eq? (def-result def) 'never)
-                 (begin
-                   (emit! `(call void ,@(compile-direct env def expr)))
-                   (emit! '(unreachable))
-                   '(never))
-                 (emit-op! 'call 'val (compile-direct env def expr)))))))
+             (emit-call! 'call (def-result def) (compile-direct env def expr))))))
 
      ((binary-op? expr)
       => (lambda (entry)
@@ -329,17 +325,16 @@
     (cons* (def-code def) (def-proc def) (compile-args env def expr)))
 
 
-  ;; A call to the native def: a System V call, so not a safepoint
-  (define (compile-native env def expr)
-    (let ((ops (cons (def-code def) (compile-args env def expr))))
-      (case (def-result def)
-        ((void never)
-         (emit! `(ccall void ,@ops))
-         (if (eq? (def-result def) 'never)
-             (begin (emit! '(unreachable)) '(never))
-             '(void)))
-        (else
-         (emit-op! 'ccall (def-result def) ops)))))
+  ;; (op dst . ops), op being call or ccall, for a def with the given result
+  (define (emit-call! op result ops)
+    (case result
+      ((void never)
+       (emit! `(,op void ,@ops))
+       (if (eq? result 'never)
+           (begin (emit! '(unreachable)) '(never))
+           '(void)))
+      (else
+       (emit-op! op result ops))))
 
 
   ;; (code proc arg ...) for a call or tailcall of the procedure value (car expr)
