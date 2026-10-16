@@ -30,8 +30,8 @@ extern uint64_t gc_stress, gc_countdown;
 
 value scheme_enter(void);
 
-// Prints x to out, in prelude.low
-void scheme_display(FILE *out, value x);
+// Prints x to the file descriptor fd, in prelude.low
+void scheme_display(uint64_t fd, value x);
 
 // The positive integer in the environment variable name, or default_value if unset
 static uint64_t env_positive(const char *name, uint64_t default_value, uint64_t max) {
@@ -74,7 +74,7 @@ int main(void) {
         scheme_fatal("Memory allocation failed\n", NULL, NULL);
     }
     value v = scheme_enter();
-    scheme_display(stdout, v);
+    scheme_display(1, v);
     free(scheme_mem);
     free(spare_mem);
     return 0;

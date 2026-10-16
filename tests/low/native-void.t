@@ -1,5 +1,6 @@
 (def show ((raw n)) -> () (:native)
-     (c-call printf "%ld " n))
+     (put-int (stdout) n)
+     (put-string (stdout) " "))
 
 (def main () -> (val) ()
      (show (raw 7))

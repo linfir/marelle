@@ -33,10 +33,10 @@
      (tag=? x (raw 3)))
 
 (def stdout () -> (raw) (:inline)
-     (load (address "stdout") (raw 0)))
+     (raw 1))
 
 (def stderr () -> (raw) (:inline)
-     (load (address "stderr") (raw 0)))
+     (raw 2))
 
 (def procedure-type () -> (raw) (:inline)
      (raw 336)) ; 42 << 3
@@ -59,56 +59,90 @@
 (def eq? ((val x) (val y)) -> (val) (:public :inline)
      (raw= (as-raw x) (as-raw y)))
 
-;; Prints x to the C stream out
+;; Writes the n bytes at buf to the file descriptor fd, stopping on an error
+(def write-bytes ((raw fd) (raw buf) (raw n)) -> () (:native)
+     (let write-next ((done (raw 0)))
+       (if (raw<u done n)
+           (let ((written (syscall 1 fd (raw+ buf done) (raw- n done))))
+             (if (raw< written (raw 0))
+                 undef
+                 (write-next (raw+ done written))))
+           undef)))
+
+(def c-string-length ((raw s)) -> (raw) (:native)
+     (let length-next ((i (raw 0)))
+       (if (raw= (load8 s i) (raw 0))
+           i
+           (length-next (raw+ i (raw 1))))))
+
+(def put-string ((raw fd) (raw s)) -> () (:native)
+     (write-bytes fd s (c-string-length s)))
+
+;; Room for the digits of any raw, written backwards
+(data digits 3 ())
+
+(def put-int ((raw fd) (raw n)) -> () (:native)
+     (when (raw< n (raw 0))
+       (put-string fd "-"))
+     (let digit-next ((m (if (raw< n (raw 0)) (raw- (raw 0) n) n))
+                      (i (raw 24)))
+       (let ((j (raw- i (raw 1))))
+         (store8 digits j (raw+ (raw% m (raw 10)) (raw 48)))
+         (if (raw= (raw/ m (raw 10)) (raw 0))
+             (write-bytes fd (raw+ digits j) (raw- (raw 24) j))
+             (digit-next (raw/ m (raw 10)) j)))))
+
+;; Prints x to the file descriptor out
 (def display ((raw out) (val x)) -> () (:native (:c-name "scheme_display"))
      (if (fixnum? x)
-         (c-call fprintf out "%ld" (raw>> (as-raw x) (raw 3)))
+         (put-int out (raw>> (as-raw x) (raw 3)))
          (if (tag=? x (raw 2))
-             (c-call fputs
-                     (if (eq? x #f)
-                         "#f"
-                         (if (eq? x #t)
-                             "#t"
-                             (if (null? x)
-                                 "()"
-                                 (if (eq? x undef) "#<undef>" "#<err>"))))
-                     out)
+             (put-string out
+                         (if (eq? x #f)
+                             "#f"
+                             (if (eq? x #t)
+                                 "#t"
+                                 (if (null? x)
+                                     "()"
+                                     (if (eq? x undef) "#<undef>" "#<err>")))))
              (if (pair? x)
                  (display-pair out x)
                  (if (tag=? x (raw 0))
                      (display-pointer out x)
-                     (c-call fputs "#<err>" out))))))
+                     (put-string out "#<err>"))))))
 
 (def display-pair ((raw out) (val x)) -> () (:native)
-     (c-call fputs "(" out)
+     (put-string out "(")
      (display out (car x))
      (let more ((rest (cdr x)))
        (if (pair? rest)
            (begin
-             (c-call fputs " " out)
+             (put-string out " ")
              (display out (car rest))
              (more (cdr rest)))
            (begin
              (unless (null? rest)
-               (c-call fputs " . " out)
+               (put-string out " . ")
                (display out rest))
-             (c-call fputs ")" out)))))
+             (put-string out ")")))))
 
 (def display-pointer ((raw out) (val x)) -> () (:native)
      (if (raw= (as-raw x) (raw 0))
-         (c-call fputs "#<null>" out)
+         (put-string out "#<null>")
          (if (raw= (load (as-raw x) (raw 0)) (procedure-type))
              (let ((name (load (as-raw x) (raw 3))))
                (if (raw= name (raw 0))
-                   (c-call fputs "#<procedure>" out)
-                   (c-call fprintf out "#<procedure %s>" name)))
-             (c-call fputs "#<unknown ptr>" out))))
+                   (put-string out "#<procedure>")
+                   (begin
+                     (put-string out "#<procedure ")
+                     (put-string out name)
+                     (put-string out ">"))))
+             (put-string out "#<unknown ptr>"))))
 
 ;; Prints fmt, a printf format using up to two arguments a and b, and exits;
 ;; for runtime.c, before the program runs or when it cannot go on
 (def fatal ((raw fmt) (raw a) (raw b)) -> ! (:native (:c-name "scheme_fatal"))
-     (c-call fflush (raw 0))
-     (c-call fprintf (stderr) fmt a b)
+     (c-call dprintf (stderr) fmt a b)
      (c-call exit (raw 1)))
 
 ;; Counts down to the next forced collection in stress mode (SCHEME_GC_STRESS)
@@ -232,19 +266,22 @@
 
 ;; Prints "Error: msg: x" and exits
 (def scheme-error ((raw msg) (val x)) -> ! (:native)
-     (c-call fflush (raw 0))
-     (c-call fprintf (stderr) "Error: %s: " msg)
+     (put-string (stderr) "Error: ")
+     (put-string (stderr) msg)
+     (put-string (stderr) ": ")
      (display (stderr) x)
-     (c-call fprintf (stderr) "\n")
+     (put-string (stderr) "\n")
      (c-call exit (raw 1)))
 
 (def type-error ((raw x) (val y)) -> ! (:inline)
      (scheme-error x y))
 
 (def arity-error ((val proc) (raw nargs)) -> ! (:native)
-     (c-call fflush (raw 0))
-     (c-call fprintf (stderr) "Error: procedure of arity %ld called with %ld arguments\n"
-             (load (as-raw proc) (raw 1)) nargs)
+     (put-string (stderr) "Error: procedure of arity ")
+     (put-int (stderr) (load (as-raw proc) (raw 1)))
+     (put-string (stderr) " called with ")
+     (put-int (stderr) nargs)
+     (put-string (stderr) " arguments\n")
      (c-call exit (raw 1)))
 
 ;; Checks that proc is a procedure taking nargs arguments
