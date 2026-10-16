@@ -12,6 +12,10 @@
 (data gc-countdown 1 ((:c-name "gc_countdown")))
 ;; The to-space allocation pointer during a collection
 (data gc-free 1 ())
+;; The environment variables, NAME=VALUE C strings ending with 0
+(data environment 1 ())
+;; Nonzero when SCHEME_GC_STATS is set and nonempty
+(data gc-stats 1 ())
 
 
 (def tag ((val x)) -> (raw) (:inline)
@@ -139,11 +143,88 @@
                      (put-string out ">"))))
              (put-string out "#<unknown ptr>"))))
 
-;; Prints fmt, a printf format using up to two arguments a and b, and exits;
-;; for runtime.c, before the program runs or when it cannot go on
-(def fatal ((raw fmt) (raw a) (raw b)) -> ! (:native (:c-name "scheme_fatal"))
-     (c-call dprintf (stderr) fmt a b)
-     (c-call exit (raw 1)))
+;; Prints the statistics on stderr when SCHEME_GC_STATS is set, then exits
+(def exit-process ((raw status)) -> ! (:native)
+     (unless (raw= (load gc-stats (raw 0)) (raw 0))
+       (print-gc-stats))
+     (syscall 231 status)) ; exit_group
+
+;; Each stretch between collections allocates from the words copied up to the used words
+(def print-gc-stats () -> () (:native)
+     (put-string (stderr) "GC: ")
+     (put-int (stderr) (load gc-count (raw 0)))
+     (put-string (stderr) " collections, ")
+     (put-int (stderr) (raw- (raw+ (load gc-used-before (raw 0)) (load scheme-len (raw 0)))
+                             (load gc-copied (raw 0))))
+     (put-string (stderr) " words allocated, ")
+     (put-int (stderr) (load gc-copied (raw 0)))
+     (put-string (stderr) " words copied, ")
+     (put-int (stderr) (load gc-max-live (raw 0)))
+     (put-string (stderr) " max live words\n"))
+
+;; Prints msg and exits, when the program cannot go on
+(def fatal ((raw msg)) -> ! (:native)
+     (put-string (stderr) msg)
+     (exit-process (raw 1)))
+
+;; The address of the value of entry, a NAME=VALUE string, or 0 if its name is not name
+(def env-value ((raw entry) (raw name)) -> (raw) (:native)
+     (let compare-next ((i (raw 0)))
+       (if (raw= (load8 name i) (raw 0))
+           (if (raw= (load8 entry i) (raw 61)) ; =
+               (raw+ entry (raw+ i (raw 1)))
+               (raw 0))
+           (if (raw= (load8 entry i) (load8 name i))
+               (compare-next (raw+ i (raw 1)))
+               (raw 0)))))
+
+;; The value of the environment variable name, or 0 if unset
+(def getenv ((raw name)) -> (raw) (:native)
+     (let env-next ((k (raw 0)))
+       (let ((entry (load (load environment (raw 0)) k)))
+         (if (raw= entry (raw 0))
+             (raw 0)
+             (let ((value (env-value entry name)))
+               (if (raw= value (raw 0))
+                   (env-next (raw+ k (raw 1)))
+                   value))))))
+
+;; The decimal number s, or 0 if it is empty, has a non-digit or overflows
+(def parse-positive ((raw s)) -> (raw) (:native)
+     (let digit-next ((i (raw 0))
+                      (n (raw 0)))
+       (let ((d (raw- (load8 s i) (raw 48))))
+         (if (raw= (load8 s i) (raw 0))
+             n
+             (if (or (raw>u d (raw 9))
+                     (raw>u n (raw 1844674407370955161)) ; (2^64 - 1) / 10
+                     (and (raw= n (raw 1844674407370955161)) (raw>u d (raw 5))))
+                 (raw 0)
+                 (digit-next (raw+ i (raw 1)) (raw+ (raw* n (raw 10)) d)))))))
+
+;; The positive integer in the environment variable name, or default if unset;
+;; exits if it is not a positive decimal integer up to max
+(def env-positive ((raw name) (raw default) (raw max)) -> (raw) (:native)
+     (let ((s (getenv name)))
+       (if (raw= s (raw 0))
+           default
+           (let ((n (parse-positive s)))
+             (when (or (raw= n (raw 0)) (raw>u n max))
+               (put-string (stderr) "Invalid ")
+               (put-string (stderr) name)
+               (put-string (stderr) ": ")
+               (put-string (stderr) s)
+               (put-string (stderr) "\n")
+               (exit-process (raw 1)))
+             n))))
+
+;; n zeroed words, touched lazily
+(def map-words ((raw n)) -> (raw) (:native)
+     ;; mmap(0, 8n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+     (let ((p (syscall 9 (raw 0) (raw<< n (raw 3)) (raw 3) (raw 34) (raw -1) (raw 0))))
+       (when (raw>u p (raw -4096))
+         (fatal "Memory allocation failed\n"))
+       p))
 
 ;; Counts down to the next forced collection in stress mode (SCHEME_GC_STRESS)
 (def gc-stress-due? () -> (val) (:inline)
@@ -259,10 +340,33 @@
      (when (or (gc-stress-due?) (raw>u nwords (free-words)))
        (collect roots nroots)
        (when (raw>u nwords (free-words))
-         (fatal "Out of memory\n" (raw 0) (raw 0))))
+         (fatal "Out of memory\n")))
      (let ((len (load scheme-len (raw 0))))
        (store scheme-len (raw 0) (raw+ len nwords))
        (raw+ (load scheme-mem (raw 0)) (raw<< len (raw 3)))))
+
+;; Called from _start with the initial stack: argc, the arguments, 0, then the environment
+(def init-runtime ((raw sp)) -> () (:native (:c-name "scheme_init"))
+     (store environment (raw 0) (raw+ sp (raw<< (raw+ (load sp (raw 0)) (raw 2)) (raw 3))))
+     ;; 2^26 words by default: 1 GiB for both spaces
+     (store scheme-cap (raw 0)
+            (env-positive "SCHEME_HEAP" (raw 67108864) (raw 2305843009213693951)))
+     (store gc-stress (raw 0)
+            (env-positive "SCHEME_GC_STRESS" (raw 0) (raw 18446744073709551615)))
+     (store gc-countdown (raw 0) (load gc-stress (raw 0)))
+     (store scheme-limit (raw 0)
+            (if (raw= (load gc-stress (raw 0)) (raw 0)) (load scheme-cap (raw 0)) (raw 0)))
+     (let ((stats (getenv "SCHEME_GC_STATS")))
+       (when (and (not (raw= stats (raw 0)))
+                  (not (raw= (load8 stats (raw 0)) (raw 0))))
+         (store gc-stats (raw 0) (raw 1))))
+     (store scheme-mem (raw 0) (map-words (load scheme-cap (raw 0))))
+     (store spare-mem (raw 0) (map-words (load scheme-cap (raw 0)))))
+
+;; Called from _start with the value of scheme_main
+(def finish-program ((val v)) -> ! (:native (:c-name "scheme_finish"))
+     (display (stdout) v)
+     (exit-process (raw 0)))
 
 ;; Prints "Error: msg: x" and exits
 (def scheme-error ((raw msg) (val x)) -> ! (:native)
@@ -271,7 +375,7 @@
      (put-string (stderr) ": ")
      (display (stderr) x)
      (put-string (stderr) "\n")
-     (c-call exit (raw 1)))
+     (exit-process (raw 1)))
 
 (def type-error ((raw x) (val y)) -> ! (:inline)
      (scheme-error x y))
@@ -282,7 +386,7 @@
      (put-string (stderr) " called with ")
      (put-int (stderr) nargs)
      (put-string (stderr) " arguments\n")
-     (c-call exit (raw 1)))
+     (exit-process (raw 1)))
 
 ;; Checks that proc is a procedure taking nargs arguments
 (def check-procedure ((val proc) (raw nargs)) -> () (:native)

@@ -30,10 +30,6 @@ def run_stage(stage, command, **kwargs):
     return result
 
 
-def build_runtime():
-    return run_stage("setup", ["make", "-s"], cwd=ROOT)
-
-
 def compile_scheme(source):
     return run_stage("compiler", ["scheme-script", ROOT / "run"], input=source, cwd=ROOT).stdout
 
@@ -42,18 +38,17 @@ def compile_low(source):
     return run_stage("low", ["scheme-script", ROOT / "run", "--low"], input=source, cwd=ROOT).stdout
 
 
-def run_pipeline(source, *, build=True, env=None, low=False):
-    if build:
-        build_runtime()
-
+def run_pipeline(source, *, env=None, low=False):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         assembly = work / "out.s"
+        obj = work / "out.o"
         executable = work / "out"
 
         assembly.write_text(compile_low(source) if low else compile_scheme(source))
 
-        run_stage("cc", ["cc", "-o", executable, assembly, ROOT / "tmp" / "runtime.o"])
+        run_stage("as", ["as", "-o", obj, assembly])
+        run_stage("ld", ["ld", "-o", executable, obj])
         return run_stage("executable", [executable], env=os.environ | (env or {}))
 
 

@@ -26,7 +26,7 @@
 ;;   - al = 0 (no vector arguments), for variadic functions
 ;;   - rbx, rbp, rsp, r12-r15 are preserved, all other registers are clobbered
 ;;   - rsp is 16-byte aligned at the call; Scheme code never pushes, and
-;;     scheme_enter aligns it once, so a plain call is always aligned
+;;     it is aligned at _start, so a plain call is always aligned
 ;;
 ;; Scheme calls (call, tailcall) use their own convention:
 ;;   - arguments in rdi, rsi, rdx, rcx, r8, r9 (at most 6), the procedure object
@@ -410,32 +410,21 @@
       (else (error 'top->asm "unknown top-level entry" x))))
 
 
-  ;; The allocation stubs and the entry from C, in every program
+  ;; The process entry and the allocation stubs, in every program
   (define runtime-asm
     `((text)
-      ;; Enter Scheme from C, following the System V ABI: call the Scheme function
-      ;; scheme_main in the Scheme calling convention and return its value
-      (label "scheme_enter")
-      (push rbx)
-      (push rbp)
-      (push r12)
-      (push r13)
-      (push r14)
-      (push r15)
-      (sub rsp 8)
+      ;; The process entry: rsp points to argc and is 16-byte aligned;
+      ;; scheme_main runs in the Scheme calling convention and nothing returns here
+      (label "_start")
+      (mov rdi rsp)
+      (call "scheme_init")
       (xor ebp ebp)
       (xor r10d r10d)
-      (lea r11 (rip ".Lscheme_enter_resume"))
+      (lea r11 (rip ".L_start_finish"))
       (jmp "scheme_main")
-      (label ".Lscheme_enter_resume")
-      (add rsp 8)
-      (pop r15)
-      (pop r14)
-      (pop r13)
-      (pop r12)
-      (pop rbp)
-      (pop rbx)
-      (ret)
+      (label ".L_start_finish")
+      (mov rdi rax)
+      (call "scheme_finish")
 
       ;; Allocate an object
       ;; Parameters:
@@ -525,7 +514,7 @@
     (append '((intel_syntax noprefix))
             (map (lambda (name) `(globl ,name)) exports)
             (apply append (map top->asm tops))
-            '((globl "scheme_enter"))
+            '((globl "_start"))
             runtime-asm
             '((section ".note.GNU-stack" "" %progbits))))
 

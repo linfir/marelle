@@ -7,12 +7,12 @@ import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from run import PipelineFailure, build_runtime, run_chez, run_pipeline
+from run import PipelineFailure, run_chez, run_pipeline
 
 
 ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
-STAGES = {"compiler", "low", "asm", "cc", "executable", "result"}
+STAGES = {"compiler", "low", "asm", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", *OUTPUT_FIELDS}
 SKIP = "skip"
@@ -88,7 +88,7 @@ def check_case(path, chez=False, gc_stress=None):
         env = {"SCHEME_GC_STRESS": str(gc_stress)} | env
 
     try:
-        result = run_chez(source) if chez else run_pipeline(source, build=False, env=env, low=low)
+        result = run_chez(source) if chez else run_pipeline(source, env=env, low=low)
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result
@@ -194,16 +194,6 @@ def main():
     if not paths:
         print("No tests matched")
         exit(2)
-
-    if not args.chez:
-        try:
-            build_runtime()
-        except PipelineFailure as error:
-            details = [f"exit: {error.result.returncode}"]
-            if error.result.stderr:
-                details.append(f"stderr: {describe_stream(error.result.stderr)}")
-            print_failure("setup", ("setup", details))
-            exit(1)
 
     failures = []
     skipped = 0
