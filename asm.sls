@@ -72,10 +72,6 @@
     (fields fn native? arity ntmp nraw (mutable code) ret-counter))
 
 
-  ;; x is (function name (arity n) block ...) or (native name (arity n) block ...),
-  ;; a block being (block n instr ...),
-  ;; n being its label,
-  ;; and falling through to the next one
   (define (new-asm-context x)
     (let ((blocks (cdddr x)))
       (make-asm-context (cadr x) (eq? (car x) 'native) (cadr (caddr x))
@@ -138,11 +134,7 @@
   (define (load-args! ctx args regs)
     (when (> (length args) (length regs))
       (error 'load-args! "too many arguments" args))
-    (let loop ((args args)
-               (regs regs))
-      (unless (null? args)
-        (load! ctx (car regs) (car args))
-        (loop (cdr args) (cdr regs)))))
+    (for-each (lambda (reg x) (load! ctx reg x)) (list-head regs (length args)) args))
 
 
   (define (label-name ctx label)
@@ -315,8 +307,7 @@
          (emit-asm! ctx '(cmp rax rcx))))
 
       ((add sub mul sal sar and or)
-       (let ((op (cdr (assq (car instr) '((add . add) (sub . sub) (mul . imul)
-                                          (sal . sal) (sar . sar) (and . and) (or . or)))))
+       (let ((op (if (eq? (car instr) 'mul) 'imul (car instr)))
              (dst (cadr instr))
              (a (caddr instr))
              (b (cadddr instr)))
@@ -363,8 +354,8 @@
        (error 'instr->asm! "unknown instruction" instr))))
 
 
-  ;; x is (function|native name (arity n) block ...), a block being
-  ;; (block n instr ...), n being its label, and falling through to the next one
+  ;; x is (function|native name (arity n) block ...);
+  ;; a block is (block n instr ...), n being its label, and falls through to the next one
   (define (function->asm x)
     (let* ((ctx (new-asm-context x))
            (fn (asm-context-fn ctx))
@@ -383,11 +374,8 @@
                      '(call "alloc_frame")
                      `(mov (mem rbp ,frame-nraw) ,nraw)
                      `(label ,(self-label ctx))))
-      (let loop ((i 1)
-                 (regs arg-regs))
-        (when (<= i arity)
-          (store! ctx (list 'arg i) (car regs))
-          (loop (+ i 1) (cdr regs))))
+      (for-each (lambda (i reg) (store! ctx (list 'arg (+ i 1)) reg))
+                (iota arity) (list-head arg-regs arity))
       (for-each (lambda (block)
                   (emit-asm! ctx `(label ,(label-name ctx (cadr block))))
                   (for-each (lambda (instr) (instr->asm! ctx instr)) (cddr block)))
