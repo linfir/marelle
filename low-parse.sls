@@ -67,7 +67,7 @@
                  and or not
                  raw as-raw as-val
                  c-call syscall quote undef
-                 load store alloc self address)))
+                 load store load8 store8 alloc self address)))
 
 
   (define fn-counter (make-counter))

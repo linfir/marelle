@@ -173,6 +173,16 @@
        '(mem rax rcx 8))))
 
 
+  ;; The memory operand for byte index of the address in rax, using rcx
+  (define (byte-element! ctx index)
+    (case (car index)
+      ((quad)
+       `(mem8 rax ,(cadr index)))
+      (else
+       (load! ctx 'rcx index)
+       '(mem8 rax rcx))))
+
+
   (define (leave! ctx)
     (emit-asm! ctx
                `(mov r11 (mem rbp ,frame-ret))
@@ -268,6 +278,22 @@
              (index (cadddr instr)))
          (load! ctx 'rax base)
          (emit-asm! ctx `(mov rax ,(element! ctx index)))
+         (store! ctx dst 'rax)))
+
+      ((store8)
+       (let ((base (cadr instr))
+             (index (caddr instr))
+             (src (cadddr instr)))
+         (load! ctx 'rax base)
+         (load! ctx 'rdx src)
+         (emit-asm! ctx `(mov ,(byte-element! ctx index) dl))))
+
+      ((load8)
+       (let ((dst (cadr instr))
+             (base (caddr instr))
+             (index (cadddr instr)))
+         (load! ctx 'rax base)
+         (emit-asm! ctx `(movzx eax ,(byte-element! ctx index)))
          (store! ctx dst 'rax)))
 
       ((cmp)
@@ -515,9 +541,12 @@
       (write-gas-string x))
      ((and (eq? (car x) 'mem) (= (length x) 4))
       (printf "qword ptr [~a + ~a*~a]" (cadr x) (caddr x) (cadddr x)))
-     ((eq? (car x) 'mem)
-      (let ((off (caddr x)))
-        (printf "qword ptr [~a ~a ~a]" (cadr x) (if (< off 0) "-" "+") (abs off))))
+     ((memq (car x) '(mem mem8))
+      (let ((size (if (eq? (car x) 'mem) "qword" "byte"))
+            (off (caddr x)))
+        (if (symbol? off)
+            (printf "~a ptr [~a + ~a]" size (cadr x) off)
+            (printf "~a ptr [~a ~a ~a]" size (cadr x) (if (< off 0) "-" "+") (abs off)))))
      ((eq? (car x) 'rip)
       (printf "qword ptr [rip + ~s]" (cadr x)))
      (else (error 'print-operand "unknown operand" x))))

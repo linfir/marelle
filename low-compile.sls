@@ -263,6 +263,15 @@
            (emit! `(store ,base ,index ,x))
            '(void)))
 
+        ;; (load8 address i): the byte at byte index i of address, zero-extended
+        ((load8)
+         (emit-op! 'load8 'raw (compile-operands env expr '(raw raw))))
+
+        ;; (store8 address i x): sets the byte at byte index i of address to the low byte of x
+        ((store8)
+         (emit! `(store8 ,@(compile-operands env expr '(raw raw raw))))
+         '(void))
+
         ;; (alloc nwords): the raw address of nwords new zeroed words
         ((alloc)
          (let ((ops (compile-operands env expr '(raw))))
