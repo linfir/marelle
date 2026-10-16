@@ -49,10 +49,6 @@
           (utils))
 
 
-  (define (ir-entries tag tops)
-    (filter (lambda (x) (eq? (car x) tag)) tops))
-
-
   (define arg-regs '(rdi rsi rdx rcx r8 r9))
   (define syscall-regs '(rdi rsi rdx r10 r8 r9))
 
@@ -430,6 +426,7 @@
     `((text)
       ;; The process entry: rsp points to argc and is 16-byte aligned;
       ;; scheme_main runs in the Scheme calling convention and nothing returns here
+      (globl "_start")
       (label "_start")
       (mov rdi rsp)
       (call "scheme_init")
@@ -529,7 +526,6 @@
     (append '((intel_syntax noprefix))
             (map (lambda (name) `(globl ,name)) exports)
             (apply append (map top->asm tops))
-            '((globl "_start"))
             runtime-asm
             '((section ".note.GNU-stack" "" %progbits))))
 
@@ -582,13 +578,6 @@
           (newline))))
 
 
-  (define (expand-top x)
-    (case (car x)
-      ((export) '())
-      (else (list x))))
-
-
   (define (compile-asm tops)
-    (for-each print-asm
-              (program->asm (apply append (map expand-top tops))
-                            (apply append (map cdr (ir-entries 'export tops)))))))
+    (let-values (((exports tops) (partition (lambda (x) (eq? (car x) 'export)) tops)))
+      (for-each print-asm (program->asm tops (apply append (map cdr exports)))))))
