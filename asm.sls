@@ -314,6 +314,18 @@
          (emit-asm! ctx `(,op rax ,(if (memq op '(sal sar)) 'cl 'rcx)))
          (store! ctx dst 'rax)))
 
+      ;; Signed, truncating toward zero
+      ((div rem)
+       (let ((dst (cadr instr))
+             (a (caddr instr))
+             (b (cadddr instr)))
+         (load! ctx 'rax a)
+         (load! ctx 'rcx b)
+         (emit-asm! ctx
+                    '(cqo)
+                    '(idiv rcx))
+         (store! ctx dst (if (eq? (car instr) 'div) 'rax 'rdx))))
+
       ((je jne jl jle jg jge jb jbe ja jae jmp)
        (let ((op (car instr))
              (label (cadr instr)))

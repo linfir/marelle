@@ -43,6 +43,8 @@
       (raw+ . add)
       (raw- . sub)
       (raw* . mul)
+      (raw/ . div)
+      (raw% . rem)
       (raw<< . sal)
       (raw>> . sar)))
 
