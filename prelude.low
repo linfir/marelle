@@ -367,9 +367,6 @@
      (put-string (stderr) "\n")
      (exit-process (raw 1)))
 
-(def type-error ((raw x) (val y)) -> ! (:inline)
-     (scheme-error x y))
-
 (def arity-error ((val proc) (raw nargs)) -> ! (:native)
      (put-string (stderr) "Error: procedure of arity ")
      (put-int (stderr) (load (as-raw proc) (raw 1)))
@@ -383,18 +380,18 @@
      (unless (and (tag=? proc (raw 0))
                   (not (raw= (as-raw proc) (raw 0)))
                   (raw= (load (as-raw proc) (raw 0)) (procedure-type)))
-       (type-error "expected procedure" proc))
+       (scheme-error "expected procedure" proc))
      (unless (raw= (load (as-raw proc) (raw 1)) nargs)
        (arity-error proc nargs)))
 
 (def car ((val x)) -> (val) (:public :inline)
      (unless (pair? x)
-       (type-error "`car` expected a pair" x))
+       (scheme-error "`car` expected a pair" x))
      (as-val (load (untag x) (raw 0))))
 
 (def cdr ((val x)) -> (val) (:public :inline)
      (unless (pair? x)
-       (type-error "`cdr` expected a pair" x))
+       (scheme-error "`cdr` expected a pair" x))
      (as-val (load (untag x) (raw 1))))
 
 (def cons ((val a) (val d)) -> (val) (:public :inline)
@@ -432,9 +429,9 @@
 
 (def check-fixnums ((val x) (val y) (raw msg)) -> () (:inline)
      (unless (fixnum? x)
-       (type-error msg x))
+       (scheme-error msg x))
      (unless (fixnum? y)
-       (type-error msg y)))
+       (scheme-error msg y)))
 
 ;; Tagged fixnums: (n << 3) | 1, so the tags cancel out
 (def + ((val x) (val y)) -> (val) (:public :inline)
