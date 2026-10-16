@@ -40,7 +40,6 @@
 
 
   (define (intern-string! x)
-    (assert (string? x))
     (cond
      ((assoc x (current-strings)) => cdr)
      (else
@@ -87,7 +86,6 @@
   (define (call-form? expr)
     (and (pair? expr)
          (symbol? (car expr))
-         (not (memq (car expr) keywords))
          (lookup-def (car expr))))
 
 
@@ -579,8 +577,7 @@
   ;; malformed forms are scanned as plain lists, the compiler rejects them later
   (define (assigns? name x)
     (cond
-     ((not (list? x)) #f)
-     ((null? x) #f)
+     ((not (non-empty-list? x)) #f)
      ((eq? (car x) 'quote) #f)
      ((and (eq? (car x) 'set!)
            (= (length x) 3)

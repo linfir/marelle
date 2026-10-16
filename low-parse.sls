@@ -3,7 +3,7 @@
           def-name def-params def-result def-inline? def-public? def-body def-n def-as
           def-anonymous? def-captures def-native? def-c-name
           def-proc def-code def-params-names def-params-kinds
-          data-name data-nwords data-symbol data-export?)
+          data-nwords data-symbol data-export?)
   (import (chezscheme)
           (utils))
 
@@ -139,8 +139,7 @@
   (define (bind-locals! params body)
     (define (walk x)
       (cond
-       ((not (list? x)))
-       ((null? x))
+       ((not (non-empty-list? x)))
        ((eq? (car x) 'quote))
        ;; (let name ((var init) ...) body ...)
        ((and (eq? (car x) 'let)
