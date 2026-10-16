@@ -132,7 +132,7 @@
 
      ((symbol? expr)
       (let ((op (lookup-var env expr)))
-        (when (and (pair? op) (eq? (car op) 'loop))
+        (when (and (pair? op) (memq (car op) '(loop outer-loop)))
           (error 'compile-value "named let used as a value or called not in exit position" expr))
         ;; Copied, so a later set! does not change an operand already computed
         (if (and (pair? op) (eq? (car op) 'mutable))
@@ -497,11 +497,17 @@
         (emit! `(jmp ,label)))))
 
 
-  ;; A named let as a value: each exit stores its value and jumps to the end
+  ;; A named let as a value: each exit stores its value and jumps to the end;
+  ;; the enclosing named lets are not in exit position, so they become (outer-loop)
   (define (compile-loop-value env expr)
     (let ((dst #f)
           (label-end (fresh-label)))
-      (compile-loop env expr
+      (compile-loop (map (lambda (entry)
+                           (if (and (pair? (cdr entry)) (eq? (cadr entry) 'loop))
+                               (cons (car entry) '(outer-loop))
+                               entry))
+                         env)
+                    expr
                     (lambda (env x)
                       (compile-exit
                        env x
