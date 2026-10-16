@@ -11,8 +11,11 @@
 ;;   - compile-value, giving an operand
 ;;   - compile-checked, same but checking the kind
 ;;   - compile-result, the last value of a def, checked against its result
+;; - in exit position, ending an evaluation
+;;   - compile-exit, through if, let, let*, begin and named lets;
+;;     a call to a named let there jumps back to it
 ;; - in tail position
-;;   - compile-tail, a call becomes a tailcall, any other value is returned
+;;   - compile-tail, an exit where a call becomes a tailcall, any other value is returned
 ;; - as a branch
 ;;   - compile-branch, giving a conditional jump
 
@@ -744,7 +747,6 @@
                      (current-strings '()))
         ;; Second pass: the globals and data, then the strings the defs use, then the defs
         (let ((entries (apply append (map-in-order compile-def (filter def-n (map cdr defs))))))
-
           (emit-globals globals)
 
           (for-each (lambda (d)

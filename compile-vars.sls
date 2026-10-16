@@ -119,6 +119,7 @@
     (append (map (lambda (x) (cons x (make-bound-binding))) names) env))
 
 
+  ;; In scope, so they shadow special forms, but still free
   (define (bind-scope env names)
     (append (map (lambda (x) (cons x #f)) names) env))
 

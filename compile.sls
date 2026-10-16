@@ -1,4 +1,4 @@
-;; Scheme to low: closure conversion, lambda lifting and renaming;
+;; Scheme to low: assignment conversion (boxes), closure conversion, lambda lifting and renaming;
 ;; low does the rest (tmps, labels, tail calls, assigned locals)
 
 (library (compile)
