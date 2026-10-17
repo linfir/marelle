@@ -439,7 +439,7 @@
       ((never) '!)))
 
 
-  ;; Lowers the defs and data of runtime.ss, returns the env of its public defs
+  ;; Lowers the defs and data of runtime.ss, returns the env of its public defs and its whole env
   (define (lower-runtime! prog runtime)
     (let* ((items (scan-runtime runtime))
            (names (map-in-order (lambda (x) (runtime-low-name prog (runtime-item-name x))) items))
@@ -458,11 +458,12 @@
                         (lower-runtime-def! prog env x name)
                         (add-def! prog `(data ,name ,(runtime-data-nwords x) ()))))
                   items names))
-      (fold-right (lambda (x b acc)
-                    (if (and (runtime-def? x) (memq ':public (runtime-def-attrs x)))
-                        (cons b acc)
-                        acc))
-                  '() items bindings)))
+      (values (fold-right (lambda (x b acc)
+                            (if (and (runtime-def? x) (memq ':public (runtime-def-attrs x)))
+                                (cons b acc)
+                                acc))
+                          '() items bindings)
+              env)))
 
 
   (define (lower-runtime-def! prog env d name)
@@ -491,21 +492,23 @@
   ;; compiles against: (names n), where its fresh names start, (primitive name def arity) for the
   ;; public runtime defs, (procedure name def arity) for the prelude's, then the low declarations
   (define (library->low runtime prelude)
-    (let* ((prog (make-low-program 0))
-           (public (lower-runtime! prog runtime))
-           (prelude-defs (scan-prelude prelude))
-           (prelude-names (map-in-order (lambda (d) (fresh-name prog (prelude-def-name d)))
-                                        prelude-defs))
-           (env (append public
-                        (map (lambda (d name)
-                               (cons (prelude-def-name d) (make-procedure-binding name)))
-                             prelude-defs prelude-names))))
+    (let*-values (((prog) (make-low-program 0))
+                  ((public runtime-env) (lower-runtime! prog runtime))
+                  ((prelude-defs) (scan-prelude prelude))
+                  ((prelude-names) (map-in-order (lambda (d) (fresh-name prog (prelude-def-name d)))
+                                                 prelude-defs))
+                  ((procedures) (map (lambda (d name)
+                                       (cons (prelude-def-name d) (make-procedure-binding name)))
+                                     prelude-defs prelude-names))
+                  ((env) (append public procedures))
+                  ((low-env) (append procedures runtime-env)))
       (for-each (lambda (d name)
                   (hashtable-set! (low-program-arity prog) name (length (prelude-def-args d))))
                 prelude-defs prelude-names)
       (for-each (lambda (d name)
-                  (lift-procedure! prog env name (prelude-def-name d)
-                                   (prelude-def-args d) (prelude-def-body d)))
+                  (parameterize ((runtime-code? (prelude-def-low? d)))
+                    (lift-procedure! prog (if (prelude-def-low? d) low-env env) name
+                                     (prelude-def-name d) (prelude-def-args d) (prelude-def-body d))))
                 prelude-defs prelude-names)
       (let ((forms (reverse (low-program-defs prog))))
         (values forms

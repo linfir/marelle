@@ -9,15 +9,20 @@
         (- r n))))
 
 (define (even? n)
-  (zero? (modulo n 2)))
+  (declare low)
+  (check-integer n "`even?` expected an integer")
+  (raw= (integer-bit-0 n) (raw 0)))
 
 (define (odd? n)
-  (not (even? n)))
+  (declare low)
+  (check-integer n "`odd?` expected an integer")
+  (raw= (integer-bit-0 n) (raw 1)))
 
-;; By squaring; no rationals and no error procedure, so a negative exponent fails in car
+;; By squaring; no rationals, so the exponent is nonnegative
 (define (expt b n)
+  (declare low)
   (cond
-   ((< n 0) (car n))
+   ((< n 0) (scheme-error "`expt` expected a nonnegative exponent" n))
    ((zero? n) 1)
    ((even? n) (let ((h (expt b (quotient n 2))))
                 (* h h)))

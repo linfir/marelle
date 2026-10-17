@@ -645,6 +645,11 @@
   (declare inline (result raw))
   (if (raw<u i n) (load p (raw+ i (raw 3))) (raw 0)))
 
+;; Bit 0 of the integer x; a bignum has the parity of its magnitude, so of limb 0
+(define (integer-bit-0 x)
+  (declare inline (result raw))
+  (bit-and (if (fixnum? x) (fixnum-value x) (load (as-raw x) (raw 3))) (raw 1)))
+
 ;; The 1-limb bignum of the fixnum x, not normalized
 (define (fixnum->bignum x)
   (let ((p (alloc (raw 4))))

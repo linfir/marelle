@@ -1,0 +1,4 @@
+(even? #t)
+---
+stage = "executable"
+stderr = "Error: `even?` expected an integer: #t\n"

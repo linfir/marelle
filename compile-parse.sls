@@ -4,7 +4,7 @@
           parse-if parse-cond parse-begin parse-set!
           scan-defs scan-prelude scan-runtime
           make-global-def global-def-name global-def-index global-def-args global-def-body
-          prelude-def-name prelude-def-args prelude-def-body
+          prelude-def-name prelude-def-args prelude-def-body prelude-def-low?
           runtime-def? runtime-def-name runtime-def-args runtime-def-kinds
           runtime-def-result runtime-def-attrs runtime-def-body
           runtime-data-name runtime-data-nwords)
@@ -173,8 +173,9 @@
     (fields name index args body))
 
 
+  ;; low?: the body sees the whole runtime env, as runtime.ss code
   (define-record-type prelude-def
-    (fields name args body))
+    (fields name args body low?))
 
 
   ;; Map (make name i args body) over the define forms
@@ -199,7 +200,10 @@
                (lambda (name i args body)
                  (unless args
                    (error 'scan-prelude "value define in the prelude" name))
-                 (make-prelude-def name args body))))
+                 (let ((low? (and (pair? (cdr body)) (equal? (car body) '(declare low)))))
+                   (when (and (non-empty-list? (car body)) (eq? (caar body) 'declare) (not low?))
+                     (error 'scan-prelude "invalid declaration" (car body)))
+                   (make-prelude-def name args (if low? (cdr body) body) low?)))))
 
 
   ;; A define of runtime.ss: kinds are val or raw, result val, raw, void or never,
