@@ -18,19 +18,33 @@
   (declare inline (result raw))
   (bit-and (if (fixnum? x) (fixnum-value x) (load (as-raw x) (raw 3))) (raw 1)))
 
+;; A bignum of the fixnum n zeroed limbs
+(define (make-bignum n negative?)
+  (declare inline)
+  (let ((r (alloc (raw+ (fixnum-value n) (raw 3)))))
+    (store r (raw 0) (bignum-type))
+    (store r (raw 1) (fixnum-value n))
+    (store r (raw 2) (if negative? (raw 1) (raw 0)))
+    (as-val r)))
+
+(define (bignum-limbs x)
+  (declare inline)
+  (make-fixnum (load (as-raw x) (raw 1))))
+
+;; Limb 0 of the bignum r gets the magnitude of the fixnum x
+(define (set-magnitude! r x)
+  (declare inline (result void))
+  (store (as-raw r) (raw 3) (if (raw< (fixnum-value x) (raw 0))
+                                (raw- (raw 0) (fixnum-value x))
+                                (fixnum-value x))))
+
 ;; The 1-limb bignum of the fixnum x, not normalized
 (define (fixnum->bignum x)
-  (let ((p (alloc (raw 4))))
-    (store p (raw 0) (bignum-type))
-    (store p (raw 1) (raw 1))
-    (store p (raw 2) (if (raw< (fixnum-value x) (raw 0)) (raw 1) (raw 0)))
-    (store p (raw 3) (if (raw< (fixnum-value x) (raw 0))
-                         (raw- (raw 0) (fixnum-value x))
-                         (fixnum-value x)))
-    (as-val p)))
+  (let ((r (make-bignum 1 (< x 0))))
+    (set-magnitude! r x)
+    r))
 
 (define (->bignum x)
-  (declare inline)
   (if (fixnum? x) (fixnum->bignum x) x))
 
 ;; -1, 0 or 1 as the magnitude of the bignum a is below, equal to or above b's;
@@ -115,10 +129,13 @@
 
 ;; The limbs of the zeroed r: |a| * |b|, na + nb of them (schoolbook);
 ;; x * y + r[k] + carry < 2^128, so the high word never overflows
-(define (multiply-magnitudes! (raw r) (raw a) (raw b))
+(define (multiply-magnitudes! r a b)
   (declare native (result void))
-  (let ((na (load a (raw 1)))
-        (nb (load b (raw 1))))
+  (let* ((r (as-raw r))
+         (a (as-raw a))
+         (b (as-raw b))
+         (na (load a (raw 1)))
+         (nb (load b (raw 1))))
     (store r (raw 1) (raw+ na nb))
     (let row-next ((i (raw 0)))
       (if (raw= i na)
@@ -142,28 +159,31 @@
                                        (if (raw<u lo2 lo1) (raw 1) (raw 0))))))))))))
 
 ;; The bignum r without its leading zero limbs, or its fixnum when in range
-(define (normalize (raw r))
+(define (normalize r)
   (declare native)
-  (let limb-next ((n (load r (raw 1))))
-    (if (and (raw>u n (raw 1)) (raw= (load r (raw+ n (raw 2))) (raw 0)))
-        (limb-next (raw- n (raw 1)))
-        (let ((top (load r (raw 3)))
-              (negative? (raw= (load r (raw 2)) (raw 1))))
-          (store r (raw 1) n)
-          (cond
-           ((not (raw= n (raw 1))) (as-val r))
-           ((raw<u top (raw 1152921504606846976)) ; 2^60
-            (make-fixnum (if negative? (raw- (raw 0) top) top)))
-           ((and negative? (raw= top (raw 1152921504606846976)))
-            (make-fixnum (raw- (raw 0) top)))
-           (else (as-val r)))))))
+  (let ((r (as-raw r)))
+    (let limb-next ((n (load r (raw 1))))
+      (if (and (raw>u n (raw 1)) (raw= (load r (raw+ n (raw 2))) (raw 0)))
+          (limb-next (raw- n (raw 1)))
+          (let ((top (load r (raw 3)))
+                (negative? (raw= (load r (raw 2)) (raw 1))))
+            (store r (raw 1) n)
+            (cond
+             ((not (raw= n (raw 1))) (as-val r))
+             ((raw<u top (raw 1152921504606846976)) ; 2^60
+              (make-fixnum (if negative? (raw- (raw 0) top) top)))
+             ((and negative? (raw= top (raw 1152921504606846976)))
+              (make-fixnum (raw- (raw 0) top)))
+             (else (as-val r))))))))
 
-;; r = a + b, or a - b when negate-b is 1, on bignums
-(define (add-signed! (raw r) (raw a) (raw b) (raw negate-b))
+;; r = a + b, or a - b when negate-b? is true, on bignums
+(define (add-signed! r a b negate-b?)
   (declare native (result void))
-  (let ((sa (load a (raw 2)))
-        (sb (if (raw= negate-b (raw 0)) (load b (raw 2)) (raw- (raw 1) (load b (raw 2))))))
-    (store r (raw 0) (bignum-type))
+  (let* ((r (as-raw r))
+         (a (as-raw a))
+         (b (as-raw b))
+         (sa (load a (raw 2)))
+         (sb (if negate-b? (raw- (raw 1) (load b (raw 2))) (load b (raw 2)))))
     (cond
      ((raw= sa sb)
       (store r (raw 2) sa)
@@ -177,18 +197,16 @@
 
 ;; a + b, or a - b when negate-b? is true; the room for a carry may stay unused
 (define (add-bignums a b negate-b?)
-  (let ((r (alloc (raw+ (let ((na (load (as-raw a) (raw 1)))
-                              (nb (load (as-raw b) (raw 1))))
-                          (if (raw>u na nb) na nb))
-                        (raw 4)))))
-    (add-signed! r (as-raw a) (as-raw b) (if negate-b? (raw 1) (raw 0)))
+  (let* ((na (bignum-limbs a))
+         (nb (bignum-limbs b))
+         (r (make-bignum (+ (if (> na nb) na nb) 1) #f)))
+    (add-signed! r a b negate-b?)
     (normalize r)))
 
 (define (multiply-bignums a b)
-  (let ((r (alloc (raw+ (raw+ (load (as-raw a) (raw 1)) (load (as-raw b) (raw 1))) (raw 3)))))
-    (store r (raw 0) (bignum-type))
-    (store r (raw 2) (if (raw= (load (as-raw a) (raw 2)) (load (as-raw b) (raw 2))) (raw 0) (raw 1)))
-    (multiply-magnitudes! r (as-raw a) (as-raw b))
+  (let ((r (make-bignum (+ (bignum-limbs a) (bignum-limbs b))
+                        (not (eq? (< a 0) (< b 0))))))
+    (multiply-magnitudes! r a b)
     (normalize r)))
 
 ;; Division: Knuth's algorithm D on 64-bit limbs, with raw/wu for the 2-by-1 limb steps
@@ -337,19 +355,22 @@
                       (store q (raw- j (raw 1)) (raw- y (raw 1)))))
                 (limb-next (raw- j (raw 1)))))))))))
 
-;; The words divide! needs: the result bignum, then room for the quotient and divide-magnitudes!'s u
-(define (division-words (raw a) (raw b) quotient?)
-  (declare inline (result raw))
-  (let* ((na (load a (raw 1)))
-         (nb (load b (raw 1)))
+;; The limbs divide! needs: the result, then room for the quotient and divide-magnitudes!'s u
+(define (division-limbs a b quotient?)
+  (declare inline)
+  (let* ((na (load (as-raw a) (raw 1)))
+         (nb (load (as-raw b) (raw 1)))
          (nq (quotient-limbs na nb)))
-    (raw+ (raw+ (if quotient? nq nb) (raw 3))
-          (raw+ nq (raw+ (raw+ na nb) (raw 1))))))
+    (make-fixnum (raw+ (if quotient? nq nb)
+                       (raw+ nq (raw+ (raw+ na nb) (raw 1)))))))
 
-;; Fills the bignum r, of division-words words, with a / b, or a mod b, truncating
-(define (divide! (raw r) (raw a) (raw b) quotient?)
+;; Fills the bignum r, of division-limbs limbs, with a / b, or a mod b, truncating
+(define (divide! r a b quotient?)
   (declare native (result void))
-  (let* ((na (load a (raw 1)))
+  (let* ((r (as-raw r))
+         (a (as-raw a))
+         (b (as-raw b))
+         (na (load a (raw 1)))
          (nb (load b (raw 1)))
          (nq (quotient-limbs na nb))
          (n (if quotient? nq nb))
@@ -366,8 +387,8 @@
 
 ;; The truncated quotient of the bignums a and b, or the remainder, with a's sign
 (define (divide-bignums a b quotient?)
-  (let ((r (alloc (division-words (as-raw a) (as-raw b) quotient?))))
-    (divide! r (as-raw a) (as-raw b) quotient?)
+  (let ((r (make-bignum (division-limbs a b quotient?) #f)))
+    (divide! r a b quotient?)
     (normalize r)))
 
 (define (check-division x y (raw msg) (raw zero-msg))
