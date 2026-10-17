@@ -7,7 +7,7 @@
           prelude-def-name prelude-def-args prelude-def-body
           runtime-def? runtime-def-name runtime-def-args runtime-def-kinds
           runtime-def-result runtime-def-attrs runtime-def-body
-          runtime-data-name runtime-data-nwords runtime-data-attrs)
+          runtime-data-name runtime-data-nwords)
   (import (chezscheme)
           (utils))
 
@@ -208,9 +208,9 @@
     (fields name args kinds result attrs body))
 
 
-  ;; (define-data name nwords decl ...): attrs low's data attributes
+  ;; (define-data name nwords)
   (define-record-type runtime-data
-    (fields name nwords attrs))
+    (fields name nwords))
 
 
   ;; x or (raw x) => (x . kind)
@@ -237,13 +237,7 @@
              ((and (list? d) (= (length d) 2) (eq? (car d) 'result)
                    (memq (cadr d) '(val raw void never)))
               (loop (cdr decls) (cadr d) attrs))
-             ((c-name? d)
-              (loop (cdr decls) result (cons `(:c-name ,(cadr d)) attrs)))
              (else (error 'parse-declare "invalid declaration" d)))))))
-
-
-  (define (c-name? d)
-    (and (list? d) (= (length d) 2) (eq? (car d) 'c-name) (string? (cadr d))))
 
 
   (define (parse-runtime-define form)
@@ -265,15 +259,13 @@
 
 
   (define (parse-define-data form)
-    (unless (and (>= (length form) 3)
+    (unless (and (= (length form) 3)
                  (symbol? (cadr form))
                  (integer? (caddr form))
                  (exact? (caddr form))
-                 (> (caddr form) 0)
-                 (for-all c-name? (cdddr form)))
+                 (> (caddr form) 0))
       (error 'parse-define-data "invalid define-data" form))
-    (make-runtime-data (cadr form) (caddr form)
-                       (map (lambda (d) `(:c-name ,(cadr d))) (cdddr form))))
+    (make-runtime-data (cadr form) (caddr form)))
 
 
   ;; The runtime-def and runtime-data records of runtime.ss

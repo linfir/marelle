@@ -420,14 +420,14 @@
       (globl "_start")
       (label "_start")
       (mov rdi rsp)
-      (call "scheme_init")
+      (call "init_runtime_code")
       (xor ebp ebp)
       (xor r10d r10d)
       (lea r11 (rip ".L_start_finish"))
       (jmp "scheme_main")
       (label ".L_start_finish")
       (mov rdi rax)
-      (call "scheme_finish")
+      (call "finish_program_code")
 
       ;; Allocate an object
       ;; Parameters:
@@ -443,7 +443,7 @@
       (mov rdi rax)
       (mov rsi rsp)
       (mov edx 1)
-      (call "scheme_alloc")
+      (call "alloc_words_code")
       (pop rbp)
       (ret)
 
@@ -497,7 +497,7 @@
       (jz ".Lalloc_frame_roots")
       (add rdx (mem r10 8))             ; arity
       (label ".Lalloc_frame_roots")
-      (call "scheme_alloc")
+      (call "alloc_words_code")
       (pop rbp)
       (pop r10)
       (pop rdi)

@@ -1,38 +1,36 @@
 (library (low-parse)
   (export parse-program binary-ops tests keywords bindings?
-          def-name def-params def-result def-inline? def-public? def-body def-n def-as
-          def-anonymous? def-captures def-native? def-c-name
+          def-name def-params def-result def-inline? def-public? def-body def-emitted? def-as
+          def-anonymous? def-captures def-native?
           def-proc def-code def-params-names def-params-kinds
-          data-nwords data-symbol data-export?)
+          data-nwords data-symbol)
   (import (chezscheme)
           (utils))
 
 
   ;; params   (symbol . kind) pairs
   ;; result   kind
-  ;; n        number of the emitted function, #f when the def is only inlined
+  ;; emitted? #f when the def is only inlined
   ;; as       name Scheme sees, from (:as name), else the def name
   ;; anonymous? from :anonymous, the procedure object has no name
   ;; captures number of captures from (:captures n), 0 for a static procedure
   ;; native?  from :native, System V convention and a machine stack frame, never collects
-  ;; c-name   from (:c-name "name"), the exported symbol of a native def, else #f
+  ;; symbol   the mangled name, prefix of the def's symbols
   (define-record-type def
-    (fields name params result inline? public? body n as anonymous? captures native? c-name))
+    (fields name params result inline? public? body emitted? as anonymous? captures native? symbol))
 
 
   ;; nwords   number of words, zeroed
-  ;; symbol   from (:c-name "name"), else a local label
-  ;; export?  from (:c-name "name")
+  ;; symbol   the mangled name
   (define-record-type data
-    (fields name nwords symbol export?))
+    (fields name nwords symbol))
 
 
-  (define (def-proc def) (format "proc~a" (def-n def)))
+  (define (def-proc def) (string-append (def-symbol def) "_proc"))
   (define (def-code def)
-    (cond
-     ((def-c-name def))
-     ((eq? (def-name def) 'main) "scheme_main")
-     (else (format "fn~a" (def-n def)))))
+    (if (eq? (def-name def) 'main)
+        "scheme_main"
+        (string-append (def-symbol def) "_code")))
   (define (def-params-names def) (map car (def-params def)))
   (define (def-params-kinds def) (map cdr (def-params def)))
 
@@ -73,9 +71,26 @@
 
 
   ;; Per program, set by parse-program
-  (define fn-counter (make-parameter #f))
-  (define data-counter (make-parameter #f))
   (define name-kinds (make-parameter #f))
+  ;; symbol => the name it was made from
+  (define symbols (make-parameter #f))
+
+
+  ;; Symbols the IR and the stubs define
+  (define reserved-symbols
+    '("scheme_main" "scheme_globals" "scheme_nglobals" "_start" "alloc_frame" "alloc_object"))
+
+
+  ;; Mangling is not injective, so two names giving the same symbol are an error;
+  ;; interned strings are strN
+  (define (add-symbol! sym name)
+    (when (or (hashtable-ref (symbols) sym #f)
+              (member sym reserved-symbols)
+              (and (> (string-length sym) 3)
+                   (string=? (substring sym 0 3) "str")
+                   (for-all char-numeric? (string->list (substring sym 3 (string-length sym))))))
+      (error 'add-symbol! "symbol clash" name sym))
+    (hashtable-set! (symbols) sym name))
 
 
   ;; (key x) in attrs => x, else #f
@@ -188,14 +203,12 @@
            (public? (and (memq ':public attrs) #t))
            (anonymous? (and (memq ':anonymous attrs) #t))
            (native? (and (memq ':native attrs) #t))
-           (c-name (attr-value attrs ':c-name))
            (as (attr-value attrs ':as))
            (captures (or (attr-value attrs ':captures) 0)))
       (for-each (lambda (a)
                   (unless (or (memq a '(:inline :public :anonymous :native))
                               (and (pair? a) (= (length a) 2)
                                    (or (and (eq? (car a) ':as) (symbol? (cadr a)))
-                                       (and (eq? (car a) ':c-name) (string? (cadr a)))
                                        (and (eq? (car a) ':captures)
                                             (integer? (cadr a)) (exact? (cadr a))
                                             (>= (cadr a) 0)))))
@@ -207,8 +220,6 @@
         (error 'parse-def ":captures requires a non-inline, non-public def other than main" name))
       (when (and native? (or inline? public? anonymous? as (> captures 0) (eq? name 'main)))
         (error 'parse-def ":native with another attribute" name))
-      (when (and c-name (not native?))
-        (error 'parse-def ":c-name requires :native" name))
       (when (and (eq? name 'main)
                  (or inline? (not (null? (caddr form))) (not (equal? (list-ref form 4) '(val)))))
         (error 'parse-def "main must be a non-inline def with no parameters and a val result" form))
@@ -223,9 +234,13 @@
                       (and (for-all (lambda (p) (eq? (cdr p) 'val)) params)
                            (memq result '(val never))))
             (error 'parse-def "raw parameter or result in a non-inline def" name))
-          (make-def name params result inline? public? body
-                    (and emitted? ((fn-counter)))
-                    (or as name) anonymous? captures native? c-name)))))
+          (let ((def (make-def name params result inline? public? body emitted?
+                               (or as name) anonymous? captures native? (mangle name))))
+            (for-each (lambda (sym) (add-symbol! sym name))
+                      (if (eq? name 'main)
+                          (list (def-proc def))
+                          (list (def-code def) (def-proc def))))
+            def)))))
 
 
   ;; (globals n): the number of global cells; seen is the count already given, or #f
@@ -252,23 +267,17 @@
       (error 'parse-data "invalid data" form))
     (let ((name (cadr form))
           (attrs (cadddr form)))
-      (for-each (lambda (a)
-                  (unless (and (pair? a) (= (length a) 2)
-                               (eq? (car a) ':c-name) (string? (cadr a)))
-                    (error 'parse-data "unknown attribute" a)))
-                attrs)
+      (for-each (lambda (a) (error 'parse-data "unknown attribute" a)) attrs)
       (bind-name! name 'def)
-      (let ((c-name (attr-value attrs ':c-name)))
-        (make-data name (caddr form)
-                   (or c-name (format "data~a" ((data-counter))))
-                   (and c-name #t)))))
+      (let ((sym (mangle name)))
+        (add-symbol! sym name)
+        (make-data name (caddr form) sym))))
 
 
   ;; The (name . def) and (name . data) alists in source order, and the number of global cells
   (define (parse-program forms)
-    (parameterize ((fn-counter (make-counter))
-                   (data-counter (make-counter))
-                   (name-kinds (make-eq-hashtable)))
+    (parameterize ((name-kinds (make-eq-hashtable))
+                   (symbols (make-hashtable string-hash string=?)))
       (let loop ((forms forms)
                  (defs '())
                  (datas '())

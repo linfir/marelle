@@ -1,8 +1,8 @@
-;; GC state; the stubs in asm.sls use the words with a c-name
-(define-data scheme-mem 1 (c-name "scheme_mem"))
-(define-data scheme-len 1 (c-name "scheme_len"))
+;; GC state; the stubs in asm.sls use scheme-mem, scheme-len and scheme-limit
+(define-data scheme-mem 1)
+(define-data scheme-len 1)
 (define-data scheme-cap 1)
-(define-data scheme-limit 1 (c-name "scheme_limit"))
+(define-data scheme-limit 1)
 (define-data spare-mem 1)
 ;; Statistics, printed at exit when SCHEME_GC_STATS is set
 (define-data gc-count 1)
@@ -424,7 +424,7 @@
 ;; nwords words of the current space, after a collection if it is full;
 ;; called from the stubs in asm.sls, the only place where a collection may happen
 (define (alloc-words (raw nwords) (raw roots) (raw nroots))
-  (declare native (result raw) (c-name "scheme_alloc"))
+  (declare native (result raw))
   (when (or (gc-stress-due?) (raw>u nwords (free-words)))
     (collect roots nroots)
     (when (raw>u nwords (free-words))
@@ -435,7 +435,7 @@
 
 ;; Called from _start with the initial stack: argc, the arguments, 0, then the environment
 (define (init-runtime (raw sp))
-  (declare native (result void) (c-name "scheme_init"))
+  (declare native (result void))
   (store environment (raw 0) (raw+ sp (raw<< (raw+ (load sp (raw 0)) (raw 2)) (raw 3))))
   ;; 2^26 words by default: 1 GiB for both spaces
   (store scheme-cap (raw 0)
@@ -454,7 +454,7 @@
 
 ;; Called from _start with the value of scheme_main
 (define (finish-program v)
-  (declare native (result never) (c-name "scheme_finish"))
+  (declare native (result never))
   (display (stdout) v)
   (exit-process (raw 0)))
 

@@ -122,7 +122,7 @@
            (not (assq expr env))
            (lookup-def expr))
       => (lambda (def)
-           (unless (def-n def)
+           (unless (def-emitted? def)
              (error 'compile-value "inline def without a procedure object" expr))
            (when (def-native? def)
              (error 'compile-value "native def without a procedure object" expr))
@@ -699,7 +699,7 @@
           (if (eq? (kind a) 'never) b dst)))))
 
 
-  ;; The def's entries: export, name, procedure object and function, or a native function;
+  ;; The def's entries: name, procedure object and function, or a native function;
   ;; its strings are interned, printed later with the others;
   ;; a closure def's object is the template alloc-closure copies, with its ncaptures
   (define (compile-def def)
@@ -719,8 +719,7 @@
       (if (def-native? def)
           (begin
             (check-native (def-name def) body)
-            `(,@(if (def-c-name def) `((export ,(def-c-name def))) '())
-              (native ,(def-code def) (arity ,arity)
+            `((native ,(def-code def) (arity ,arity)
                       ,@(map lower-block body))))
           (procedure-entries def arity body))))
 
@@ -746,9 +745,7 @@
   (define (procedure-entries def arity body)
     (let* ((proc (def-proc def))
            (name (and (not (def-anonymous? def)) (string-append proc "_name"))))
-      `(,@(if (def-public? def) `((export ,proc)) '())
-        ,@(if (eq? (def-name def) 'main) '((export "scheme_main")) '())
-        ,@(if name `((string ,name ,(symbol->string (def-as def)))) '())
+      `(,@(if name `((string ,name ,(symbol->string (def-as def)))) '())
         (rodata ,proc (quad ,procedure-type) (quad ,arity)
                 (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
         (function ,(def-code def) (arity ,arity)
@@ -763,12 +760,10 @@
                      (current-datas datas)
                      (current-strings '()))
         ;; Second pass: the globals and data, then the strings the defs use, then the defs
-        (let ((entries (apply append (map-in-order compile-def (filter def-n (map cdr defs))))))
+        (let ((entries (apply append (map-in-order compile-def (filter def-emitted? (map cdr defs))))))
           (emit-globals globals)
 
           (for-each (lambda (d)
-                      (when (data-export? d)
-                        (print-entry `(export ,(data-symbol d))))
                       (print-entry `(data ,(data-symbol d) ,(data-nwords d) 0)))
                     (map cdr datas))
 

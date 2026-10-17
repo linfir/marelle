@@ -1,6 +1,6 @@
 ;; Data words start at zero and keep their values across calls
 (data counter 1 ())
-(data table 3 ((:c-name "low_test_table")))
+(data table 3 ())
 
 (def bump ((raw i)) -> (raw) (:native)
      (store table i (raw+ (load table i) (raw 1)))
