@@ -2,7 +2,7 @@
 SHELL = /bin/bash
 
 # A missing source is not a prerequisite, so a built library works without its sources
-SOURCES = $(wildcard runtime.ss prelude.ss run *.sls)
+SOURCES = $(wildcard lib/*.ss run *.sls)
 CHEZ_LIBS = $(wildcard *.sls)
 CHEZ_OBJS = $(patsubst %.sls,build/chez/%.so,$(CHEZ_LIBS))
 # Chez with the compiled compiler libraries, which it loads instead of a .sls when not older
@@ -21,7 +21,7 @@ $(CHEZ_OBJS) &: $(CHEZ_LIBS)
 	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (compile) (low-compile) (asm))\n' | \
 	  $(CHEZ) -q --compile-imported-libraries
 
-# The precompiled runtime and prelude, linked with every program
+# The precompiled library, linked with every program
 build/lib.o: build/lib.s
 	as -o $@ $<
 
@@ -38,7 +38,7 @@ test-chez:
 
 fmt:
 	black --line-length 120 *.py
-	emacs -Q --batch --eval '(progn (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss *.sls compile low asm run
+	emacs -Q --batch --eval '(progn (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss *.sls compile low asm run
 
 clean:
 	rm -rf build

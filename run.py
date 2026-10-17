@@ -33,7 +33,7 @@ def run_stage(stage, command, **kwargs):
 
 
 def lib_missing():
-    """The message when make's output is missing: the precompiled runtime and prelude, and the
+    """The message when make's output is missing: the precompiled library, and the
     compiled compiler libraries, else None."""
     missing = [p for p in (LIB, BUILD / "lib.scm", BUILD / "chez") if not p.exists()]
     if missing:

@@ -1,7 +1,7 @@
 #!/usr/bin/env scheme-script
 
 ;; Run from the project root; compile, low and asm in one process.
-;; scheme-script run --lib DIR: runtime.ss and prelude.ss into DIR/lib.s and the interface DIR/lib.scm
+;; scheme-script run --lib DIR: the library, lib/*.ss, into DIR/lib.s and the interface DIR/lib.scm
 ;; scheme-script run [--low] < SOURCE > ASM: a program, against build/lib.scm;
 ;; with --low, the source is a low program
 
@@ -10,6 +10,17 @@
         (compile)
         (low-compile)
         (asm))
+
+
+;; The forms of lib/*.ss, in file name order
+(define (library-forms)
+  (apply append
+         (map (lambda (name) (with-input-from-file (string-append "lib/" name) read-all))
+              (sort string<?
+                    (filter (lambda (name)
+                              (let ((n (string-length name)))
+                                (and (> n 3) (string=? (substring name (- n 3) n) ".ss"))))
+                            (directory-list "lib"))))))
 
 
 (define (stage f input)
@@ -31,8 +42,7 @@
              (low (with-output-to-string
                     (lambda ()
                       (set! interface
-                            (compile-scheme-library (with-input-from-file "runtime.ss" read-all)
-                                                    (with-input-from-file "prelude.ss" read-all))))))
+                            (compile-scheme-library (library-forms))))))
              (ir (stage (lambda (forms) (compile-low forms #t)) low)))
         (write-file (string-append (cadr args) "/lib.scm")
                     (with-output-to-string (lambda () (print-low interface))))

@@ -10,11 +10,11 @@
           (compile-vars))
 
 
-  ;; True while lowering runtime.ss, which may use strings, named lets and low operations
-  (define runtime-code? (make-parameter #f))
+  ;; True while lowering the library, which may use strings, named lets and low operations
+  (define library-code? (make-parameter #f))
 
 
-  ;; The low operations runtime.ss may call
+  ;; The low operations the library may call
   (define low-ops
     (append (map car binary-ops)
             (map car tests)
@@ -71,7 +71,7 @@
      ((number? expr)
       (error 'lower-value "unsupported number" expr))
 
-     ((and (string? expr) (runtime-code?))
+     ((and (string? expr) (library-code?))
       expr)
 
      ((special? env expr)
@@ -127,7 +127,7 @@
   (define chunk-base (expt 2 30))
 
 
-  ;; An integer beyond the fixnums, rebuilt by the runtime's + and * from chunk-base chunks,
+  ;; An integer beyond the fixnums, rebuilt by the library's + and * from chunk-base chunks,
   ;; most significant first, each with n's sign: (+ (* (+ (* c2 base) c1) base) c0)
   (define (lower-big-integer n)
     (let loop ((m (abs n))
@@ -164,14 +164,14 @@
       (and entry (cdr entry))))
 
 
-  ;; Low's when and unless give undef and allow a void body, so only runtime.ss uses them
+  ;; Low's when and unless give undef and allow a void body, so only the library uses them
   (define (lower-when prog env expr)
     (unless (>= (length expr) 3)
       (error 'lower-when "invalid when or unless" expr))
     (let ((test (lower-test prog env (cadr expr)))
           (body (map-in-order (lambda (x) (lower-value prog env x)) (cddr expr))))
       (cond
-       ((runtime-code?) `(,(car expr) ,test ,@body))
+       ((library-code?) `(,(car expr) ,test ,@body))
        ((eq? (car expr) 'when) `(if ,test (begin ,@body) undef))
        (else `(if ,test undef (begin ,@body))))))
 
@@ -273,10 +273,10 @@
                          body lower-last)))))
 
 
-  ;; A named let of runtime.ss: a low loop, so a call to its name must be in exit position
+  ;; A named let of the library: a low loop, so a call to its name must be in exit position
   (define (lower-named-let prog env expr lower-last)
-    (unless (runtime-code?)
-      (error 'lower-named-let "named let is only supported in runtime.ss" expr))
+    (unless (library-code?)
+      (error 'lower-named-let "named let is only supported in the library" expr))
     (let-values (((name bindings body) (parse-named-let expr)))
       (let* ((vars (map car bindings))
              (free (free-vars (bind-scope env (cons name vars)) body))
@@ -389,7 +389,7 @@
        ((global-binding? b)
         `(begin (global-set! (raw ,(global-binding-index b)) ,src) undef))
        (else
-        (error 'lower-set! "set! of a prelude procedure or primitive" var)))))
+        (error 'lower-set! "set! of a library procedure or primitive" var)))))
 
 
   ;; A primitive, low operation or named let is called by name, (raw n) is kept as is
@@ -423,13 +423,24 @@
           (cons op args))))
 
 
-  (define (runtime-item-name x)
-    (if (runtime-def? x) (runtime-def-name x) (runtime-data-name x)))
+  (define (library-item-name x)
+    (if (library-def? x) (library-def-name x) (library-data-name x)))
 
 
-  ;; Runtime names stay, for the stubs and the frontend output, unless low reserves them
-  (define (runtime-low-name prog x)
-    (if (memq x keywords) (fresh-name prog x) x))
+  ;; Low def and data names stay, for the stubs and the frontend output, unless low reserves
+  ;; them; procedures are renamed
+  (define (library-low-name prog x)
+    (if (or (and (library-def? x) (library-def-procedure? x))
+            (memq (library-item-name x) keywords))
+        (fresh-name prog (library-item-name x))
+        (library-item-name x)))
+
+
+  (define (library-binding x name)
+    (cond
+     ((library-data? x) (make-constant-binding name))
+     ((library-def-procedure? x) (make-procedure-binding name))
+     (else (make-primitive-binding name (length (library-def-args x))))))
 
 
   (define (result->low k)
@@ -439,87 +450,68 @@
       ((never) '!)))
 
 
-  ;; Lowers the defs and data of runtime.ss, returns the env of its public defs and its whole env
-  (define (lower-runtime! prog runtime)
-    (let* ((items (scan-runtime runtime))
-           (names (map-in-order (lambda (x) (runtime-low-name prog (runtime-item-name x))) items))
-           (bindings (map (lambda (x name)
-                            (cons (runtime-item-name x)
-                                  (if (runtime-def? x)
-                                      (make-primitive-binding name (length (runtime-def-args x)))
-                                      (make-constant-binding name))))
-                          items names))
-           (env (append bindings
-                        (map (lambda (op) (cons op (make-low-op-binding op))) low-ops)
-                        (list (cons 'undef (make-constant-binding 'undef))))))
-      (parameterize ((runtime-code? #t))
-        (for-each (lambda (x name)
-                    (if (runtime-def? x)
-                        (lower-runtime-def! prog env x name)
-                        (add-def! prog `(data ,name ,(runtime-data-nwords x) ()))))
-                  items names))
-      (values (fold-right (lambda (x b acc)
-                            (if (and (runtime-def? x) (memq ':public (runtime-def-attrs x)))
-                                (cons b acc)
-                                acc))
-                          '() items bindings)
-              env)))
-
-
-  (define (lower-runtime-def! prog env d name)
-    (let* ((args (runtime-def-args d))
+  (define (lower-low-def! prog env d name)
+    (let* ((args (library-def-args d))
            (params (map-in-order (lambda (x) (fresh-name prog x)) args))
-           (body (runtime-def-body d))
+           (body (library-def-body d))
            (vars (free-vars (bind-scope env args) body))
            (body-env (append (map (lambda (x p k)
                                     (when (boxed? x vars)
-                                      (error 'lower-runtime-def!
+                                      (error 'lower-low-def!
                                              "assigned and captured parameter" x))
                                     (cons x (if (eq? k 'raw)
                                                 (make-raw-binding p)
                                                 (make-local-binding p))))
-                                  args params (runtime-def-kinds d))
+                                  args params (library-def-kinds d))
                              env))
-           (attrs (if (eq? name (runtime-def-name d))
-                      (runtime-def-attrs d)
-                      `(,@(runtime-def-attrs d) (:as ,(runtime-def-name d))))))
-      (add-def! prog `(def ,name ,(map list (runtime-def-kinds d) params)
-                           -> ,(result->low (runtime-def-result d)) ,attrs
+           (attrs (if (eq? name (library-def-name d))
+                      (library-def-attrs d)
+                      `(,@(library-def-attrs d) (:as ,(library-def-name d))))))
+      (add-def! prog `(def ,name ,(map list (library-def-kinds d) params)
+                           -> ,(result->low (library-def-result d)) ,attrs
                            ,@(lower-body prog body-env body lower-value)))))
 
 
-  ;; The low defs and data of runtime.ss and the prelude, and the interface a program
-  ;; compiles against: (names n), where its fresh names start, (primitive name def arity) for the
-  ;; public runtime defs, (procedure name def arity) for the prelude's, then the low declarations
-  (define (library->low runtime prelude)
-    (let*-values (((prog) (make-low-program 0))
-                  ((public runtime-env) (lower-runtime! prog runtime))
-                  ((prelude-defs) (scan-prelude prelude))
-                  ((prelude-names) (map-in-order (lambda (d) (fresh-name prog (prelude-def-name d)))
-                                                 prelude-defs))
-                  ((procedures) (map (lambda (d name)
-                                       (cons (prelude-def-name d) (make-procedure-binding name)))
-                                     prelude-defs prelude-names))
-                  ((env) (append public procedures))
-                  ((low-env) (append procedures runtime-env)))
-      (for-each (lambda (d name)
-                  (hashtable-set! (low-program-arity prog) name (length (prelude-def-args d))))
-                prelude-defs prelude-names)
-      (for-each (lambda (d name)
-                  (parameterize ((runtime-code? (prelude-def-low? d)))
-                    (lift-procedure! prog (if (prelude-def-low? d) low-env env) name
-                                     (prelude-def-name d) (prelude-def-args d) (prelude-def-body d))))
-                prelude-defs prelude-names)
-      (let ((forms (reverse (low-program-defs prog))))
+  ;; The low defs and data of the library, and the interface a program compiles against:
+  ;; (names n), where its fresh names start, (primitive name def arity) for the public low defs,
+  ;; (procedure name def arity) for the public procedures, then the low declarations;
+  ;; every name is bound before any body is lowered, so any define may use any other
+  (define (library->low library)
+    (let* ((prog (make-low-program 0))
+           (items (scan-library library))
+           (names (map-in-order (lambda (x) (library-low-name prog x)) items))
+           (env (append (map (lambda (x name) (cons (library-item-name x) (library-binding x name)))
+                             items names)
+                        (map (lambda (op) (cons op (make-low-op-binding op))) low-ops)
+                        (list (cons 'undef (make-constant-binding 'undef)))))
+           (public (filter (lambda (x) (and (library-def? x) (memq ':public (library-def-attrs x))))
+                           items)))
+      (for-each (lambda (x name)
+                  (when (and (library-def? x) (library-def-procedure? x))
+                    (hashtable-set! (low-program-arity prog) name (length (library-def-args x)))))
+                items names)
+      (parameterize ((library-code? #t))
+        (for-each (lambda (x name)
+                    (cond
+                     ((library-data? x)
+                      (add-def! prog `(data ,name ,(library-data-nwords x) ())))
+                     ((library-def-procedure? x)
+                      (lift-procedure! prog env name (library-def-name x)
+                                       (library-def-args x) (library-def-body x)))
+                     (else (lower-low-def! prog env x name))))
+                  items names))
+      (let ((forms (reverse (low-program-defs prog)))
+            (exports (lambda (procedure?)
+                       (map (lambda (x)
+                              (let ((b (cdr (assq (library-def-name x) env))))
+                                `(,(if procedure? 'procedure 'primitive) ,(library-def-name x)
+                                  ,(procedure-binding-proc b) ,(length (library-def-args x)))))
+                            (filter (lambda (x) (eq? (library-def-procedure? x) procedure?))
+                                    public)))))
         (values forms
                 `((names ,((low-program-names prog)))
-                  ,@(map (lambda (b)
-                           `(primitive ,(car b) ,(procedure-binding-proc (cdr b))
-                                       ,(primitive-binding-arity (cdr b))))
-                         public)
-                  ,@(map (lambda (d name)
-                           `(procedure ,(prelude-def-name d) ,name ,(length (prelude-def-args d))))
-                         prelude-defs prelude-names)
+                  ,@(exports #f)
+                  ,@(exports #t)
                   ,@(map low-declaration forms))))))
 
 
@@ -596,7 +588,7 @@
 
 
   ;; Prints the low library, returns the interface
-  (define (compile-scheme-library runtime prelude)
-    (let-values (((forms interface) (library->low runtime prelude)))
+  (define (compile-scheme-library library)
+    (let-values (((forms interface) (library->low library)))
       (print-low forms)
       interface)))

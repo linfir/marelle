@@ -29,7 +29,7 @@
           (low-emit))
 
 
-  ;; Header of procedure objects, procedure-type in runtime.ss
+  ;; Header of procedure objects, procedure-type in lib/objects.ss
   (define procedure-type (* 42 8))
 
 

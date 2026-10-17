@@ -25,7 +25,7 @@
     (parent local-binding))
 
 
-  ;; A local holding a raw word, in runtime.ss
+  ;; A local holding a raw word, in the library
   (define-record-type raw-binding
     (parent local-binding))
 
@@ -42,17 +42,17 @@
     (fields arity))
 
 
-  ;; In runtime.ss: a low operation such as raw+ or load, only called
+  ;; In the library: a low operation such as raw+ or load, only called
   (define-record-type low-op-binding
     (fields name))
 
 
-  ;; In runtime.ss: undef or a data name, a low operand
+  ;; In the library: undef or a data name, a low operand
   (define-record-type constant-binding
     (fields operand))
 
 
-  ;; In runtime.ss: the name of a named let, a low loop, only called
+  ;; In the library: the name of a named let, a low loop, only called
   (define-record-type loop-binding
     (fields operand arity))
 

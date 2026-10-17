@@ -2,12 +2,11 @@
   (export undef immediate? special? call? define-form?
           parse-lambda parse-let parse-let* named-let? parse-named-let
           parse-if parse-cond parse-begin parse-set!
-          scan-defs scan-prelude scan-runtime
+          scan-defs scan-library
           make-global-def global-def-name global-def-index global-def-args global-def-body
-          prelude-def-name prelude-def-args prelude-def-body prelude-def-low?
-          runtime-def? runtime-def-name runtime-def-args runtime-def-kinds
-          runtime-def-result runtime-def-attrs runtime-def-body
-          runtime-data-name runtime-data-nwords)
+          library-def? library-def-name library-def-args library-def-kinds
+          library-def-result library-def-attrs library-def-body library-def-procedure?
+          library-data? library-data-name library-data-nwords)
   (import (chezscheme)
           (utils))
 
@@ -173,11 +172,6 @@
     (fields name index args body))
 
 
-  ;; low?: the body sees the whole runtime env, as runtime.ss code
-  (define-record-type prelude-def
-    (fields name args body low?))
-
-
   ;; Map (make name i args body) over the define forms
   (define (scan-defs forms make)
     (let loop ((acc '())
@@ -195,25 +189,15 @@
                   (+ i 1))))))
 
 
-  (define (scan-prelude forms)
-    (scan-defs forms
-               (lambda (name i args body)
-                 (unless args
-                   (error 'scan-prelude "value define in the prelude" name))
-                 (let ((low? (and (pair? (cdr body)) (equal? (car body) '(declare low)))))
-                   (when (and (non-empty-list? (car body)) (eq? (caar body) 'declare) (not low?))
-                     (error 'scan-prelude "invalid declaration" (car body)))
-                   (make-prelude-def name args (if low? (cdr body) body) low?)))))
-
-
-  ;; A define of runtime.ss: kinds are val or raw, result val, raw, void or never,
-  ;; attrs low's def attributes
-  (define-record-type runtime-def
-    (fields name args kinds result attrs body))
+  ;; A define of the library: kinds are val or raw, result val, raw, void or never,
+  ;; attrs low's def attributes; a procedure (only vals, attrs at most :public) is lifted
+  ;; like a lambda, any other is a low def
+  (define-record-type library-def
+    (fields name args kinds result attrs body procedure?))
 
 
   ;; (define-data name nwords)
-  (define-record-type runtime-data
+  (define-record-type library-data
     (fields name nwords))
 
 
@@ -244,22 +228,26 @@
              (else (error 'parse-declare "invalid declaration" d)))))))
 
 
-  (define (parse-runtime-define form)
+  (define (parse-library-define form)
     (unless (and (define-form? form)
                  (>= (length form) 3)
                  (pair? (cadr form))
                  (symbol? (caadr form))
                  (list? (cdadr form)))
-      (error 'parse-runtime-define "invalid define" form))
+      (error 'parse-library-define "invalid define" form))
     (let* ((params (map parse-typed-param (cdadr form)))
            (body (cddr form))
            (declare? (and (non-empty-list? (car body)) (eq? (caar body) 'declare))))
       (validate-parameters (map car params))
       (when (and declare? (null? (cdr body)))
-        (error 'parse-runtime-define "invalid define" form))
+        (error 'parse-library-define "invalid define" form))
       (let-values (((result attrs) (parse-declare (if declare? (cdar body) '()))))
-        (make-runtime-def (caadr form) (map car params) (map cdr params) result attrs
-                          (if declare? (cdr body) body)))))
+        (let ((vals? (and (for-all (lambda (p) (eq? (cdr p) 'val)) params) (eq? result 'val))))
+          (when (and (memq ':public attrs) (not vals?))
+            (error 'parse-library-define "public define with raw values" form))
+          (make-library-def (caadr form) (map car params) (map cdr params) result attrs
+                            (if declare? (cdr body) body)
+                            (and vals? (for-all (lambda (a) (eq? a ':public)) attrs)))))))
 
 
   (define (parse-define-data form)
@@ -269,11 +257,11 @@
                  (exact? (caddr form))
                  (> (caddr form) 0))
       (error 'parse-define-data "invalid define-data" form))
-    (make-runtime-data (cadr form) (caddr form)))
+    (make-library-data (cadr form) (caddr form)))
 
 
-  ;; The runtime-def and runtime-data records of runtime.ss
-  (define (scan-runtime forms)
+  ;; The library-def and library-data records of the library forms
+  (define (scan-library forms)
     (let loop ((forms forms)
                (acc '())
                (names '()))
@@ -282,8 +270,8 @@
           (let* ((form (car forms))
                  (x (if (and (non-empty-list? form) (eq? (car form) 'define-data))
                         (parse-define-data form)
-                        (parse-runtime-define form)))
-                 (name (if (runtime-def? x) (runtime-def-name x) (runtime-data-name x))))
+                        (parse-library-define form)))
+                 (name (if (library-def? x) (library-def-name x) (library-data-name x))))
             (when (memq name names)
-              (error 'scan-runtime "redefinition not allowed" name))
+              (error 'scan-library "redefinition not allowed" name))
             (loop (cdr forms) (cons x acc) (cons name names)))))))
