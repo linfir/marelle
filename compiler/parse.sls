@@ -1,7 +1,7 @@
 (library (parse)
   (export undef immediate? special? special-keyword marker call? define-form? validate-parameters
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
-          parse-if parse-cond parse-begin parse-set!
+          parse-if parse-cond parse-case parse-begin parse-set!
           scan-defs scan-library
           make-global-def global-def-name global-def-index global-def-args global-def-body
           library-def? library-def-name library-def-args library-def-kinds
@@ -30,12 +30,12 @@
         (eq? x undef)))
 
 
-  (define *special-forms* '(if cond and or let let* letrec letrec* lambda begin set! when unless))
+  (define *special-forms* '(if cond case and or let let* letrec letrec* lambda begin set! when unless))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them
   (define markers
-    (map (lambda (k) (cons (gensym (symbol->string k)) k)) '(if let begin set! lambda)))
+    (map (lambda (k) (cons (gensym (symbol->string k)) k)) '(if let begin set! lambda or eq?)))
 
 
   (define (marker keyword)
@@ -143,6 +143,17 @@
                   (error 'parse-cond "invalid cond clause" c)))
               (cdr form))
     (cdr form))
+
+
+  ;; (case key clause ...) => (values key clauses); else and => are checked by the caller
+  (define (parse-case form)
+    (unless (>= (length form) 2)
+      (error 'parse-case "invalid case" form))
+    (for-each (lambda (c)
+                (unless (and (non-empty-list? c) (pair? (cdr c)))
+                  (error 'parse-case "invalid case clause" c)))
+              (cddr form))
+    (values (cadr form) (cddr form)))
 
 
   ;; (begin expr ...) => (expr ...)

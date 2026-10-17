@@ -194,6 +194,7 @@
   (define (expand-form env expr)
     (case (special-keyword env expr)
       ((cond) (expand-cond env (parse-cond expr)))
+      ((case) (expand-case env expr))
       ;; In a begin, since #f means no expansion
       ((and) `(,(marker 'begin) ,(expand-and (cdr expr))))
       ((or) `(,(marker 'begin) ,(expand-or (cdr expr))))
@@ -246,6 +247,39 @@
                 (,(marker 'if) ,t (,(cadr body) ,t) ,(expand-cond env rest)))))
            (else
             `(,(marker 'if) ,test (,(marker 'begin) ,@body) ,(expand-cond env rest)))))))
+
+
+  ;; Each clause is ((datum ...) expr ...), ((datum ...) => f), or a last (else expr ...) or
+  ;; (else => f); the key is compared with eq?, so the datums are immediates
+  (define (expand-case env expr)
+    (let-values (((key clauses) (parse-case expr)))
+      (let ((t (gensym "case")))
+        (define (body clause)
+          (if (auxiliary? env (cadr clause) '=>)
+              (begin
+                (unless (= (length clause) 3)
+                  (error 'expand-case "invalid => clause" clause))
+                `(,(caddr clause) ,t))
+              `(,(marker 'begin) ,@(cdr clause))))
+        (define (datum x)
+          (unless (or (immediate? x) (null? x))
+            (error 'expand-case "unsupported case datum" x))
+          (if (null? x) ''() x))
+        `(,(marker 'let) ((,t ,key))
+          ,(let loop ((clauses clauses))
+             (cond
+              ((null? clauses) undef)
+              ((auxiliary? env (caar clauses) 'else)
+               (unless (null? (cdr clauses))
+                 (error 'expand-case "invalid else clause" (car clauses)))
+               (body (car clauses)))
+              (else
+               (unless (list? (caar clauses))
+                 (error 'expand-case "invalid case clause" (car clauses)))
+               `(,(marker 'if)
+                 (,(marker 'or) ,@(map (lambda (d) `(,(marker 'eq?) ,t ,(datum d))) (caar clauses)))
+                 ,(body (car clauses))
+                 ,(loop (cdr clauses))))))))))
 
 
   ;; else and => are keywords unless bound
@@ -856,6 +890,12 @@
       (cond
        ((memq keyword '(and or))
         (compile-logic-branch env keyword (cdr test) jump-if label))
+
+       ;; Only built by case: two vals compared as words
+       ((eq? keyword 'eq?)
+        (let ((ops (compile-exprs env (cdr test) '(val val) test)))
+          (emit! `(cmp ,@ops))
+          (emit! `(,(if jump-if 'je 'jne) ,label))))
 
        ((not-call? env test)
         (compile-branch env (cadr test) (not jump-if) label))
