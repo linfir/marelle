@@ -169,18 +169,19 @@
 ;; The name of the character n, or 0
 (define (char-name (raw n))
   (declare native (result raw))
-  (if (raw= n (raw 0)) "nul"
-      (if (raw= n (raw 7)) "alarm"
-          (if (raw= n (raw 8)) "backspace"
-              (if (raw= n (raw 9)) "tab"
-                  (if (raw= n (raw 10)) "newline"
-                      (if (raw= n (raw 11)) "vtab"
-                          (if (raw= n (raw 12)) "page"
-                              (if (raw= n (raw 13)) "return"
-                                  (if (raw= n (raw 27)) "esc"
-                                      (if (raw= n (raw 32)) "space"
-                                          (if (raw= n (raw 127)) "delete"
-                                              (raw 0)))))))))))))
+  (cond
+   ((raw= n (raw 0))   "nul")
+   ((raw= n (raw 7))   "alarm")
+   ((raw= n (raw 8))   "backspace")
+   ((raw= n (raw 9))   "tab")
+   ((raw= n (raw 10))  "newline")
+   ((raw= n (raw 11))  "vtab")
+   ((raw= n (raw 12))  "page")
+   ((raw= n (raw 13))  "return")
+   ((raw= n (raw 27))  "esc")
+   ((raw= n (raw 32))  "space")
+   ((raw= n (raw 127)) "delete")
+   (else (raw 0))))
 
 ;; Prints c like Chez's write: a name, hexadecimal for the other control
 ;; characters and the line separators U+0085 and U+2028, else UTF-8

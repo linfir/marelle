@@ -1,7 +1,7 @@
 (library (compile-parse)
   (export undef immediate? special? call? define-form?
           parse-lambda parse-let parse-let* named-let? parse-named-let
-          parse-if parse-begin parse-set!
+          parse-if parse-cond parse-begin parse-set!
           scan-defs scan-prelude scan-runtime
           make-global-def global-def-name global-def-index global-def-args global-def-body
           prelude-def-name prelude-def-args prelude-def-body
@@ -30,7 +30,7 @@
         (eq? x undef)))
 
 
-  (define *special-forms* '(if and or let let* lambda begin set! when unless))
+  (define *special-forms* '(if cond and or let let* lambda begin set! when unless))
 
 
   (define (special? env expr)
@@ -111,6 +111,15 @@
     (values (cadr form)
             (caddr form)
             (if (null? (cdddr form)) undef (cadddr form))))
+
+
+  ;; (cond clause ...) => (clause ...); else and => are checked by the caller
+  (define (parse-cond form)
+    (for-each (lambda (c)
+                (unless (non-empty-list? c)
+                  (error 'parse-cond "invalid cond clause" c)))
+              (cdr form))
+    (cdr form))
 
 
   ;; (begin expr ...) => (expr ...)

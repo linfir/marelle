@@ -79,6 +79,9 @@
                 ,(lower-value prog env then)
                 ,(lower-value prog env else))))
 
+        ((cond)
+         (lower-cond prog env (parse-cond expr)))
+
         ((and)
          (lower-and prog env (cdr expr)))
 
@@ -151,6 +154,48 @@
        ((runtime-code?) `(,(car expr) ,test ,@body))
        ((eq? (car expr) 'when) `(if ,test (begin ,@body) undef))
        (else `(if ,test undef (begin ,@body))))))
+
+
+  ;; Each clause is (test expr ...), (test), (test => f), or a last (else expr ...)
+  (define (lower-cond prog env clauses)
+    (if (null? clauses)
+        'undef
+        (let ((test (caar clauses))
+              (body (cdar clauses))
+              (rest (cdr clauses)))
+          (cond
+           ((auxiliary? env test 'else)
+            (unless (and (null? rest) (pair? body))
+              (error 'lower-cond "invalid else clause" (car clauses)))
+            (lower-sequence prog env body))
+           ((null? body)
+            (let ((t (fresh-name prog 'cond)))
+              `(let ((,t ,(lower-value prog env test)))
+                 (if ,t ,t ,(lower-cond prog env rest)))))
+           ((auxiliary? env (car body) '=>)
+            (unless (= (length body) 2)
+              (error 'lower-cond "invalid => clause" (car clauses)))
+            (let ((t (fresh-name prog 'cond))
+                  (x (gensym)))
+              `(let ((,t ,(lower-value prog env test)))
+                 (if ,t
+                     ,(lower-call prog (acons x (make-local-binding t) env) (list (cadr body) x))
+                     ,(lower-cond prog env rest)))))
+           (else
+            `(if ,(lower-test prog env test)
+                 ,(lower-sequence prog env body)
+                 ,(lower-cond prog env rest)))))))
+
+
+  ;; else and => are keywords unless bound
+  (define (auxiliary? env x keyword)
+    (and (eq? x keyword)
+         (not (assq keyword env))))
+
+
+  (define (lower-sequence prog env exprs)
+    (let ((xs (lower-body prog env exprs lower-value)))
+      (if (null? (cdr xs)) (car xs) `(begin ,@xs))))
 
 
   ;; The value of the deciding operand
