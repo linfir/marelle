@@ -223,10 +223,10 @@
                       (error 'lower-named-let "assigned and captured loop variable" v)))
                   vars)
         `(let ,loop ,(map list names inits)
-           ,@(lower-body prog
-                         (append (map (lambda (v n) (cons v (make-local-binding n))) vars names)
-                                 (acons name (make-loop-binding loop (length vars)) env))
-                         body lower-last)))))
+              ,@(lower-body prog
+                            (append (map (lambda (v n) (cons v (make-local-binding n))) vars names)
+                                    (acons name (make-loop-binding loop (length vars)) env))
+                            body lower-last)))))
 
 
   ;; A let variable var bound to init: ((name init) . (var . binding))
