@@ -759,4 +759,4 @@
 
   (define (compile-asm tops)
     (let-values (((exports tops) (partition (lambda (x) (eq? (car x) 'export)) tops)))
-      (for-each print-asm (program->asm tops (apply append (map cdr exports)))))))
+      (for-each print-asm (dumped 'program '(program) (program->asm tops (apply append (map cdr exports))))))))
