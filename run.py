@@ -9,7 +9,8 @@ from subprocess import CompletedProcess, run
 
 
 ROOT = Path(__file__).resolve().parent
-LIB = ROOT / "build" / "lib.o"
+BUILD = ROOT / "build"
+LIB = BUILD / "lib.o"
 
 
 class PipelineFailure(Exception):
@@ -31,9 +32,12 @@ def run_stage(stage, command, **kwargs):
     return result
 
 
-def build_lib():
-    """Makes build/lib.o and build/lib.scm, the precompiled runtime and prelude, when out of date."""
-    run_stage("lib", ["make", "-s", "-C", ROOT, "prebuild"])
+def lib_missing():
+    """The message when the precompiled runtime and prelude (make prebuild) are missing, else None."""
+    missing = [p for p in (LIB, BUILD / "lib.scm") if not p.exists()]
+    if missing:
+        return f"missing {', '.join(str(p.relative_to(ROOT)) for p in missing)}: run make first"
+    return None
 
 
 def compile_source(source, low):
@@ -72,8 +76,12 @@ def main():
     args = parse_args()
     source = args.e if args.e is not None else args.file.read_text()
 
+    missing = lib_missing()
+    if missing:
+        sys.stderr.write(f"run.py: {missing}\n")
+        exit(1)
+
     try:
-        build_lib()
         result = run_pipeline(source, low=args.low)
     except PipelineFailure as error:
         sys.stdout.write(error.result.stdout)
