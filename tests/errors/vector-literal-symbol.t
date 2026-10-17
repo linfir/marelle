@@ -1,0 +1,5 @@
+'#(a)
+---
+stage = "compiler"
+stderr_contains = "unsupported literal"
+chez = "skip"

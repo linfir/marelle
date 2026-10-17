@@ -110,6 +110,7 @@
   (cond
    ((raw= (as-raw x) (raw 0)) (put-string out "#<null>"))
    ((raw= (load (as-raw x) (raw 0)) (bignum-type)) (display-bignum out (as-raw x)))
+   ((raw= (load (as-raw x) (raw 0)) (vector-type)) (display-vector out x))
    ((raw= (load (as-raw x) (raw 0)) (procedure-type))
     (let ((name (load (as-raw x) (raw 3))))
       (if (raw= name (raw 0))
@@ -119,6 +120,20 @@
             (put-string out name)
             (put-string out ">")))))
    (else (put-string out "#<unknown ptr>"))))
+
+(define (display-vector (raw out) v)
+  (declare unsafe native (result void))
+  (let ((n (load (as-raw v) (raw 1))))
+    (put-string out "#(")
+    (let elem-next ((i (raw 0)))
+      (if (raw= i n)
+          undef
+          (begin
+            (unless (raw= i (raw 0))
+              (put-string out " "))
+            (display out (as-val (load (as-raw v) (raw+ i (raw 2)))))
+            (elem-next (raw+ i (raw 1))))))
+    (put-string out ")")))
 
 ;; Divides the m limbs at q by 10^9 in place, returns the remainder; each limb is two
 ;; 32-bit halves, so rem << 32 | half < 2^62 and the signed raw/ works

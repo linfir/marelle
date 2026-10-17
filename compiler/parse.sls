@@ -1,5 +1,5 @@
 (library (parse)
-  (export undef immediate? special? special-keyword marker call? define-form? validate-parameters
+  (export undef immediate? vector-literal? special? special-keyword marker call? define-form? validate-parameters
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-case parse-begin parse-set!
           scan-defs scan-library
@@ -28,6 +28,12 @@
         (char? x)
         (equal? x ''())
         (eq? x undef)))
+
+
+  ;; #(...) or '#(...)
+  (define (vector-literal? x)
+    (or (vector? x)
+        (and (list? x) (= (length x) 2) (eq? (car x) 'quote) (vector? (cadr x)))))
 
 
   (define *special-forms* '(if cond case and or let let* letrec letrec* lambda begin set! when unless))
@@ -175,6 +181,7 @@
   (define (call? env expr)
     (and (non-empty-list? expr)
          (not (immediate? expr))
+         (not (vector-literal? expr))
          (not (special? env expr))))
 
 

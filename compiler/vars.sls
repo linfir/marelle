@@ -72,6 +72,9 @@
      ((symbol? expr)
       (add-free-var env expr acc #f))
 
+     ((vector-literal? expr)
+      acc)
+
      ((special? env expr)
       (case (special-keyword env expr)
         ((let)

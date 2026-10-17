@@ -114,6 +114,9 @@
      ((symbol? expr)
       (compile-variable env expr))
 
+     ((vector-literal? expr)
+      (compile-vector-literal env (if (vector? expr) expr (cadr expr))))
+
      ((expand-form env expr)
       => (lambda (x) (compile-value env x)))
 
@@ -165,6 +168,23 @@
     (when (def-native? def)
       (error 'compile-value "native def without a procedure object" x))
     `(as-val ,(def-proc def)))
+
+
+  ;; A vector literal, rebuilt at each evaluation like bignums, so it is never static;
+  ;; its elements are integers, booleans, characters, () and vectors
+  (define (compile-vector-literal env v)
+    (let ((t (call-def env (core-def 'make-vector)
+                       (list (immediate-operand (vector-length v)) (immediate-operand 0))
+                       v compile-result)))
+      (for-each (lambda (x i)
+                  (unless (or (integer? x) (boolean? x) (char? x) (null? x) (vector? x))
+                    (error 'compile-value "unsupported literal" x))
+                  (call-def env (core-def 'vector-set!)
+                            (list t (immediate-operand i)
+                                  (compile-value env (if (null? x) ''() x)))
+                            v compile-result))
+                (vector->list v) (iota (vector-length v)))
+      t))
 
 
   ;; The base of the chunks of a bignum literal: each chunk is a fixnum
@@ -599,6 +619,7 @@
           ((or (not (non-empty-list? x))
                (special? env x)
                (immediate? x)
+               (vector-literal? x)
                (low-op-binding? b))
            (compile-return env def x))
 

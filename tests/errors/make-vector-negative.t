@@ -1,0 +1,4 @@
+(make-vector -1 0)
+---
+stage = "executable"
+stderr_contains = "Error: `make-vector` expected a nonnegative fixnum: -1\n"
