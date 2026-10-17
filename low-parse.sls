@@ -46,8 +46,10 @@
       (raw* . mul)
       (raw/ . div)
       (raw% . rem)
+      (raw*hu . mulhu)
       (raw<< . sal)
-      (raw>> . sar)))
+      (raw>> . sar)
+      (raw>>u . shr)))
 
 
   ;; (test jump-if-true jump-if-false)

@@ -68,6 +68,10 @@
   (declare inline (result raw))
   (raw 360)) ; 45 << 3
 
+(define (bignum-type)
+  (declare inline (result raw))
+  (raw 368)) ; 46 << 3
+
 (define (fixnum? x)
   (declare inline)
   (tag=? x (raw 1)))
@@ -105,15 +109,16 @@
 ;; Room for the digits of any raw, written backwards
 (define-data digits 3)
 
-;; Writes the nonnegative n in base radix, at most 16, with uppercase letters
-(define (put-digits (raw fd) (raw n) (raw radix))
+;; Writes the nonnegative n in base radix, at most 16, with uppercase letters,
+;; zero-padded to width digits (at most 24)
+(define (put-digits (raw fd) (raw n) (raw radix) (raw width))
   (declare native (result void))
   (let digit-next ((m n)
                    (i (raw 24)))
     (let ((j (raw- i (raw 1)))
           (d (raw% m radix)))
       (store8 digits j (raw+ d (if (raw< d (raw 10)) (raw 48) (raw 55)))) ; 0, A - 10
-      (if (raw= (raw/ m radix) (raw 0))
+      (if (and (raw= (raw/ m radix) (raw 0)) (raw>= (raw- (raw 24) j) width))
           (write-bytes fd (raw+ digits j) (raw- (raw 24) j))
           (digit-next (raw/ m radix) j)))))
 
@@ -121,7 +126,7 @@
   (declare native (result void))
   (when (raw< n (raw 0))
     (put-string fd "-"))
-  (put-digits fd (if (raw< n (raw 0)) (raw- (raw 0) n) n) (raw 10)))
+  (put-digits fd (if (raw< n (raw 0)) (raw- (raw 0) n) n) (raw 10) (raw 1)))
 
 ;; Writes the UTF-8 encoding of the code point n
 (define (put-utf8 (raw fd) (raw n))
@@ -189,7 +194,7 @@
      ((not (raw= name (raw 0))) (put-string out name))
      ((or (raw< n (raw 32)) (raw= n (raw 133)) (raw= n (raw 8232)))
       (put-string out "x")
-      (put-digits out n (raw 16)))
+      (put-digits out n (raw 16) (raw 1)))
      (else (put-utf8 out n)))))
 
 (define (display-pair (raw out) x)
@@ -212,6 +217,7 @@
   (declare native (result void))
   (cond
    ((raw= (as-raw x) (raw 0)) (put-string out "#<null>"))
+   ((raw= (load (as-raw x) (raw 0)) (bignum-type)) (display-bignum out (as-raw x)))
    ((raw= (load (as-raw x) (raw 0)) (procedure-type))
     (let ((name (load (as-raw x) (raw 3))))
       (if (raw= name (raw 0))
@@ -221,6 +227,59 @@
             (put-string out name)
             (put-string out ">")))))
    (else (put-string out "#<unknown ptr>"))))
+
+;; Divides the m limbs at q by 10^9 in place, returns the remainder; each limb is two
+;; 32-bit halves, so rem << 32 | half < 2^62 and the signed raw/ works
+(define (divide-limbs! (raw q) (raw m))
+  (declare native (result raw))
+  (let limb-next ((i m)
+                  (rem (raw 0)))
+    (if (raw= i (raw 0))
+        rem
+        (let* ((limb (load q (raw- i (raw 1))))
+               (hi (bit-or (raw<< rem (raw 32)) (raw>>u limb (raw 32))))
+               (lo (bit-or (raw<< (raw% hi (raw 1000000000)) (raw 32))
+                           (bit-and limb (raw 4294967295)))))
+          (store q (raw- i (raw 1)) (bit-or (raw<< (raw/ hi (raw 1000000000)) (raw 32))
+                                            (raw/ lo (raw 1000000000))))
+          (limb-next (raw- i (raw 1)) (raw% lo (raw 1000000000)))))))
+
+;; The number of limbs at q once its leading zero limbs are dropped
+(define (significant-limbs (raw q) (raw m))
+  (declare native (result raw))
+  (if (and (raw>u m (raw 0)) (raw= (load q (raw- m (raw 1))) (raw 0)))
+      (significant-limbs q (raw- m (raw 1)))
+      m))
+
+;; Prints the bignum at x in decimal: its limbs, copied to spare-mem (unused outside a
+;; collection), are divided by 10^9 until zero, the remainders stored after them, then printed
+;; most significant first, 9 digits each but the first; spare-mem is zeroed again after
+(define (display-bignum (raw out) (raw x))
+  (declare native (result void))
+  (let* ((n (load x (raw 1)))
+         (q (load spare-mem (raw 0)))
+         (chunks (raw+ q (raw<< n (raw 3)))))
+    ;; A chunk per 29.9 bits: at most 2.2 n + 1 of them
+    (when (raw>u (raw+ (raw<< n (raw 2)) (raw 1)) (load scheme-cap (raw 0)))
+      (fatal "Out of memory\n"))
+    (when (raw= (load x (raw 2)) (raw 1))
+      (put-string out "-"))
+    (copy-words q (raw+ x (raw 24)) n)
+    (let chunk-next ((k (raw 0))
+                     (m n))
+      (if (raw>u m (raw 0))
+          (begin
+            (store chunks k (divide-limbs! q m))
+            (chunk-next (raw+ k (raw 1)) (significant-limbs q m)))
+          (begin
+            (put-digits out (load chunks (raw- k (raw 1))) (raw 10) (raw 1))
+            (let print-next ((i (raw- k (raw 1))))
+              (if (raw= i (raw 0))
+                  undef
+                  (begin
+                    (put-digits out (load chunks (raw- i (raw 1))) (raw 10) (raw 9))
+                    (print-next (raw- i (raw 1))))))
+            (fill-words q (raw+ n k) (raw 0)))))))
 
 ;; Prints the statistics on stderr when SCHEME_GC_STATS is set, then exits
 (define (exit-process (raw status))
@@ -333,6 +392,7 @@
   (cond
    ((raw= (load p (raw 0)) (frame-type)) (load p (raw 1)))
    ((raw= (load p (raw 0)) (procedure-type)) (raw+ (load p (raw 4)) (raw 5)))
+   ((raw= (load p (raw 0)) (bignum-type)) (raw+ (load p (raw 1)) (raw 3)))
    (else (raw 2)))) ; pair or box
 
 ;; The new address of the object x points to, copied to gc-free if it is in the
@@ -383,6 +443,7 @@
                  (frame? (raw 4))
                  ((raw= header (procedure-type)) (raw 5))
                  ((raw= header (box-type)) (raw 1))
+                 ((raw= header (bignum-type)) n) ; only raw words
                  (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))
                    (raw- (if frame? (raw- n (load p (raw 2))) n) start))
@@ -534,55 +595,298 @@
   (declare inline (result void))
   (store c (raw+ i (raw 5)) v))
 
-(define (check-fixnums x y (raw msg))
-  (declare inline (result void))
-  (unless (fixnum? x)
-    (scheme-error msg x))
-  (unless (fixnum? y)
-    (scheme-error msg y)))
+;; Integers: fixnums, (n << 3) | 1 for n in [-2^60, 2^60), else bignums
+;; [bignum-type, nlimbs, sign, limb 0, ..., limb nlimbs - 1]: raw words, little-endian unsigned
+;; 64-bit limbs, sign 0 or 1; normalized, so no leading zero limb and never in the fixnum range
 
-;; Tagged fixnums: (n << 3) | 1, so the tags cancel out
+(define (bignum? x)
+  (declare inline)
+  (and (tag=? x (raw 0))
+       (not (raw= (as-raw x) (raw 0)))
+       (raw= (load (as-raw x) (raw 0)) (bignum-type))))
+
+(define (check-integer x (raw msg))
+  (declare inline (result void))
+  (unless (or (fixnum? x) (bignum? x))
+    (scheme-error msg x)))
+
+(define (fixnum-value x)
+  (declare inline (result raw))
+  (raw>> (as-raw x) (raw 3)))
+
+(define (make-fixnum (raw n))
+  (declare inline)
+  (as-val (bit-or (raw<< n (raw 3)) (raw 1))))
+
+;; A tagged fixnum is its value times 8, plus 1, so the fixnum range is the signed word range:
+;; a tagged sum overflows when the 64-bit sum of the words does, and that one
+;; when the operands have the same sign and the result the other
+(define (sum-overflow? (raw a) (raw b) (raw s))
+  (declare inline)
+  (if (raw< a (raw 0))
+      (and (raw< b (raw 0)) (raw>= s (raw 0)))
+      (and (raw>= b (raw 0)) (raw< s (raw 0)))))
+
+;; a - b: when the operands have different signs and the result has b's
+(define (difference-overflow? (raw a) (raw b) (raw d))
+  (declare inline)
+  (if (raw< a (raw 0))
+      (and (raw>= b (raw 0)) (raw>= d (raw 0)))
+      (and (raw< b (raw 0)) (raw< d (raw 0)))))
+
+;; The value of the fixnum x is in (-2^30, 2^30), so the product of two fits a fixnum:
+;; its tagged word is in [-(2^30 - 1) * 8 + 1, (2^30 - 1) * 8 + 1]
+(define (small-fixnum? x)
+  (declare inline)
+  (raw<u (raw+ (as-raw x) (raw 8589934583)) (raw 17179869169)))
+
+;; Limb i of the bignum at p with n limbs, 0 past them
+(define (limb (raw p) (raw n) (raw i))
+  (declare inline (result raw))
+  (if (raw<u i n) (load p (raw+ i (raw 3))) (raw 0)))
+
+;; The 1-limb bignum of the fixnum x, not normalized
+(define (fixnum->bignum x)
+  (let ((p (alloc (raw 4))))
+    (store p (raw 0) (bignum-type))
+    (store p (raw 1) (raw 1))
+    (store p (raw 2) (if (raw< (fixnum-value x) (raw 0)) (raw 1) (raw 0)))
+    (store p (raw 3) (if (raw< (fixnum-value x) (raw 0))
+                         (raw- (raw 0) (fixnum-value x))
+                         (fixnum-value x)))
+    (as-val p)))
+
+(define (->bignum x)
+  (declare inline)
+  (if (fixnum? x) (fixnum->bignum x) x))
+
+;; -1, 0 or 1 as the magnitude of the bignum a is below, equal to or above b's;
+;; a 1-limb operand may have a zero limb
+(define (compare-magnitudes (raw a) (raw b))
+  (declare native (result raw))
+  (let ((na (load a (raw 1)))
+        (nb (load b (raw 1))))
+    (cond
+     ((raw<u na nb) (raw -1))
+     ((raw>u na nb) (raw 1))
+     (else
+      (let limb-next ((i na))
+        (if (raw= i (raw 0))
+            (raw 0)
+            (let ((x (load a (raw+ i (raw 2))))
+                  (y (load b (raw+ i (raw 2)))))
+              (cond
+               ((raw<u x y) (raw -1))
+               ((raw>u x y) (raw 1))
+               (else (limb-next (raw- i (raw 1))))))))))))
+
+;; -1, 0 or 1 as x is below, equal to or above y; both normalized integers, else an error;
+;; a bignum is beyond every fixnum, so its sign decides against one
+(define (compare-integers x y (raw msg))
+  (declare native (result raw))
+  (check-integer x msg)
+  (check-integer y msg)
+  (cond
+   ((and (fixnum? x) (fixnum? y))
+    (cond
+     ((raw< (as-raw x) (as-raw y)) (raw -1))
+     ((raw= (as-raw x) (as-raw y)) (raw 0))
+     (else (raw 1))))
+   ((fixnum? x) (if (raw= (load (as-raw y) (raw 2)) (raw 1)) (raw 1) (raw -1)))
+   ((fixnum? y) (if (raw= (load (as-raw x) (raw 2)) (raw 1)) (raw -1) (raw 1)))
+   (else
+    (let ((sx (load (as-raw x) (raw 2)))
+          (sy (load (as-raw y) (raw 2))))
+      (cond
+       ((raw< sx sy) (raw 1))
+       ((raw> sx sy) (raw -1))
+       ((raw= sx (raw 0)) (compare-magnitudes (as-raw x) (as-raw y)))
+       (else (compare-magnitudes (as-raw y) (as-raw x))))))))
+
+;; The limbs of r: |a| + |b|, max(na, nb) + 1 of them
+(define (add-magnitudes! (raw r) (raw a) (raw b))
+  (declare native (result void))
+  (let* ((na (load a (raw 1)))
+         (nb (load b (raw 1)))
+         (n (if (raw>u na nb) na nb)))
+    (store r (raw 1) (raw+ n (raw 1)))
+    (let limb-next ((i (raw 0))
+                    (carry (raw 0)))
+      (if (raw= i n)
+          (store r (raw+ i (raw 3)) carry)
+          (let* ((x (limb a na i))
+                 (s (raw+ x (limb b nb i)))
+                 (t (raw+ s carry)))
+            (store r (raw+ i (raw 3)) t)
+            (limb-next (raw+ i (raw 1))
+                       (raw+ (if (raw<u s x) (raw 1) (raw 0))
+                             (if (raw<u t s) (raw 1) (raw 0)))))))))
+
+;; The limbs of r: |a| - |b|, with |a| >= |b|, na of them
+(define (subtract-magnitudes! (raw r) (raw a) (raw b))
+  (declare native (result void))
+  (let ((na (load a (raw 1)))
+        (nb (load b (raw 1))))
+    (store r (raw 1) na)
+    (let limb-next ((i (raw 0))
+                    (borrow (raw 0)))
+      (if (raw= i na)
+          undef
+          (let* ((x (limb a na i))
+                 (y (limb b nb i))
+                 (d (raw- x y)))
+            (store r (raw+ i (raw 3)) (raw- d borrow))
+            (limb-next (raw+ i (raw 1))
+                       (raw+ (if (raw<u x y) (raw 1) (raw 0))
+                             (if (raw<u d borrow) (raw 1) (raw 0)))))))))
+
+;; The limbs of the zeroed r: |a| * |b|, na + nb of them (schoolbook);
+;; x * y + r[k] + carry < 2^128, so the high word never overflows
+(define (multiply-magnitudes! (raw r) (raw a) (raw b))
+  (declare native (result void))
+  (let ((na (load a (raw 1)))
+        (nb (load b (raw 1))))
+    (store r (raw 1) (raw+ na nb))
+    (let row-next ((i (raw 0)))
+      (if (raw= i na)
+          undef
+          (let ((x (load a (raw+ i (raw 3)))))
+            (let column-next ((j (raw 0))
+                              (carry (raw 0)))
+              (if (raw= j nb)
+                  (begin
+                    (store r (raw+ (raw+ i nb) (raw 3)) carry)
+                    (row-next (raw+ i (raw 1))))
+                  (let* ((y (load b (raw+ j (raw 3))))
+                         (k (raw+ (raw+ i j) (raw 3)))
+                         (lo (raw* x y))
+                         (lo1 (raw+ lo (load r k)))
+                         (lo2 (raw+ lo1 carry)))
+                    (store r k lo2)
+                    (column-next (raw+ j (raw 1))
+                                 (raw+ (raw+ (raw*hu x y)
+                                             (if (raw<u lo1 lo) (raw 1) (raw 0)))
+                                       (if (raw<u lo2 lo1) (raw 1) (raw 0))))))))))))
+
+;; The bignum r without its leading zero limbs, or its fixnum when in range
+(define (normalize (raw r))
+  (declare native)
+  (let limb-next ((n (load r (raw 1))))
+    (if (and (raw>u n (raw 1)) (raw= (load r (raw+ n (raw 2))) (raw 0)))
+        (limb-next (raw- n (raw 1)))
+        (let ((top (load r (raw 3)))
+              (negative? (raw= (load r (raw 2)) (raw 1))))
+          (store r (raw 1) n)
+          (cond
+           ((not (raw= n (raw 1))) (as-val r))
+           ((raw<u top (raw 1152921504606846976)) ; 2^60
+            (make-fixnum (if negative? (raw- (raw 0) top) top)))
+           ((and negative? (raw= top (raw 1152921504606846976)))
+            (make-fixnum (raw- (raw 0) top)))
+           (else (as-val r)))))))
+
+;; r = a + b, or a - b when negate-b is 1, on bignums
+(define (add-signed! (raw r) (raw a) (raw b) (raw negate-b))
+  (declare native (result void))
+  (let ((sa (load a (raw 2)))
+        (sb (if (raw= negate-b (raw 0)) (load b (raw 2)) (raw- (raw 1) (load b (raw 2))))))
+    (store r (raw 0) (bignum-type))
+    (cond
+     ((raw= sa sb)
+      (store r (raw 2) sa)
+      (add-magnitudes! r a b))
+     ((raw< (compare-magnitudes a b) (raw 0))
+      (store r (raw 2) sb)
+      (subtract-magnitudes! r b a))
+     (else
+      (store r (raw 2) sa)
+      (subtract-magnitudes! r a b)))))
+
+;; a + b, or a - b when negate-b? is true; the room for a carry may stay unused
+(define (add-bignums a b negate-b?)
+  (let ((r (alloc (raw+ (let ((na (load (as-raw a) (raw 1)))
+                              (nb (load (as-raw b) (raw 1))))
+                          (if (raw>u na nb) na nb))
+                        (raw 4)))))
+    (add-signed! r (as-raw a) (as-raw b) (if negate-b? (raw 1) (raw 0)))
+    (normalize r)))
+
+(define (multiply-bignums a b)
+  (let ((r (alloc (raw+ (raw+ (load (as-raw a) (raw 1)) (load (as-raw b) (raw 1))) (raw 3)))))
+    (store r (raw 0) (bignum-type))
+    (store r (raw 2) (if (raw= (load (as-raw a) (raw 2)) (load (as-raw b) (raw 2))) (raw 0) (raw 1)))
+    (multiply-magnitudes! r (as-raw a) (as-raw b))
+    (normalize r)))
+
+;; The slow paths, out of line: a bignum operand or result
+(define (add-integers x y)
+  (check-integer x "`+` expected an integer")
+  (check-integer y "`+` expected an integer")
+  (add-bignums (->bignum x) (->bignum y) #f))
+
+(define (subtract-integers x y)
+  (check-integer x "`-` expected an integer")
+  (check-integer y "`-` expected an integer")
+  (add-bignums (->bignum x) (->bignum y) #t))
+
+(define (multiply-integers x y)
+  (check-integer x "`*` expected an integer")
+  (check-integer y "`*` expected an integer")
+  (multiply-bignums (->bignum x) (->bignum y)))
+
+;; Inline fast paths on tagged fixnums: (a << 3) | 1 plus (b << 3) | 1, minus 1,
+;; is ((a + b) << 3) | 1
 (define (+ x y)
   (declare inline public)
-  (check-fixnums x y "`+` expected an integer")
-  (as-val (raw- (raw+ (as-raw x) (as-raw y)) (raw 1))))
+  (let ((s (raw- (raw+ (as-raw x) (as-raw y)) (raw 1))))
+    (if (and (fixnum? x) (fixnum? y) (not (sum-overflow? (as-raw x) (as-raw y) s)))
+        (as-val s)
+        (add-integers x y))))
 
 (define (- x y)
   (declare inline public)
-  (check-fixnums x y "`-` expected an integer")
-  (as-val (raw+ (raw- (as-raw x) (as-raw y)) (raw 1))))
+  (let ((d (raw- (as-raw x) (as-raw y))))
+    (if (and (fixnum? x) (fixnum? y) (not (difference-overflow? (as-raw x) (as-raw y) d)))
+        (as-val (raw+ d (raw 1)))
+        (subtract-integers x y))))
 
+;; (n << 3) | 1 times m is (n * m) << 3 plus m, so subtract the tag first
 (define (* x y)
   (declare inline public)
-  (check-fixnums x y "`*` expected an integer")
-  (as-val (raw+ (raw* (raw- (as-raw x) (raw 1)) (raw>> (as-raw y) (raw 3)))
-                (raw 1))))
+  (if (and (fixnum? x) (fixnum? y) (small-fixnum? x) (small-fixnum? y))
+      (as-val (raw+ (raw* (raw- (as-raw x) (raw 1)) (fixnum-value y)) (raw 1)))
+      (multiply-integers x y)))
 
 ;; Comparing tagged fixnums compares their values
 (define (= x y)
   (declare inline public)
-  (check-fixnums x y "`=` expected an integer")
-  (raw= (as-raw x) (as-raw y)))
+  (if (and (fixnum? x) (fixnum? y))
+      (raw= (as-raw x) (as-raw y))
+      (raw= (compare-integers x y "`=` expected an integer") (raw 0))))
 
 (define (< x y)
   (declare inline public)
-  (check-fixnums x y "`<` expected an integer")
-  (raw< (as-raw x) (as-raw y)))
+  (if (and (fixnum? x) (fixnum? y))
+      (raw< (as-raw x) (as-raw y))
+      (raw< (compare-integers x y "`<` expected an integer") (raw 0))))
 
 (define (<= x y)
   (declare inline public)
-  (check-fixnums x y "`<=` expected an integer")
-  (raw<= (as-raw x) (as-raw y)))
+  (if (and (fixnum? x) (fixnum? y))
+      (raw<= (as-raw x) (as-raw y))
+      (raw<= (compare-integers x y "`<=` expected an integer") (raw 0))))
 
 (define (> x y)
   (declare inline public)
-  (check-fixnums x y "`>` expected an integer")
-  (raw> (as-raw x) (as-raw y)))
+  (if (and (fixnum? x) (fixnum? y))
+      (raw> (as-raw x) (as-raw y))
+      (raw> (compare-integers x y "`>` expected an integer") (raw 0))))
 
 (define (>= x y)
   (declare inline public)
-  (check-fixnums x y "`>=` expected an integer")
-  (raw>= (as-raw x) (as-raw y)))
+  (if (and (fixnum? x) (fixnum? y))
+      (raw>= (as-raw x) (as-raw y))
+      (raw>= (compare-integers x y "`>=` expected an integer") (raw 0))))
 
 ;; Characters: the immediate (code << 8) | 34
 (define (char? x)

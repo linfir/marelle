@@ -65,6 +65,9 @@
      ((immediate? expr)
       (lower-immediate expr))
 
+     ((and (integer? expr) (exact? expr))
+      (lower-big-integer expr))
+
      ((number? expr)
       (error 'lower-value "unsupported number" expr))
 
@@ -118,6 +121,23 @@
 
      (else
       (error 'lower-value "unknown form" expr))))
+
+
+  ;; The base of the chunks of a bignum literal: each chunk is a fixnum
+  (define chunk-base (expt 2 30))
+
+
+  ;; An integer beyond the fixnums, rebuilt by the runtime's + and * from chunk-base chunks,
+  ;; most significant first, each with n's sign: (+ (* (+ (* c2 base) c1) base) c0)
+  (define (lower-big-integer n)
+    (let loop ((m (abs n))
+               (chunks '()))
+      (if (= m 0)
+          (fold-left (lambda (acc c) `(+ (* ,acc ,chunk-base) ,c))
+                     (car chunks) (cdr chunks))
+          (loop (quotient m chunk-base)
+                (cons (if (< n 0) (- (remainder m chunk-base)) (remainder m chunk-base))
+                      chunks)))))
 
 
   ;; expr as the test of an if: and, or and not stay low's, which branch

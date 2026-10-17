@@ -309,15 +309,25 @@
          (load! ctx 'rcx b)
          (emit-asm! ctx '(cmp rax rcx))))
 
-      ((add sub mul sal sar and or)
+      ((add sub mul sal sar shr and or)
        (let ((op (if (eq? (car instr) 'mul) 'imul (car instr)))
              (dst (cadr instr))
              (a (caddr instr))
              (b (cadddr instr)))
          (load! ctx 'rax a)
          (load! ctx 'rcx b)
-         (emit-asm! ctx `(,op rax ,(if (memq op '(sal sar)) 'cl 'rcx)))
+         (emit-asm! ctx `(,op rax ,(if (memq op '(sal sar shr)) 'cl 'rcx)))
          (store! ctx dst 'rax)))
+
+      ;; The high 64 bits of the unsigned product: rdx:rax = rax * rcx
+      ((mulhu)
+       (let ((dst (cadr instr))
+             (a (caddr instr))
+             (b (cadddr instr)))
+         (load! ctx 'rax a)
+         (load! ctx 'rcx b)
+         (emit-asm! ctx '(mul rcx))
+         (store! ctx dst 'rdx)))
 
       ;; Signed, truncating toward zero
       ((div rem)
