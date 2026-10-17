@@ -46,7 +46,8 @@
 (library (asm)
   (export compile-asm)
   (import (chezscheme)
-          (utils))
+          (utils)
+          (reg-alloc))
 
 
   (define arg-regs '(rdi rsi rdx rcx r8 r9))
@@ -68,15 +69,16 @@
         0))
 
 
+  ;; saved: the registers a native pushes on entry and pops before returning
   (define-record-type asm-context
-    (fields fn native? arity ntmp nraw (mutable code) ret-counter))
+    (fields fn native? arity ntmp nraw saved (mutable code) ret-counter))
 
 
-  (define (new-asm-context x)
-    (let ((blocks (cdddr x)))
-      (make-asm-context (cadr x) (eq? (car x) 'native) (cadr (caddr x))
-                        (count-slots 'tmp blocks) (count-slots 'raw blocks)
-                        '() (make-counter))))
+  ;; x is the function, blocks its blocks after register allocation
+  (define (new-asm-context x blocks saved)
+    (make-asm-context (cadr x) (eq? (car x) 'native) (cadr (caddr x))
+                      (count-slots 'tmp blocks) (count-slots 'raw blocks) saved
+                      '() (make-counter)))
 
 
   (define (emit-asm! ctx . instrs)
@@ -105,10 +107,11 @@
 
 
   ;; The bytes of a native frame, keeping rsp 16-byte aligned at calls:
-  ;; it is 8 past a multiple of 16 on entry, the return address being pushed
+  ;; it is 8 past a multiple of 16 on entry, the return address being pushed,
+  ;; then the saved registers are pushed
   (define (native-bytes ctx)
     (let ((n (+ (asm-context-arity ctx) (asm-context-ntmp ctx) (asm-context-nraw ctx))))
-      (* 8 (if (even? n) (+ n 1) n))))
+      (* 8 (if (even? (+ n (length (asm-context-saved ctx)))) (+ n 1) n))))
 
 
   (define (load! ctx reg x)
@@ -117,6 +120,9 @@
       (emit-asm! ctx `(lea ,reg (rip ,x))))
      ((pair? x)
       (case (car x)
+        ((reg)
+         (unless (eq? reg (cadr x))
+           (emit-asm! ctx `(mov ,reg ,(cadr x)))))
         ((self tmp raw arg)
          (emit-asm! ctx `(mov ,reg ,(slot ctx x))))
         ((quad)
@@ -128,7 +134,14 @@
 
 
   (define (store! ctx x reg)
-    (emit-asm! ctx `(mov ,(slot ctx x) ,reg)))
+    (if (eq? (car x) 'reg)
+        (unless (eq? (cadr x) reg)
+          (emit-asm! ctx `(mov ,(cadr x) ,reg)))
+        (emit-asm! ctx `(mov ,(slot ctx x) ,reg))))
+
+
+  (define (register? x)
+    (and (pair? x) (eq? (car x) 'reg)))
 
 
   (define (load-args! ctx args regs)
@@ -178,11 +191,16 @@
 
   (define (instr->asm! ctx instr)
     (case (car instr)
+      ;; Directly into or from a register, else through rax
       ((mov)
        (let ((dst (cadr instr))
              (src (caddr instr)))
-         (load! ctx 'rax src)
-         (store! ctx dst 'rax)))
+         (cond
+          ((register? dst) (load! ctx (cadr dst) src))
+          ((register? src) (store! ctx dst (cadr src)))
+          (else
+           (load! ctx 'rax src)
+           (store! ctx dst 'rax)))))
 
       ((ccall)
        (let ((dst (cadr instr))
@@ -367,9 +385,9 @@
           ((asm-context-native? ctx)
            (unless (equal? src '(void))
              (load! ctx 'rax src))
-           (emit-asm! ctx
-                      `(add rsp ,(native-bytes ctx))
-                      '(ret)))
+           (emit-asm! ctx `(add rsp ,(native-bytes ctx)))
+           (for-each (lambda (r) (emit-asm! ctx `(pop ,r))) (reverse (asm-context-saved ctx)))
+           (emit-asm! ctx '(ret)))
           (else
            (load! ctx 'rax src)
            (leave! ctx)
@@ -382,18 +400,21 @@
   ;; x is (function|native name (arity n) block ...);
   ;; a block is (block n instr ...), n being its label, and falls through to the next one
   (define (function->asm x)
-    (let* ((ctx (new-asm-context x))
-           (fn (asm-context-fn ctx))
-           (arity (asm-context-arity ctx))
-           (nraw (asm-context-nraw ctx))
-           (nwords (+ 6 arity (asm-context-ntmp ctx) nraw)))
+    (let*-values (((blocks saved) (allocate-registers (cdddr x) (eq? (car x) 'native)))
+                  ((ctx) (new-asm-context x blocks (if (eq? (car x) 'native) saved '())))
+                  ((fn) (asm-context-fn ctx))
+                  ((arity) (asm-context-arity ctx))
+                  ((nraw) (asm-context-nraw ctx))
+                  ((nwords) (+ 6 arity (asm-context-ntmp ctx) nraw)))
       (when (> arity (length arg-regs))
         (error 'function->asm "too many parameters" fn))
       (emit-asm! ctx
                  '(text)
                  `(label ,fn))
       (if (asm-context-native? ctx)
-          (emit-asm! ctx `(sub rsp ,(native-bytes ctx)))
+          (begin
+            (for-each (lambda (r) (emit-asm! ctx `(push ,r))) (asm-context-saved ctx))
+            (emit-asm! ctx `(sub rsp ,(native-bytes ctx))))
           (emit-asm! ctx
                      `(mov rax ,nwords)
                      '(call "alloc_frame")
@@ -404,7 +425,7 @@
       (for-each (lambda (block)
                   (emit-asm! ctx `(label ,(label-name ctx (cadr block))))
                   (for-each (lambda (instr) (instr->asm! ctx instr)) (cddr block)))
-                (cdddr x))
+                blocks)
       (reverse (asm-context-code ctx))))
 
 

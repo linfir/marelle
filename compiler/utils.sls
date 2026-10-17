@@ -1,6 +1,6 @@
 (library (utils)
-  (export make-counter acons map-in-order adjoin non-empty-list?
-          split-last read-all mangle)
+  (export make-counter acons map-in-order for-each-idx adjoin non-empty-list?
+          split-last span span-reverse append-reverse read-all mangle)
   (import (chezscheme))
 
 
@@ -27,6 +27,14 @@
           (loop (map cdr lsts) (cons (apply f (map car lsts)) acc)))))
 
 
+  ;; Call f with the index and the elements at that index of each list,
+  ;; indices starting at i
+  (define (for-each-idx f i xs . yss)
+    (unless (null? xs)
+      (apply f i (car xs) (map car yss))
+      (apply for-each-idx f (+ i 1) (cdr xs) (map cdr yss))))
+
+
   (define (adjoin x xs)
     (if (memq x xs) xs (cons x xs)))
 
@@ -42,6 +50,29 @@
       (if (null? (cdr x))
           (values (reverse acc) (car x))
           (loop (cdr x) (cons (car x) acc)))))
+
+
+  ;; Split lst after its longest prefix of elements satisfying pred.
+  ;; Returns the prefix reversed, and the rest of lst
+  (define (span-reverse pred lst)
+    (let loop ((lst lst)
+               (acc '()))
+      (if (and (pair? lst) (pred (car lst)))
+          (loop (cdr lst) (cons (car lst) acc))
+          (values acc lst))))
+
+
+  ;; (append (reverse rev-head) tail)
+  (define (append-reverse rev-head tail)
+    (if (null? rev-head)
+        tail
+        (append-reverse (cdr rev-head) (cons (car rev-head) tail))))
+
+
+  ;; Like span-reverse, but the prefix is in order (SRFI-1 span)
+  (define (span pred lst)
+    (let-values (((rev-prefix rest) (span-reverse pred lst)))
+      (values (reverse rev-prefix) rest)))
 
 
   (define (read-all)
