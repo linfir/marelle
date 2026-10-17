@@ -28,7 +28,8 @@
           (defs)
           (gc-check)
           (output)
-          (emit))
+          (emit)
+          (copy-prop))
 
 
 ;; The def of the function being compiled, for self tail calls
@@ -1043,7 +1044,7 @@
           (begin
             (check-native (def-name def) blocks)
             (add-entries! `((native ,(def-code def) (arity ,(length params))
-                                    ,@(map lower-block blocks)))))
+                                    ,@(propagate-copies (map lower-block blocks) #t)))))
           (add-entries! (procedure-entries def blocks)))))
 
 
@@ -1202,4 +1203,4 @@
         (rodata ,proc (quad ,procedure-type) (quad ,(if (def-rest? def) (- arity) arity))
                 (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
         (function ,(def-code def) (arity ,arity)
-                  ,@(map lower-block blocks))))))
+                  ,@(propagate-copies (map lower-block blocks) #f))))))
