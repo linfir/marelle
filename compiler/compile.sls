@@ -203,6 +203,13 @@
            (if (or (null? bindings) (null? (cdr bindings)))
                `(,(marker 'let) ,bindings ,@body)
                `(,(marker 'let) (,(car bindings)) ,(loop (cdr bindings)))))))
+      ;; Naive: each variable starts as #<undef> and is assigned its init in order, so assignment
+      ;; conversion boxes the ones a lambda captures; letrec as letrec*
+      ((letrec letrec*)
+       (let-values (((bindings body) (parse-letrec expr)))
+         `(,(marker 'let) ,(map (lambda (b) (list (car b) undef)) bindings)
+           ,@(map (lambda (b) `(,(marker 'set!) ,@b)) bindings)
+           ,@body)))
       ((when unless)
        (and (not (unsafe-code?))
             (begin

@@ -1,6 +1,6 @@
 (library (parse)
   (export undef immediate? special? special-keyword marker call? define-form? validate-parameters
-          parse-lambda parse-let parse-let* named-let? parse-named-let
+          parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-begin parse-set!
           scan-defs scan-library
           make-global-def global-def-name global-def-index global-def-args global-def-body
@@ -30,7 +30,7 @@
         (eq? x undef)))
 
 
-  (define *special-forms* '(if cond and or let let* lambda begin set! when unless))
+  (define *special-forms* '(if cond and or let let* letrec letrec* lambda begin set! when unless))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them
@@ -102,6 +102,11 @@
   ;; (let* ((var init) ...) body ...) => (values bindings body)
   (define (parse-let* form)
     (parse-bindings 'parse-let* form #t))
+
+
+  ;; (letrec ((var init) ...) body ...), or letrec* => (values bindings body)
+  (define (parse-letrec form)
+    (parse-bindings 'parse-letrec form #f))
 
 
   (define (parse-bindings who form duplicates-ok?)

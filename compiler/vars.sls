@@ -87,6 +87,13 @@
          (let-values (((bindings body) (parse-let* expr)))
            (walk-let* env bindings body acc)))
 
+        ;; The variables are bound in the inits too, and each is assigned
+        ((letrec letrec*)
+         (let-values (((bindings body) (parse-letrec expr)))
+           (walk-exprs (bind-inside env (map car bindings))
+                       (append (map (lambda (b) `(,(marker 'set!) ,@b)) bindings) body)
+                       acc)))
+
         ((lambda)
          (let-values (((args body) (parse-lambda expr)))
            (let ((inner (walk-exprs (bind-inside env args) body no-vars)))
