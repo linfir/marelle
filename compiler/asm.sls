@@ -51,7 +51,7 @@
 
   (define arg-regs '(rdi rsi rdx rcx r8 r9))
   (define syscall-regs '(rdi rsi rdx r10 r8 r9))
-  ;; Never holding operands, which are in rbx, r12-r15 or slots
+  ;; Never holding operands, which are in rbx, r12-r15 or slots (see reg-alloc.sls)
   (define selfcall-regs '(rax rcx rdx rsi rdi r8 r9 r10 r11))
 
 

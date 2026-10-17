@@ -74,10 +74,19 @@
 ;;
 ;; Registers and calls
 ;; -------------------
-;; The registers (rbx, r12-r15) are callee-saved in System V, and asm never
-;; uses them as scratch registers, so a native call (ccall) and a system call
-;; preserve them: a native saves the ones it uses (see asm.sls). A Scheme call
-;; clobbers all of them: Scheme has no callee-saved registers, so that every
+;; There are two classes of registers. rbx and r12-r15 are callee-saved in
+;; System V, and asm never uses them as scratch registers, so a native call
+;; (ccall) and a system call preserve them: a native saves the ones it uses
+;; (see asm.sls). rsi, rdi and r8-r10 are caller-saved, and asm uses them only
+;; at the clobbering instructions: ccall and syscall (arguments), copy and fill
+;; (rep movsq, rep stosq) and selfcall (its operands). An interval containing
+;; one of these, past its start, only gets a callee-saved register; another
+;; prefers a caller-saved one, keeping the callee-saved ones for the former
+;; and saving natives a push and a pop. A clobbering instruction at the start
+;; is the def: asm writes the destination after clobbering.
+;;
+;; A Scheme call
+;; clobbers all registers: Scheme has no callee-saved registers, so that every
 ;; live value is in its own frame at a call, which keeps the GC and
 ;; continuations simple. An alloc may run the GC, whose only root is the
 ;; frame: a pointer kept in a register would not be moved.
@@ -106,13 +115,20 @@
 ;; as before; (reg r) is a register.
 
 (library (reg-alloc)
-  (export allocate-registers allocatable-registers)
+  (export allocate-registers)
   (import (chezscheme)
           (utils))
 
 
   ;; Callee-saved in System V, and never used by asm as scratch registers
-  (define allocatable-registers '(rbx r12 r13 r14 r15))
+  (define callee-saved-registers '(rbx r12 r13 r14 r15))
+
+
+  ;; Caller-saved, used by asm only at the clobbering instructions
+  (define caller-saved-registers '(rsi rdi r8 r9 r10))
+
+
+  (define clobbering-ops '(ccall syscall copy fill selfcall))
 
 
   (define jumps-ops '(je jne jl jle jg jge jb jbe ja jae jmp))
@@ -272,6 +288,18 @@
       (vector->list (hashtable-values table))))
 
 
+  ;; For each position, the position of the first clobbering instruction after
+  ;; it, or the number of instructions
+  (define (next-clobbers blocks)
+    (let* ((instrs (list->vector (apply append (map cddr blocks))))
+           (n (vector-length instrs))
+           (next (make-vector n n)))
+      (do ((p (- n 2) (- p 1))) ((< p 0) next)
+        (vector-set! next p (if (memq (car (vector-ref instrs (+ p 1))) clobbering-ops)
+                                (+ p 1)
+                                (vector-ref next (+ p 1)))))))
+
+
   ;; Insert iv into active, a list of intervals sorted by increasing
   ;; interval-end (ties go after): the last one is the spill candidate in sweep!
   (define (insert-by-end iv active)
@@ -283,12 +311,15 @@
 
   ;; Assign a location from locs, or 'spill, to each interval, sorted by start
   ;; (see "The scan" above). Sets interval-loc, returns nothing useful.
+  ;; (rank iv loc) is #f if iv cannot take loc, else a number, lower being
+  ;; better.
   ;;
   ;; A location is the IR operand that rewrite puts in place of the variable;
   ;; sweep! never looks inside one. allocate-registers sweeps three times:
   ;;
   ;; - over the variable intervals, with locs = ((reg r) ...), one per
-  ;;   register: each gets a (reg r) or 'spill (not a location: none was left);
+  ;;   register: each gets a (reg r) or 'spill (not a location: none it can
+  ;;   take was left, see "Registers and calls" above);
   ;; - over the spilled tmps and the saves around calls, with
   ;;   locs = ((tmp 1) ... (tmp n)), one val frame slot per interval, so
   ;;   nothing is spilled: each 'spill is overwritten with a slot (tmp k);
@@ -299,14 +330,14 @@
   ;;
   ;; 1. Intervals of active ending before iv starts are dropped, and their
   ;;    locations go back to free.
-  ;; 2. If a location is free, iv takes it and joins active.
-  ;; 3. Otherwise, if the last of active ends after iv, it is the victim:
-  ;;    iv takes its location and replaces it in active, the victim is
-  ;;    spilled.
+  ;; 2. If a free location fits iv, iv takes the best one and joins active.
+  ;; 3. Otherwise, if the last of active holding a location that fits iv ends
+  ;;    after iv, it is the victim: iv takes its location and replaces it in
+  ;;    active, the victim is spilled.
   ;; 4. Otherwise iv is spilled, and active is unchanged.
   ;;
   ;; A spilled interval never gets a location back.
-  (define (sweep! intervals locs)
+  (define (sweep! intervals locs rank)
     (let loop ((ivs intervals)
                (active '())
                (free locs))
@@ -316,20 +347,35 @@
           (let-values (((expired active)
                         (span (lambda (a) (< (interval-end a) (interval-start iv)))
                               active)))
-            (let ((free (append (map interval-loc expired) free)))
+            (let* ((free (append (map interval-loc expired) free))
+                   (loc (best-loc iv free rank)))
               (cond
-               ((pair? free)
-                (interval-loc-set! iv (car free))
-                (loop (cdr ivs) (insert-by-end iv active) (cdr free)))
-               ((and (pair? active)
-                     (> (interval-end (car (last-pair active))) (interval-end iv)))
-                (let ((victim (car (last-pair active))))
-                  (interval-loc-set! iv (interval-loc victim))
-                  (interval-loc-set! victim 'spill)
-                  (loop (cdr ivs) (insert-by-end iv (remq victim active)) free)))
+               (loc
+                (interval-loc-set! iv loc)
+                (loop (cdr ivs) (insert-by-end iv active) (if (eq? loc (car free)) (cdr free) (remq loc free))))
                (else
-                (interval-loc-set! iv 'spill)
-                (loop (cdr ivs) active free)))))))))
+                (let ((victim (find (lambda (a) (rank iv (interval-loc a))) (reverse active))))
+                  (cond
+                   ((and victim (> (interval-end victim) (interval-end iv)))
+                    (interval-loc-set! iv (interval-loc victim))
+                    (interval-loc-set! victim 'spill)
+                    (loop (cdr ivs) (insert-by-end iv (remq victim active)) free))
+                   (else
+                    (interval-loc-set! iv 'spill)
+                    (loop (cdr ivs) active free))))))))))))
+
+
+  ;; The location of free with the lowest rank for iv, the first one of rank 0,
+  ;; or #f if none fits
+  (define (best-loc iv free rank)
+    (let loop ((free free) (best #f) (best-rank #f))
+      (if (null? free)
+          best
+          (let ((r (rank iv (car free))))
+            (cond
+             ((eqv? r 0) (car free))
+             ((and r (or (not best-rank) (< r best-rank))) (loop (cdr free) (car free) r))
+             (else (loop (cdr free) best best-rank)))))))
 
 
   ;; Ties broken by variable, so the output is deterministic
@@ -391,7 +437,8 @@
   ;; The intervals of a kind of slot get the locations (kind 1) ... (kind n)
   (define (allocate-slots! intervals kind)
     (sweep! (sort-by-start intervals)
-            (map (lambda (k) (list kind (+ k 1))) (iota (length intervals)))))
+            (map (lambda (k) (list kind (+ k 1))) (iota (length intervals)))
+            (lambda (iv loc) 0)))
 
 
   ;; Replace each variable in x by its location
@@ -405,19 +452,27 @@
   ;; The blocks of a function with each (tmp n) and (raw n) replaced by a
   ;; register (reg r) or a frame slot of its kind, (tmp k) or (raw k), and the
   ;; registers saved around Scheme calls and allocs, unless native?.
-  ;; Returns the new blocks and the registers used.
+  ;; Returns the new blocks and the callee-saved registers used.
   (define (allocate-registers blocks native?)
     (let* ((starts (block-starts blocks))
            (ins (block-liveness blocks))
            (intervals (sort-by-start (var-intervals blocks starts ins)))
-           (locs (make-eqv-hashtable)))
+           (locs (make-eqv-hashtable))
+           (next (next-clobbers blocks)))
+      (define (register-rank iv loc)
+        (let ((crosses? (<= (vector-ref next (interval-start iv)) (interval-end iv))))
+          (if (memq (cadr loc) callee-saved-registers)
+              (if crosses? 0 1)
+              (and (not crosses?) 0))))
       (define (spilled kind)
         (filter (lambda (iv) (and (eq? (interval-loc iv) 'spill) (eq? (car (interval-var iv)) kind)))
                 intervals))
       (define (record-locs!)
         (for-each (lambda (iv) (hashtable-set! locs (var-index (interval-var iv)) (interval-loc iv)))
                   intervals))
-      (sweep! intervals (map (lambda (r) (list 'reg r)) allocatable-registers))
+      (sweep! intervals
+              (map (lambda (r) (list 'reg r)) (append caller-saved-registers callee-saved-registers))
+              register-rank)
       (record-locs!)
       (let ((saves (if native? (make-eqv-hashtable) (call-saves blocks starts ins locs))))
         (allocate-slots! (append (spilled 'tmp)
@@ -440,4 +495,4 @@
               blocks starts)
          (filter (lambda (r)
                    (exists (lambda (iv) (equal? (interval-loc iv) (list 'reg r))) intervals))
-                 allocatable-registers))))))
+                 callee-saved-registers))))))
