@@ -33,7 +33,7 @@ def run_stage(stage, command, **kwargs):
 
 def build_lib():
     """Makes build/lib.o and build/lib.scm, the precompiled runtime and prelude, when out of date."""
-    run_stage("lib", ["make", "-s", "-C", ROOT, "build/lib.o"])
+    run_stage("lib", ["make", "-s", "-C", ROOT, "prebuild"])
 
 
 def compile_source(source, low):

@@ -1,5 +1,7 @@
 SOURCES = runtime.ss prelude.ss run $(wildcard *.sls)
 
+prebuild: build/lib.o build/lib.scm
+
 # The precompiled runtime and prelude, linked with every program
 build/lib.o: build/lib.s
 	as -o $@ $<
@@ -9,7 +11,7 @@ build/lib.s build/lib.scm &: $(SOURCES)
 	mkdir -p build
 	scheme-script run --lib build
 
-test:
+test: prebuild
 	./tests.py
 
 test-chez:
@@ -22,4 +24,4 @@ fmt:
 clean:
 	rm -rf build
 
-.PHONY: test test-chez fmt clean
+.PHONY: prebuild test test-chez fmt clean
