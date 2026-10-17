@@ -33,8 +33,9 @@ def run_stage(stage, command, **kwargs):
 
 
 def lib_missing():
-    """The message when the precompiled runtime and prelude (make prebuild) are missing, else None."""
-    missing = [p for p in (LIB, BUILD / "lib.scm") if not p.exists()]
+    """The message when make's output is missing: the precompiled runtime and prelude, and the
+    compiled compiler libraries, else None."""
+    missing = [p for p in (LIB, BUILD / "lib.scm", BUILD / "chez") if not p.exists()]
     if missing:
         return f"missing {', '.join(str(p.relative_to(ROOT)) for p in missing)}: run make first"
     return None
@@ -42,7 +43,9 @@ def lib_missing():
 
 def compile_source(source, low):
     stage, flags = ("low", ["--low"]) if low else ("compiler", [])
-    return run_stage(stage, ["scheme-script", ROOT / "run", *flags], input=source, cwd=ROOT).stdout
+    # Chez loads the compiled compiler libraries in build/chez instead of the .sls
+    command = ["scheme", "--libdirs", ".::build/chez", "--program", ROOT / "run", *flags]
+    return run_stage(stage, command, input=source, cwd=ROOT).stdout
 
 
 def run_pipeline(source, *, env=None, low=False):

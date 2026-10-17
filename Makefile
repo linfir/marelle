@@ -1,22 +1,40 @@
+# For time in the test recipes
+SHELL = /bin/bash
+
 # A missing source is not a prerequisite, so a built library works without its sources
 SOURCES = $(wildcard runtime.ss prelude.ss run *.sls)
+CHEZ_LIBS = $(wildcard *.sls)
+CHEZ_OBJS = $(patsubst %.sls,build/chez/%.so,$(CHEZ_LIBS))
+# Chez with the compiled compiler libraries, which it loads instead of a .sls when not older
+CHEZ = scheme --libdirs .::build/chez
+
+all: chez prebuild
+
+chez: $(CHEZ_OBJS)
 
 prebuild: build/lib.o build/lib.scm
+
+# All recompiled when one changes, since a library is compiled against those it imports
+$(CHEZ_OBJS) &: $(CHEZ_LIBS)
+	rm -rf build/chez
+	mkdir -p build/chez
+	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (compile) (low-compile) (asm))\n' | \
+	  $(CHEZ) -q --compile-imported-libraries
 
 # The precompiled runtime and prelude, linked with every program
 build/lib.o: build/lib.s
 	as -o $@ $<
 
 # One recipe writes both
-build/lib.s build/lib.scm &: $(SOURCES)
+build/lib.s build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
 	mkdir -p build
-	scheme-script run --lib build
+	$(CHEZ) --program run --lib build
 
-test: prebuild
-	./tests.py
+test: all
+	time ./tests.py
 
 test-chez:
-	./tests.py --chez
+	time ./tests.py --chez
 
 fmt:
 	black --line-length 120 *.py
@@ -25,4 +43,4 @@ fmt:
 clean:
 	rm -rf build
 
-.PHONY: prebuild test test-chez fmt clean
+.PHONY: all chez prebuild test test-chez fmt clean
