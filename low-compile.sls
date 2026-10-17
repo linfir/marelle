@@ -195,12 +195,22 @@
         ((when unless)
          (unless (>= (length expr) 3)
            (error 'compile-value "invalid when or unless" expr))
-         ;; The body for effect, so it may have any kind
+         ;; The body's value when it is a val, else undef, so the body may have any kind
          (let ((label-skip (fresh-label)))
            (compile-branch env (cadr expr) (eq? (car expr) 'unless) label-skip)
-           (for-each (lambda (x) (compile-value env x)) (cddr expr))
-           (start-block! label-skip)
-           (immediate 'undef)))
+           (let ((op (compile-seq env (cddr expr) compile-value)))
+             (if (eq? (kind op) 'val)
+                 (let ((dst (fresh-tmp 'val))
+                       (label-end (fresh-label)))
+                   (emit! `(mov ,dst ,op))
+                   (emit! `(jmp ,label-end))
+                   (start-block! label-skip)
+                   (emit! `(mov ,dst ,(immediate 'undef)))
+                   (start-block! label-end)
+                   dst)
+                 (begin
+                   (start-block! label-skip)
+                   (immediate 'undef))))))
 
         ((and or not)
          (compile-value env `(if ,expr #t #f)))

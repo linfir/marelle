@@ -164,7 +164,8 @@
       (and entry (cdr entry))))
 
 
-  ;; Low's when and unless give undef and allow a void body, so only the library uses them
+  ;; The body's value, or undef when skipped; in the library, low's when, whose body may be void,
+  ;; elsewhere an if, whose body is in tail position
   (define (lower-when prog env expr)
     (unless (>= (length expr) 3)
       (error 'lower-when "invalid when or unless" expr))
@@ -273,10 +274,8 @@
                          body lower-last)))))
 
 
-  ;; A named let of the library: a low loop, so a call to its name must be in exit position
+  ;; A named let is a low loop, so a call to its name must be in exit position
   (define (lower-named-let prog env expr lower-last)
-    (unless (library-code?)
-      (error 'lower-named-let "named let is only supported in the library" expr))
     (let-values (((name bindings body) (parse-named-let expr)))
       (let* ((vars (map car bindings))
              (free (free-vars (bind-scope env (cons name vars)) body))
@@ -336,7 +335,12 @@
   (define (lift-procedure! prog env def-name name args body)
     (let* ((captures (check-captures (map (lambda (var) (assq var env))
                                           (reverse (captured-vars env args body)))))
-           (outer-env (filter (lambda (b) (not (local-binding? (cdr b)))) env))
+           ;; A named let of the enclosing body cannot be called from the lambda
+           (outer-env (map (lambda (b)
+                             (if (loop-binding? (cdr b))
+                                 (cons (car b) (make-loop-binding #f (loop-binding-arity (cdr b))))
+                                 b))
+                           (filter (lambda (b) (not (local-binding? (cdr b)))) env)))
            (capture-names (map-in-order (lambda (c) (fresh-name prog (car c))) captures))
            (inner-env (append (map (lambda (c name) (cons (car c) (capture-binding name (cdr c))))
                                    captures capture-names)
@@ -408,6 +412,8 @@
               (check-arity (primitive-binding-arity b))
               (cons (procedure-binding-proc b) args))
              ((loop-binding? b)
+              (unless (loop-binding-operand b)
+                (error 'lower-call "named let called from a lambda" form))
               (check-arity (loop-binding-arity b))
               (cons (loop-binding-operand b) args))
              (else
