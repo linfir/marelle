@@ -2,11 +2,24 @@
 ;; low does the rest (tmps, labels, tail calls, assigned locals)
 
 (library (compile)
-  (export compile-scheme)
+  (export compile-scheme compile-runtime)
   (import (chezscheme)
           (utils)
+          (only (low-parse) binary-ops tests keywords)
           (compile-parse)
           (compile-vars))
+
+
+  ;; True while lowering runtime.ss, which may use strings, named lets and low operations
+  (define runtime-code? (make-parameter #f))
+
+
+  ;; The low operations runtime.ss may call
+  (define low-ops
+    (append (map car binary-ops)
+            (map car tests)
+            '(raw as-raw as-val syscall load store load8 store8 copy-words fill-words
+                  alloc self address)))
 
 
   ;; A captured local is either boxed or never assigned
@@ -25,18 +38,6 @@
      (lambda (new)
        (lambda ()
          (new (make-counter) '() (make-eq-hashtable))))))
-
-
-  ;; (scheme-name low-name arity)
-  (define low-primitives
-    '((eq? eq? 2)
-      (+ + 2) (- - 2) (* * 2)
-      (= = 2) (< < 2) (<= <= 2) (> > 2) (>= >= 2)
-      (null? null? 1) (pair? pair? 1)
-      (cons cons 2) (car car 1) (cdr cdr 1)
-      (not scm-not 1)
-      (char? char? 1) (char->integer char->integer 1) (integer->char integer->char 1)
-      (char=? char=? 2) (char<? char<? 2) (char>? char>? 2) (char<=? char<=? 2) (char>=? char>=? 2)))
 
 
   ;; Every local and def gets a name x.N, unique in the program
@@ -67,6 +68,9 @@
      ((number? expr)
       (error 'lower-value "unsupported number" expr))
 
+     ((and (string? expr) (runtime-code?))
+      expr)
+
      ((special? env expr)
       (case (car expr)
         ((if)
@@ -90,7 +94,10 @@
 
         ((set!)
          (let-values (((var value) (parse-set! expr)))
-           (lower-set! prog env var value)))))
+           (lower-set! prog env var value)))
+
+        ((when unless)
+         (lower-when prog env expr))))
 
      ((call? env expr)
       (lower-call prog env expr))
@@ -101,6 +108,9 @@
          ((global-binding? b) `(global-ref (raw ,(global-binding-index b))))
          ((box-binding? b) `(box-ref ,(local-binding-operand b)))
          ((local-binding? b) (local-binding-operand b))
+         ((constant-binding? b) (constant-binding-operand b))
+         ((or (low-op-binding? b) (loop-binding? b))
+          (error 'lower-value "low operation or named let used as a value" expr))
          (else (procedure-binding-proc b)))))
 
      (else
@@ -118,23 +128,29 @@
 
      ((and (call? env expr)
            (= (length expr) 2)
-           (primitive-named? env (car expr) 'scm-not))
+           (eq? (car expr) 'not)
+           (primitive-binding? (operator-binding env 'not)))
       `(not ,(lower-test prog env (cadr expr))))
 
      (else
       (lower-value prog env expr))))
 
 
-  (define (primitive-of env x)
+  (define (operator-binding env x)
     (let ((entry (and (symbol? x) (assq x env))))
-      (and entry
-           (primitive-binding? (cdr entry))
-           (cdr entry))))
+      (and entry (cdr entry))))
 
 
-  (define (primitive-named? env x low-name)
-    (let ((p (primitive-of env x)))
-      (and p (eq? (procedure-binding-proc p) low-name))))
+  ;; Low's when and unless give undef and allow a void body, so only runtime.ss uses them
+  (define (lower-when prog env expr)
+    (unless (>= (length expr) 3)
+      (error 'lower-when "invalid when or unless" expr))
+    (let ((test (lower-test prog env (cadr expr)))
+          (body (map-in-order (lambda (x) (lower-value prog env x)) (cddr expr))))
+      (cond
+       ((runtime-code?) `(,(car expr) ,test ,@body))
+       ((eq? (car expr) 'when) `(if ,test (begin ,@body) undef))
+       (else `(if ,test undef (begin ,@body))))))
 
 
   ;; The value of the deciding operand
@@ -161,14 +177,9 @@
   (define (lower-scope prog env expr lower-last)
     (case (car expr)
       ((let)
-       (let-values (((bindings body) (parse-let expr)))
-         (let* ((vars (free-vars (bind-scope env (map car bindings)) body))
-                (locals (map-in-order (lambda (b) (lower-local prog env (car b) (cadr b) vars))
-                                      bindings)))
-           `(let ,(map car locals)
-              ,@(lower-body prog
-                            (append (map cdr locals) env)
-                            body lower-last)))))
+       (if (named-let? expr)
+           (lower-named-let prog env expr lower-last)
+           (lower-let prog env expr lower-last)))
 
       ((let*)
        (let-values (((bindings body) (parse-let* expr)))
@@ -184,6 +195,38 @@
 
       ((begin)
        `(begin ,@(lower-body prog env (parse-begin expr) lower-last)))))
+
+
+  (define (lower-let prog env expr lower-last)
+    (let-values (((bindings body) (parse-let expr)))
+      (let* ((vars (free-vars (bind-scope env (map car bindings)) body))
+             (locals (map-in-order (lambda (b) (lower-local prog env (car b) (cadr b) vars))
+                                   bindings)))
+        `(let ,(map car locals)
+           ,@(lower-body prog
+                         (append (map cdr locals) env)
+                         body lower-last)))))
+
+
+  ;; A named let of runtime.ss: a low loop, so a call to its name must be in exit position
+  (define (lower-named-let prog env expr lower-last)
+    (unless (runtime-code?)
+      (error 'lower-named-let "named let is only supported in runtime.ss" expr))
+    (let-values (((name bindings body) (parse-named-let expr)))
+      (let* ((vars (map car bindings))
+             (free (free-vars (bind-scope env (cons name vars)) body))
+             (inits (map-in-order (lambda (b) (lower-value prog env (cadr b))) bindings))
+             (loop (fresh-name prog name))
+             (names (map-in-order (lambda (v) (fresh-name prog v)) vars)))
+        (for-each (lambda (v)
+                    (when (boxed? v free)
+                      (error 'lower-named-let "assigned and captured loop variable" v)))
+                  vars)
+        `(let ,loop ,(map list names inits)
+           ,@(lower-body prog
+                         (append (map (lambda (v n) (cons v (make-local-binding n))) vars names)
+                                 (acons name (make-loop-binding loop (length vars)) env))
+                         body lower-last)))))
 
 
   ;; A let variable var bound to init: ((name init) . (var . binding))
@@ -217,9 +260,17 @@
       (lift-procedure! prog env def-name name args body)))
 
 
+  (define (check-captures captures)
+    (for-each (lambda (c)
+                (when (raw-binding? (cdr c))
+                  (error 'check-captures "captured raw variable" (car c))))
+              captures)
+    captures)
+
+
   (define (lift-procedure! prog env def-name name args body)
-    (let* ((captures (map (lambda (var) (assq var env))
-                          (reverse (captured-vars env args body))))
+    (let* ((captures (check-captures (map (lambda (var) (assq var env))
+                                          (reverse (captured-vars env args body)))))
            (outer-env (filter (lambda (b) (not (local-binding? (cdr b)))) env))
            (capture-names (map-in-order (lambda (c) (fresh-name prog (car c))) captures))
            (inner-env (append (map (lambda (c name) (cons (car c) (capture-binding name (cdr c))))
@@ -276,15 +327,26 @@
         (error 'lower-set! "set! of a prelude procedure or primitive" var)))))
 
 
+  ;; A primitive, low operation or named let is called by name, (raw n) is kept as is
   (define (lower-call prog env form)
-    (let ((p (primitive-of env (car form)))
-          (args (map-in-order (lambda (x) (lower-value prog env x)) (cdr form))))
-      (if p
-          (begin
-            (unless (= (length args) (primitive-binding-arity p))
-              (error 'lower-call "wrong number of arguments" form))
-            (cons (procedure-binding-proc p) args))
-          (lower-apply prog (lower-value prog env (car form)) args))))
+    (let ((b (operator-binding env (car form))))
+      (if (and (low-op-binding? b) (eq? (low-op-binding-name b) 'raw))
+          form
+          (let ((args (map-in-order (lambda (x) (lower-value prog env x)) (cdr form))))
+            (define (check-arity n)
+              (unless (= (length args) n)
+                (error 'lower-call "wrong number of arguments" form)))
+            (cond
+             ((low-op-binding? b)
+              (cons (low-op-binding-name b) args))
+             ((primitive-binding? b)
+              (check-arity (primitive-binding-arity b))
+              (cons (procedure-binding-proc b) args))
+             ((loop-binding? b)
+              (check-arity (loop-binding-arity b))
+              (cons (loop-binding-operand b) args))
+             (else
+              (lower-apply prog (lower-value prog env (car form)) args)))))))
 
 
   ;; A def of the right arity is called directly, any other procedure value indirectly
@@ -296,17 +358,81 @@
           (cons op args))))
 
 
-  ;; The low defs of the prelude and the program, after (globals n)
-  (define (program->low prelude program)
+  (define (runtime-item-name x)
+    (if (runtime-def? x) (runtime-def-name x) (runtime-data-name x)))
+
+
+  ;; Runtime names stay, for the stubs and the frontend output, unless low reserves them
+  (define (runtime-low-name prog x)
+    (if (memq x keywords) (fresh-name prog x) x))
+
+
+  (define (result->low k)
+    (case k
+      ((val raw) (list k))
+      ((void) '())
+      ((never) '!)))
+
+
+  ;; Lowers the defs and data of runtime.ss, returns the env of its public defs
+  (define (lower-runtime! prog runtime)
+    (let* ((items (scan-runtime runtime))
+           (names (map-in-order (lambda (x) (runtime-low-name prog (runtime-item-name x))) items))
+           (bindings (map (lambda (x name)
+                            (cons (runtime-item-name x)
+                                  (if (runtime-def? x)
+                                      (make-primitive-binding name (length (runtime-def-args x)))
+                                      (make-constant-binding name))))
+                          items names))
+           (env (append bindings
+                        (map (lambda (op) (cons op (make-low-op-binding op))) low-ops)
+                        (list (cons 'undef (make-constant-binding 'undef))))))
+      (parameterize ((runtime-code? #t))
+        (for-each (lambda (x name)
+                    (if (runtime-def? x)
+                        (lower-runtime-def! prog env x name)
+                        (add-def! prog `(data ,name ,(runtime-data-nwords x)
+                                              ,(runtime-data-attrs x)))))
+                  items names))
+      (fold-right (lambda (x b acc)
+                    (if (and (runtime-def? x) (memq ':public (runtime-def-attrs x)))
+                        (cons b acc)
+                        acc))
+                  '() items bindings)))
+
+
+  (define (lower-runtime-def! prog env d name)
+    (let* ((args (runtime-def-args d))
+           (params (map-in-order (lambda (x) (fresh-name prog x)) args))
+           (body (runtime-def-body d))
+           (vars (free-vars (bind-scope env args) body))
+           (body-env (append (map (lambda (x p k)
+                                    (when (boxed? x vars)
+                                      (error 'lower-runtime-def!
+                                             "assigned and captured parameter" x))
+                                    (cons x (if (eq? k 'raw)
+                                                (make-raw-binding p)
+                                                (make-local-binding p))))
+                                  args params (runtime-def-kinds d))
+                             env))
+           (attrs (if (eq? name (runtime-def-name d))
+                      (runtime-def-attrs d)
+                      `(,@(runtime-def-attrs d) (:as ,(runtime-def-name d))))))
+      (add-def! prog `(def ,name ,(map list (runtime-def-kinds d) params)
+                           -> ,(result->low (runtime-def-result d)) ,attrs
+                           ,@(lower-body prog body-env body lower-value)))))
+
+
+  ;; The low defs and data of runtime.ss, the prelude and the program, after (globals n)
+  (define (program->low runtime prelude program)
     (when (null? program)
       (error 'program->low "empty program"))
     (let* ((prog (make-low-program))
+           (public (lower-runtime! prog runtime))
            (prelude-defs (scan-prelude prelude))
            (prelude-names (map-in-order (lambda (d) (fresh-name prog (prelude-def-name d)))
                                         prelude-defs))
-           (env (append (map (lambda (p)
-                               (cons (car p) (make-primitive-binding (cadr p) (caddr p))))
-                             low-primitives)
+           (env (append public
                         (map (lambda (d name)
                                (cons (prelude-def-name d) (make-procedure-binding name)))
                              prelude-defs prelude-names))))
@@ -343,6 +469,14 @@
         (lower-named prog env (global-def-name g) (car (global-def-body g)))))
 
 
-  (define (compile-scheme prelude program)
+  (define (compile-scheme runtime prelude program)
     (parameterize ((print-brackets #f))
-      (for-each pretty-print (program->low prelude program)))))
+      (for-each pretty-print (program->low runtime prelude program))))
+
+
+  ;; The low defs and data of runtime.ss alone, for low programs
+  (define (compile-runtime runtime)
+    (let ((prog (make-low-program)))
+      (lower-runtime! prog runtime)
+      (parameterize ((print-brackets #f))
+        (for-each pretty-print (reverse (low-program-defs prog)))))))

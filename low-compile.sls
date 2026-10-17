@@ -29,7 +29,7 @@
           (low-emit))
 
 
-  ;; Header of procedure objects, procedure-type in prelude.low
+  ;; Header of procedure objects, procedure-type in runtime.ss
   (define procedure-type (* 42 8))
 
 
@@ -636,6 +636,23 @@
            (let ((ops (compile-operands env test '(raw raw))))
              (emit! `(cmp ,@ops))
              (emit! `(,(if jump-if (cadr entry) (caddr entry)) ,label)))))
+
+     ((boolean? test)
+      (when (eq? test jump-if)
+        (emit! `(jmp ,label))
+        (start-block! (fresh-label))))
+
+     ((and (pair? test) (eq? (car test) 'if))
+      (unless (= (length test) 4)
+        (error 'compile-branch "invalid if" test))
+      (let ((label-else (fresh-label))
+            (label-end (fresh-label)))
+        (compile-branch env (cadr test) #f label-else)
+        (compile-branch env (caddr test) jump-if label)
+        (emit! `(jmp ,label-end))
+        (start-block! label-else)
+        (compile-branch env (cadddr test) jump-if label)
+        (start-block! label-end)))
 
      ((and (pair? test) (eq? (car test) 'let) (not (named-let? test)))
       (compile-let env test (lambda (env x) (compile-branch env x jump-if label))))

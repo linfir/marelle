@@ -7,4 +7,6 @@
         (compile))
 
 
-(compile-scheme (with-input-from-file "prelude.ss" read-all) (read-all))
+(compile-scheme (with-input-from-file "runtime.ss" read-all)
+                (with-input-from-file "prelude.ss" read-all)
+                (read-all))

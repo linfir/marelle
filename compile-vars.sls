@@ -1,9 +1,12 @@
 (library (compile-vars)
   (export make-global-binding global-binding? global-binding-index
           make-local-binding local-binding? local-binding-operand
-          make-box-binding box-binding?
+          make-box-binding box-binding? make-raw-binding raw-binding?
           make-procedure-binding procedure-binding-proc
           make-primitive-binding primitive-binding? primitive-binding-arity
+          make-low-op-binding low-op-binding? low-op-binding-name
+          make-constant-binding constant-binding? constant-binding-operand
+          make-loop-binding loop-binding? loop-binding-operand loop-binding-arity
           no-vars free-vars walk-let* bind-scope captured-vars boxed?)
   (import (chezscheme)
           (utils)
@@ -22,6 +25,11 @@
     (parent local-binding))
 
 
+  ;; A local holding a raw word, in runtime.ss
+  (define-record-type raw-binding
+    (parent local-binding))
+
+
   (define-record-type bound-binding)
 
 
@@ -32,6 +40,21 @@
   (define-record-type primitive-binding
     (parent procedure-binding)
     (fields arity))
+
+
+  ;; In runtime.ss: a low operation such as raw+ or load, only called
+  (define-record-type low-op-binding
+    (fields name))
+
+
+  ;; In runtime.ss: undef or a data name, a low operand
+  (define-record-type constant-binding
+    (fields operand))
+
+
+  ;; In runtime.ss: the name of a named let, a low loop, only called
+  (define-record-type loop-binding
+    (fields operand arity))
 
 
   ;; Free variables of exprs, not bound to a bound-binding in env:
@@ -59,8 +82,13 @@
      ((special? env expr)
       (case (car expr)
         ((let)
-         (let-values (((bindings body) (parse-let expr)))
-           (walk-let env bindings body acc)))
+         (if (named-let? expr)
+             (let-values (((name bindings body) (parse-named-let expr)))
+               (walk-exprs (bind-inside env (cons name (map car bindings)))
+                           body
+                           (walk-exprs env (map cadr bindings) acc)))
+             (let-values (((bindings body) (parse-let expr)))
+               (walk-let env bindings body acc))))
 
         ((let*)
          (let-values (((bindings body) (parse-let* expr)))
