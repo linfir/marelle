@@ -2,11 +2,10 @@
   (= n 0))
 
 (define (fibo n)
-  (if (= n 0)
-      0
-      (if (= n 1)
-          1
-          (+ (fibo (- n 1)) (fibo (- n 2))))))
+  (cond
+   ((= n 0) 0)
+   ((= n 1) 1)
+   (else (+ (fibo (- n 1)) (fibo (- n 2))))))
 
 (define (fold-left f acc l)
   (if (null? l)

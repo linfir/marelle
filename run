@@ -32,7 +32,7 @@
                     (lambda ()
                       (set! interface
                             (compile-scheme-library (with-input-from-file "runtime.ss" read-all)
-                                             (with-input-from-file "prelude.ss" read-all))))))
+                                                    (with-input-from-file "prelude.ss" read-all))))))
              (ir (stage (lambda (forms) (compile-low forms #t)) low)))
         (write-file (string-append (cadr args) "/lib.scm")
                     (with-output-to-string (lambda () (print-low interface))))

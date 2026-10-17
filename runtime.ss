@@ -126,11 +126,11 @@
 ;; Writes the UTF-8 encoding of the code point n
 (define (put-utf8 (raw fd) (raw n))
   (declare native (result void))
-  (let ((nbytes (if (raw<u n (raw 128))
-                    (raw 1)
-                    (if (raw<u n (raw 2048))
-                        (raw 2)
-                        (if (raw<u n (raw 65536)) (raw 3) (raw 4))))))
+  (let ((nbytes (cond
+                 ((raw<u n (raw 128)) (raw 1))
+                 ((raw<u n (raw 2048)) (raw 2))
+                 ((raw<u n (raw 65536)) (raw 3))
+                 (else (raw 4)))))
     (let byte-next ((m n)
                     (i (raw- nbytes (raw 1))))
       (if (raw= i (raw 0))
@@ -147,24 +147,19 @@
 ;; Prints x to the file descriptor out
 (define (display (raw out) x)
   (declare native (result void))
-  (if (fixnum? x)
-      (put-int out (raw>> (as-raw x) (raw 3)))
-      (if (tag=? x (raw 2))
-          (if (char? x)
-              (display-char out x)
-              (put-string out
-                          (if (eq? x #f)
-                              "#f"
-                              (if (eq? x #t)
-                                  "#t"
-                                  (if (null? x)
-                                      "()"
-                                      (if (eq? x undef) "#<undef>" "#<err>"))))))
-          (if (pair? x)
-              (display-pair out x)
-              (if (tag=? x (raw 0))
-                  (display-pointer out x)
-                  (put-string out "#<err>"))))))
+  (cond
+   ((fixnum? x) (put-int out (raw>> (as-raw x) (raw 3))))
+   ((char? x) (display-char out x))
+   ((tag=? x (raw 2))
+    (put-string out (cond
+                     ((eq? x #f) "#f")
+                     ((eq? x #t) "#t")
+                     ((null? x) "()")
+                     ((eq? x undef) "#<undef>")
+                     (else "#<err>"))))
+   ((pair? x) (display-pair out x))
+   ((tag=? x (raw 0)) (display-pointer out x))
+   (else (put-string out "#<err>"))))
 
 ;; The name of the character n, or 0
 (define (char-name (raw n))
@@ -190,13 +185,12 @@
   (let* ((n (raw>> (as-raw c) (raw 8)))
          (name (char-name n)))
     (put-string out "#\\")
-    (if (not (raw= name (raw 0)))
-        (put-string out name)
-        (if (or (raw< n (raw 32)) (raw= n (raw 133)) (raw= n (raw 8232)))
-            (begin
-              (put-string out "x")
-              (put-digits out n (raw 16)))
-            (put-utf8 out n)))))
+    (cond
+     ((not (raw= name (raw 0))) (put-string out name))
+     ((or (raw< n (raw 32)) (raw= n (raw 133)) (raw= n (raw 8232)))
+      (put-string out "x")
+      (put-digits out n (raw 16)))
+     (else (put-utf8 out n)))))
 
 (define (display-pair (raw out) x)
   (declare native (result void))
@@ -216,17 +210,17 @@
 
 (define (display-pointer (raw out) x)
   (declare native (result void))
-  (if (raw= (as-raw x) (raw 0))
-      (put-string out "#<null>")
-      (if (raw= (load (as-raw x) (raw 0)) (procedure-type))
-          (let ((name (load (as-raw x) (raw 3))))
-            (if (raw= name (raw 0))
-                (put-string out "#<procedure>")
-                (begin
-                  (put-string out "#<procedure ")
-                  (put-string out name)
-                  (put-string out ">"))))
-          (put-string out "#<unknown ptr>"))))
+  (cond
+   ((raw= (as-raw x) (raw 0)) (put-string out "#<null>"))
+   ((raw= (load (as-raw x) (raw 0)) (procedure-type))
+    (let ((name (load (as-raw x) (raw 3))))
+      (if (raw= name (raw 0))
+          (put-string out "#<procedure>")
+          (begin
+            (put-string out "#<procedure ")
+            (put-string out name)
+            (put-string out ">")))))
+   (else (put-string out "#<unknown ptr>"))))
 
 ;; Prints the statistics on stderr when SCHEME_GC_STATS is set, then exits
 (define (exit-process (raw status))
@@ -259,13 +253,13 @@
 (define (env-value (raw entry) (raw name))
   (declare native (result raw))
   (let compare-next ((i (raw 0)))
-    (if (raw= (load8 name i) (raw 0))
-        (if (raw= (load8 entry i) (raw 61)) ; =
-            (raw+ entry (raw+ i (raw 1)))
-            (raw 0))
-        (if (raw= (load8 entry i) (load8 name i))
-            (compare-next (raw+ i (raw 1)))
-            (raw 0)))))
+    (cond
+     ((raw= (load8 name i) (raw 0))
+      (if (raw= (load8 entry i) (raw 61)) ; =
+          (raw+ entry (raw+ i (raw 1)))
+          (raw 0)))
+     ((raw= (load8 entry i) (load8 name i)) (compare-next (raw+ i (raw 1))))
+     (else (raw 0)))))
 
 ;; The value of the environment variable name, or 0 if unset
 (define (getenv (raw name))
@@ -285,13 +279,13 @@
   (let digit-next ((i (raw 0))
                    (n (raw 0)))
     (let ((d (raw- (load8 s i) (raw 48))))
-      (if (raw= (load8 s i) (raw 0))
-          n
-          (if (or (raw>u d (raw 9))
-                  (raw>u n (raw 1844674407370955161)) ; (2^64 - 1) / 10
-                  (and (raw= n (raw 1844674407370955161)) (raw>u d (raw 5))))
-              (raw 0)
-              (digit-next (raw+ i (raw 1)) (raw+ (raw* n (raw 10)) d)))))))
+      (cond
+       ((raw= (load8 s i) (raw 0)) n)
+       ((or (raw>u d (raw 9))
+            (raw>u n (raw 1844674407370955161)) ; (2^64 - 1) / 10
+            (and (raw= n (raw 1844674407370955161)) (raw>u d (raw 5))))
+        (raw 0))
+       (else (digit-next (raw+ i (raw 1)) (raw+ (raw* n (raw 10)) d)))))))
 
 ;; The positive integer in the environment variable name, or default if unset;
 ;; exits if it is not a positive decimal integer up to max
@@ -336,11 +330,10 @@
 
 (define (object-words (raw p))
   (declare native (result raw))
-  (if (raw= (load p (raw 0)) (frame-type))
-      (load p (raw 1))
-      (if (raw= (load p (raw 0)) (procedure-type))
-          (raw+ (load p (raw 4)) (raw 5))
-          (raw 2)))) ; pair or box
+  (cond
+   ((raw= (load p (raw 0)) (frame-type)) (load p (raw 1)))
+   ((raw= (load p (raw 0)) (procedure-type)) (raw+ (load p (raw 4)) (raw 5)))
+   (else (raw 2)))) ; pair or box
 
 ;; The new address of the object x points to, copied to gc-free if it is in the
 ;; current space; a moved object holds forward-type and its new address
@@ -351,22 +344,24 @@
         x
         (let ((p (bit-and x (raw -8)))
               (mem (load scheme-mem (raw 0))))
-          (if (or (raw<u p mem)
-                  (raw>=u p (raw+ mem (raw<< (load scheme-len (raw 0)) (raw 3)))))
-              x ; null or static procedure
-              (if (raw= (load p (raw 0)) (forward-type))
-                  (bit-or (load p (raw 1)) t)
-                  (let ((new (load gc-free (raw 0)))
-                        (n (if (raw= t (raw 3)) (raw 2) (object-words p))))
-                    (if (raw= t (raw 3))
-                        (begin
-                          (store new (raw 0) (load p (raw 0)))
-                          (store new (raw 1) (load p (raw 1))))
-                        (copy-words new p n))
-                    (store gc-free (raw 0) (raw+ new (raw<< n (raw 3))))
-                    (store p (raw 0) (forward-type))
-                    (store p (raw 1) new)
-                    (bit-or new t))))))))
+          (cond
+           ((or (raw<u p mem)
+                (raw>=u p (raw+ mem (raw<< (load scheme-len (raw 0)) (raw 3)))))
+            x) ; null or static procedure
+           ((raw= (load p (raw 0)) (forward-type))
+            (bit-or (load p (raw 1)) t))
+           (else
+            (let ((new (load gc-free (raw 0)))
+                  (n (if (raw= t (raw 3)) (raw 2) (object-words p))))
+              (if (raw= t (raw 3))
+                  (begin
+                    (store new (raw 0) (load p (raw 0)))
+                    (store new (raw 1) (load p (raw 1))))
+                  (copy-words new p n))
+              (store gc-free (raw 0) (raw+ new (raw<< n (raw 3))))
+              (store p (raw 0) (forward-type))
+              (store p (raw 1) new)
+              (bit-or new t))))))))
 
 (define (forward-words (raw p) (raw n))
   (declare native (result void))
@@ -384,11 +379,11 @@
   (let* ((n (object-words p))
          (header (load p (raw 0)))
          (frame? (raw= header (frame-type)))
-         (start (if frame?
-                    (raw 4)
-                    (if (raw= header (procedure-type))
-                        (raw 5)
-                        (if (raw= header (box-type)) (raw 1) (raw 0))))))
+         (start (cond
+                 (frame? (raw 4))
+                 ((raw= header (procedure-type)) (raw 5))
+                 ((raw= header (box-type)) (raw 1))
+                 (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))
                    (raw- (if frame? (raw- n (load p (raw 2))) n) start))
     n))
