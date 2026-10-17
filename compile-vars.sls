@@ -1,60 +1,53 @@
 (library (compile-vars)
   (export make-global-binding global-binding? global-binding-index
-          make-local-binding local-binding? local-binding-operand
-          make-box-binding box-binding? make-raw-binding raw-binding?
-          make-procedure-binding procedure-binding-proc
-          make-primitive-binding primitive-binding? primitive-binding-arity
+          make-local-binding local-binding? local-binding-operand local-binding-box?
+          make-def-binding def-binding? def-binding-def
+          make-data-binding data-binding? data-binding-data
           make-low-op-binding low-op-binding? low-op-binding-name
           make-constant-binding constant-binding? constant-binding-operand
-          make-loop-binding loop-binding? loop-binding-operand loop-binding-arity
-          no-vars free-vars walk-let* bind-scope captured-vars boxed?)
+          make-loop-binding loop-binding? loop-binding-label loop-binding-slots loop-binding-state
+          no-vars free-vars walk-let* bind-scope captured-vars boxed? assigned?)
   (import (chezscheme)
           (utils)
           (compile-parse))
 
 
+  ;; A program define: its cell in scheme_globals
   (define-record-type global-binding
     (fields index))
 
 
+  ;; operand: the local's operand, or (mutable slot) when it is assigned;
+  ;; box?: the operand holds a box, for a local both assigned and captured
   (define-record-type local-binding
-    (fields operand))
-
-
-  (define-record-type box-binding
-    (parent local-binding))
-
-
-  ;; A local holding a raw word, in the library
-  (define-record-type raw-binding
-    (parent local-binding))
+    (fields operand box?))
 
 
   (define-record-type bound-binding)
 
 
-  (define-record-type procedure-binding
-    (fields proc))
+  (define-record-type def-binding
+    (fields def))
 
 
-  (define-record-type primitive-binding
-    (parent procedure-binding)
-    (fields arity))
+  (define-record-type data-binding
+    (fields data))
 
 
-  ;; In the library: a low operation such as raw+ or load, only called
+  ;; In an unsafe define: a low operation such as raw+ or load, only called
   (define-record-type low-op-binding
     (fields name))
 
 
-  ;; In the library: undef or a data name, a low operand
+  ;; In an unsafe define: undef
   (define-record-type constant-binding
     (fields operand))
 
 
-  ;; In the library: the name of a named let, a low loop, only called
+  ;; The name of a named let, only called in exit position: state is here, outer (a named let
+  ;; used as a value inside it) or lambda (a lambda inside it)
   (define-record-type loop-binding
-    (fields operand arity))
+    (fields label slots state))
 
 
   ;; Free variables of exprs, not bound to a bound-binding in env:
@@ -80,7 +73,7 @@
       (add-free-var env expr acc #f))
 
      ((special? env expr)
-      (case (car expr)
+      (case (special-keyword env expr)
         ((let)
          (if (named-let? expr)
              (let-values (((name bindings body) (parse-named-let expr)))
@@ -157,6 +150,10 @@
               (let ((x (assq var env)))
                 (and x (local-binding? (cdr x)))))
             (var-sets-refs (free-vars (bind-inside env args) body))))
+
+
+  (define (assigned? var vars)
+    (and (memq var (var-sets-sets vars)) #t))
 
 
   (define (boxed? var vars)

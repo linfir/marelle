@@ -18,7 +18,7 @@ prebuild: build/lib.o build/lib.scm
 $(CHEZ_OBJS) &: $(CHEZ_LIBS)
 	rm -rf build/chez
 	mkdir -p build/chez
-	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (compile) (low-compile) (asm))\n' | \
+	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (compile) (asm))\n' | \
 	  $(CHEZ) -q --compile-imported-libraries
 
 # The precompiled library, linked with every program

@@ -1,5 +1,5 @@
 (library (compile-parse)
-  (export undef immediate? special? call? define-form?
+  (export undef immediate? special? special-keyword marker call? define-form? validate-parameters
           parse-lambda parse-let parse-let* named-let? parse-named-let
           parse-if parse-cond parse-begin parse-set!
           scan-defs scan-library
@@ -33,12 +33,30 @@
   (define *special-forms* '(if cond and or let let* lambda begin set! when unless))
 
 
-  (define (special? env expr)
+  ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them
+  (define markers
+    (map (lambda (k) (cons (gensym (symbol->string k)) k)) '(if let begin set! lambda)))
+
+
+  (define (marker keyword)
+    (car (find (lambda (m) (eq? (cdr m) keyword)) markers)))
+
+
+  ;; The special form expr is, by its keyword, or #f
+  (define (special-keyword env expr)
     (and (non-empty-list? expr)
          (let ((x (car expr)))
-           (and (symbol? x)
-                (memq x *special-forms*)
-                (not (assq x env))))))
+           (cond
+            ((assq x markers) => cdr)
+            ((and (symbol? x)
+                  (memq x *special-forms*)
+                  (not (assq x env)))
+             x)
+            (else #f)))))
+
+
+  (define (special? env expr)
+    (and (special-keyword env expr) #t))
 
 
   (define (validate-parameters args)
