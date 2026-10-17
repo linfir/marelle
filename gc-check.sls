@@ -1,4 +1,4 @@
-(library (low-gc)
+(library (gc-check)
   (export check-gc-safety raws-in)
   (import (chezscheme))
 

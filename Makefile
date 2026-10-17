@@ -18,7 +18,7 @@ prebuild: build/lib.o build/lib.scm
 $(CHEZ_OBJS) &: $(CHEZ_LIBS)
 	rm -rf build/chez
 	mkdir -p build/chez
-	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (compile) (asm))\n' | \
+	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm))\n' | \
 	  $(CHEZ) -q --compile-imported-libraries
 
 # The precompiled library, linked with every program
@@ -38,7 +38,7 @@ test-chez:
 
 fmt:
 	black --line-length 120 *.py
-	emacs -Q --batch --eval '(progn (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss *.sls compile low asm run
+	emacs -Q --batch --eval '(progn (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss *.sls compile asm run
 
 clean:
 	rm -rf build

@@ -1,4 +1,4 @@
-(library (compile-vars)
+(library (vars)
   (export make-global-binding global-binding? global-binding-index
           make-local-binding local-binding? local-binding-operand local-binding-box?
           make-def-binding def-binding? def-binding-def
@@ -9,7 +9,7 @@
           no-vars free-vars walk-let* bind-scope captured-vars boxed? assigned?)
   (import (chezscheme)
           (utils)
-          (compile-parse))
+          (parse))
 
 
   ;; A program define: its cell in scheme_globals

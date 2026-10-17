@@ -1,4 +1,4 @@
-(library (low-emit)
+(library (emit)
   (export with-function emit! start-block! fresh-tmp fresh-label emit-op!)
   (import (chezscheme)
           (utils))

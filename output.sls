@@ -1,4 +1,4 @@
-(library (low-output)
+(library (output)
   (export immediate lower-block print-entry emit-globals)
   (import (chezscheme))
 

@@ -1,4 +1,4 @@
-(library (compile-parse)
+(library (parse)
   (export undef immediate? special? special-keyword marker call? define-form? validate-parameters
           parse-lambda parse-let parse-let* named-let? parse-named-let
           parse-if parse-cond parse-begin parse-set!
