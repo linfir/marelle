@@ -341,6 +341,18 @@
                     '(idiv rcx))
          (store! ctx dst (if (eq? (car instr) 'div) 'rax 'rdx))))
 
+      ;; Unsigned, rdx:rax / rcx, faulting unless rdx < rcx
+      ((divwu)
+       (let ((dst (cadr instr))
+             (hi (caddr instr))
+             (lo (cadddr instr))
+             (d (car (cddddr instr))))
+         (load! ctx 'rdx hi)
+         (load! ctx 'rax lo)
+         (load! ctx 'rcx d)
+         (emit-asm! ctx '(div rcx))
+         (store! ctx dst 'rax)))
+
       ((je jne jl jle jg jge jb jbe ja jae jmp)
        (let ((op (car instr))
              (label (cadr instr)))

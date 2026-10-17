@@ -271,6 +271,10 @@
          (emit! `(fill ,@(compile-operands env expr '(raw raw raw))))
          '(void))
 
+        ;; (raw/wu hi lo d): the unsigned quotient of hi * 2^64 + lo by d, for hi < d
+        ((raw/wu)
+         (emit-op! 'divwu 'raw (compile-operands env expr '(raw raw raw))))
+
         ;; (alloc nwords): the raw address of nwords new zeroed words
         ((alloc)
          (let ((ops (compile-operands env expr '(raw))))

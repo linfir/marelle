@@ -1,6 +1,28 @@
 (define (zero? n)
   (= n 0))
 
+;; The modulo has n's sign, the remainder m's
+(define (remainder m n)
+  (let ((r (modulo m n)))
+    (if (or (zero? r) (eq? (< r 0) (< m 0)))
+        r
+        (- r n))))
+
+(define (even? n)
+  (zero? (modulo n 2)))
+
+(define (odd? n)
+  (not (even? n)))
+
+;; By squaring; no rationals and no error procedure, so a negative exponent fails in car
+(define (expt b n)
+  (cond
+   ((< n 0) (car n))
+   ((zero? n) 1)
+   ((even? n) (let ((h (expt b (quotient n 2))))
+                (* h h)))
+   (else (* b (expt b (- n 1))))))
+
 (define (fibo n)
   (cond
    ((= n 0) 0)

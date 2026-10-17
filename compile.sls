@@ -18,7 +18,7 @@
   (define low-ops
     (append (map car binary-ops)
             (map car tests)
-            '(raw as-raw as-val syscall load store load8 store8 copy-words fill-words
+            '(raw as-raw as-val syscall load store load8 store8 copy-words fill-words raw/wu
                   alloc self address)))
 
 

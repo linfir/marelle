@@ -72,7 +72,7 @@
                  and or not
                  raw as-raw as-val
                  syscall quote undef
-                 load store load8 store8 copy-words fill-words alloc self address)))
+                 load store load8 store8 copy-words fill-words raw/wu alloc self address)))
 
 
   ;; Per program, set by parse-program
