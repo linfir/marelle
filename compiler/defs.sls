@@ -4,7 +4,7 @@
   (export make-def def? def-name def-symbol def-params def-result def-inline? def-public? def-native?
           def-procedure? def-unsafe? def-captures def-anonymous? def-extern? def-body def-env def-env-set!
           make-data data? data-name data-symbol data-nwords data-extern?
-          def-emitted? def-proc def-code def-params-kinds
+          def-emitted? def-proc def-code def-params-kinds def-rest? def-required
           procedure-type binary-ops tests low-ops unsafe-bindings
           names symbols current-strings current-entries core-defs inlining unsafe-code?
           fresh-name add-symbol! add-def-symbols! intern-string! add-entries! core-def)
@@ -50,7 +50,7 @@
     (append (map car binary-ops)
             (map car tests)
             '(raw as-raw as-val syscall load store load8 store8 copy-words fill-words raw/wu
-                  alloc self address)))
+                  alloc alloc-frame tail-call-frame self address)))
 
 
   ;; What only unsafe defines see, after their other names
@@ -84,6 +84,11 @@
         "scheme_main"
         (string-append (def-symbol def) "_code")))
   (define (def-params-kinds def) (map cdr (def-params def)))
+  (define (def-rest? def)
+    (and (pair? (def-params def)) (eq? (cdar (last-pair (def-params def))) 'rest)))
+  ;; The parameters but the rest one
+  (define (def-required def)
+    (if (def-rest? def) (- (length (def-params def)) 1) (length (def-params def))))
 
 
   ;; Per compilation: the fresh name counter, the symbols (symbol => name), the interned strings

@@ -54,10 +54,13 @@
                               (library-def-unsafe? x) 0 #f #f (library-def-body x) #f)))
           (when (and (def-native? def) (or (def-inline? def) (def-public? def)))
             (error 'scanned-item ":native with another attribute" name))
+          ;; Natives take their arguments in the System V registers
+          (when (and (def-native? def) (> (length (def-params def)) 6))
+            (error 'scanned-item "too many parameters in a native def" name))
           ;; An emitted def is called with the Scheme convention
           (unless (or (not (def-emitted? def))
                       (def-native? def)
-                      (and (for-all (lambda (k) (eq? k 'val)) (def-params-kinds def))
+                      (and (for-all (lambda (k) (memq k '(val rest))) (def-params-kinds def))
                            (memq (def-result def) '(val never))))
             (error 'scanned-item "raw parameter or result in a non-inline def" name))
           (add-def-symbols! def)

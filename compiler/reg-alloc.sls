@@ -120,7 +120,7 @@
 
   ;; Instructions without a destination
   (define (no-dst? instr)
-    (memq (car instr) `(cmp store store8 copy fill ret tailcall unreachable ,@jumps-ops)))
+    (memq (car instr) `(cmp store store8 copy fill ret tailcall selfcall unreachable ,@jumps-ops)))
 
 
   (define (var? x)
@@ -174,7 +174,7 @@
   (define (falls-through? block)
     (let ((instrs (cddr block)))
       (not (and (pair? instrs)
-                (memq (caar (last-pair instrs)) '(jmp ret tailcall unreachable))))))
+                (memq (caar (last-pair instrs)) '(jmp ret tailcall selfcall unreachable))))))
 
 
   ;; What liveness needs of a block, computed once: gen, the variables it
@@ -367,7 +367,7 @@
                                        (fold-left (lambda (acc i) (if (memv i acc) acc (cons i acc)))
                                                   live (live-registers (vector-ref ins (cadr instr))))
                                        live)))
-                        (when (memq (car instr) '(call alloc))
+                        (when (memq (car instr) '(call alloc allocframe))
                           (hashtable-set!
                            saves position
                            (fold-right

@@ -68,3 +68,14 @@
           (begin
             (vector-set! v i (car l))
             (loop (cdr l) (+ i 1)))))))
+
+(define (vector . xs)
+  (declare public)
+  (list->vector xs))
+
+(define (variadic-make-vector k . fill)
+  (declare unsafe)
+  (cond
+   ((null? fill) (make-vector k 0))
+   ((null? (cdr fill)) (make-vector k (car fill)))
+   (else (scheme-error "`make-vector` expected 1 or 2 arguments" fill))))

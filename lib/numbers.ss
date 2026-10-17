@@ -143,3 +143,42 @@
    ((= n 0) 0)
    ((= n 1) 1)
    (else (+ (fibo (- n 1)) (fibo (- n 2))))))
+
+;; Any number of operands: the calls the inline defs do not take, unless folded by the
+;; compiler, and the procedure values of +, *, - and the comparisons
+(define (variadic-+ . xs)
+  (fold-left (lambda (a b) (+ a b)) 0 xs))
+
+(define (variadic-* . xs)
+  (fold-left (lambda (a b) (* a b)) 1 xs))
+
+(define (variadic-- x . xs)
+  (if (null? xs)
+      (- 0 x)
+      (fold-left (lambda (a b) (- a b)) x xs)))
+
+;; Every pair is compared, so every operand is checked; a lone x is compared with itself
+(define (compare-all ok? x xs)
+  (if (null? xs)
+      (begin (ok? x x) #t)
+      (let next ((x x)
+                 (xs xs)
+                 (result #t))
+        (if (null? xs)
+            result
+            (next (car xs) (cdr xs) (and (ok? x (car xs)) result))))))
+
+(define (variadic-= x . xs)
+  (compare-all (lambda (a b) (= a b)) x xs))
+
+(define (variadic-< x . xs)
+  (compare-all (lambda (a b) (< a b)) x xs))
+
+(define (variadic-> x . xs)
+  (compare-all (lambda (a b) (> a b)) x xs))
+
+(define (variadic-<= x . xs)
+  (compare-all (lambda (a b) (<= a b)) x xs))
+
+(define (variadic->= x . xs)
+  (compare-all (lambda (a b) (>= a b)) x xs))

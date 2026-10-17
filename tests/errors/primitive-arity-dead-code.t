@@ -1,4 +1,4 @@
-(if #t 1 (+ 1))
+(if #t 1 (cons 1))
 ---
 stage = "compiler"
 stderr_contains = "wrong number of arguments"

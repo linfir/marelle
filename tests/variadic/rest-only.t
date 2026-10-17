@@ -1,0 +1,3 @@
+((lambda args args) 1 2 3)
+---
+stdout = "(1 2 3)"

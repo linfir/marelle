@@ -31,6 +31,10 @@
           (emit))
 
 
+;; The def of the function being compiled, for self tail calls
+  (define current-function (make-parameter #f))
+
+
   (define (kind x)
     (cond
      ((string? x) 'raw)
@@ -74,16 +78,35 @@
       (and (low-op-binding? b) (assq (low-op-binding-name b) tests))))
 
 
-  ;; The def a call expr calls with the right number of arguments, or #f;
-  ;; a wrong number is an error, except for a procedure, which checks it when called
+  ;; The def a call expr calls with the right number of arguments, or #f; another number goes
+  ;; to the def's variadic twin, if any; else it is an error, except for a procedure, which
+  ;; checks it when called
   (define (called-def env expr)
-    (let ((b (head-binding env expr)))
+    (let ((b (head-binding env expr))
+          (n (length (cdr expr))))
       (and (def-binding? b)
            (let ((def (def-binding-def b)))
              (cond
-              ((= (length (cdr expr)) (length (def-params def))) def)
+              ((takes? def n) def)
+              ((variadic-twin def) => (lambda (twin) (and (takes? twin n) twin)))
               ((def-procedure? def) #f)
               (else (error 'compile-call "wrong number of arguments" expr)))))))
+
+
+  (define (takes? def n)
+    (if (def-rest? def)
+        (>= n (def-required def))
+        (= n (length (def-params def)))))
+
+
+  ;; The library procedure variadic-D taking any number of arguments, for the library def D,
+  ;; whose own calls take a fixed number
+  (define (variadic-twin def)
+    (let ((name (def-name def)))
+      (and (eq? (cond ((assq name (core-defs)) => cdr) (else #f)) def)
+           (cond
+            ((assq (string->symbol (format "variadic-~a" name)) (core-defs)) => cdr)
+            (else #f)))))
 
 
   (define (immediate-operand x)
@@ -162,12 +185,14 @@
         (error 'compile-value "named let used as a value or called not in exit position" x)))
 
 
+  ;; The procedure object of def, or of its variadic twin, which takes any number of arguments
   (define (def-value def x)
-    (unless (def-emitted? def)
-      (error 'compile-value "inline def without a procedure object" x))
-    (when (def-native? def)
-      (error 'compile-value "native def without a procedure object" x))
-    `(as-val ,(def-proc def)))
+    (let ((def (or (variadic-twin def) def)))
+      (unless (def-emitted? def)
+        (error 'compile-value "inline def without a procedure object" x))
+      (when (def-native? def)
+        (error 'compile-value "native def without a procedure object" x))
+      `(as-val ,(def-proc def))))
 
 
   ;; A vector literal, rebuilt at each evaluation like bignums, so it is never static;
@@ -240,7 +265,43 @@
                 (if (eq? (car expr) 'when)
                     `(,(marker 'if) ,(cadr expr) ,body ,undef)
                     `(,(marker 'if) ,(cadr expr) ,undef ,body))))))
-      (else #f)))
+      (else (expand-variadic env expr))))
+
+
+  ;; The calls of the library's +, *, -, comparisons and make-vector whose number of operands
+  ;; the inline def does not take, in terms of it; the others go to their variadic twin
+  (define (expand-variadic env expr)
+    (let ((b (head-binding env expr)))
+      (and (def-binding? b)
+           (variadic-twin (def-binding-def b))
+           (let ((op (car expr))
+                 (args (cdr expr)))
+             (define (fold-operands)
+               (fold-left (lambda (acc x) (list op acc x)) (car args) (cdr args)))
+             (case (def-name (def-binding-def b))
+               ((+ *)
+                (let ((unit (if (eq? (def-name (def-binding-def b)) '+) 0 1)))
+                  (case (length args)
+                    ((0) unit)
+                    ((1) (list op unit (car args)))
+                    ((2) #f)
+                    (else (fold-operands)))))
+               ((-)
+                (case (length args)
+                  ((1) (list op 0 (car args)))
+                  ((0 2) #f)
+                  (else (fold-operands))))
+               ;; Each operand once, compared with the next
+               ((= < > <= >=)
+                (and (> (length args) 2)
+                     (let ((tmps (map (lambda (x) (gensym "operand")) args)))
+                       `(,(marker 'let) ,(map list tmps args)
+                         ,(expand-and (map (lambda (x y) (list op x y))
+                                           (list-head tmps (- (length tmps) 1))
+                                           (cdr tmps)))))))
+               ((make-vector)
+                (and (= (length args) 1) (list op (car args) 0)))
+               (else #f))))))
 
 
   ;; Each clause is (test expr ...), (test), (test => f), or a last (else expr ...)
@@ -382,9 +443,16 @@
         (loop-error b expr))
        ((called-def env expr)
         => (lambda (def)
-             (call-def env def (compile-args env def expr) expr compile-result)))
+             (if (def-called? def)
+                 (compile-direct env def expr #f)
+                 (call-def env def (compile-args env def expr) expr compile-result))))
        (else
-        (emit-op! 'call 'val (compile-indirect env expr))))))
+        (compile-indirect env expr #f)))))
+
+
+  ;; A def reached by a Scheme call, with a frame, rather than inlined or a native call
+  (define (def-called? def)
+    (not (or (def-inline? def) (def-native? def))))
 
 
   ;; Calls def with the operands ops, compiling an inline def's last expression with
@@ -397,7 +465,38 @@
      ((def-native? def)
       (emit-call! 'ccall (def-result def) (cons (def-code def) ops)))
      (else
-      (emit-call! 'call (def-result def) (cons* (def-code def) (def-proc def) ops)))))
+      (let ((f (direct-frame env def form)))
+        (for-each (lambda (op i) (frame-store! f i op)) ops (iota (length ops)))
+        (emit-call! 'call (def-result def) (list (def-code def) f))))))
+
+
+  ;; Calls allocate the callee's frame first, then store each argument in it as soon as it is
+  ;; computed, so only the frame is live across the calls the arguments make
+  (define (direct-frame env def form)
+    (call-def env (core-def 'make-direct-frame) (list (def-code def) `(as-val ,(def-proc def)))
+              form compile-result))
+
+
+  (define (frame-store! f i op)
+    (emit! `(store (as-raw ,f) (quad ,(+ i 6)) ,op)))
+
+
+  (define (compile-frame-args! env f exprs form)
+    (for-each (lambda (x i) (frame-store! f i (compile-checked env x 'val form)))
+              exprs (iota (length exprs))))
+
+
+  ;; The call (def arg ...) of a def-called? def, a tailcall when tail?
+  (define (compile-direct env def expr tail?)
+    (let ((f (direct-frame env def expr)))
+      (if (def-rest? def)
+          (let ((r (def-required def)))
+            (compile-frame-args! env f (list-head (cdr expr) r) expr)
+            (frame-store! f r (compile-rest-list env (list-tail (cdr expr) r) expr)))
+          (compile-frame-args! env f (cdr expr) expr))
+      (if tail?
+          (emit! `(tailcall ,(def-code def) ,f))
+          (emit-call! 'call (def-result def) (list (def-code def) f)))))
 
 
   (define (compile-low-op env op expr)
@@ -488,6 +587,16 @@
              (error 'compile-value "invalid alloc" expr))
            (emit-op! 'alloc 'raw ops)))
 
+        ;; (alloc-frame nwords proc): a new frame of nwords zeroed words, its header and self
+        ;; set, a val; proc stays a root while it is allocated
+        ((alloc-frame)
+         (emit-op! 'allocframe 'val (compile-operands env expr '(raw val))))
+
+        ;; (tail-call-frame f): enters the frame f, filled, as a tail call
+        ((tail-call-frame)
+         (emit! `(tailcall frame ,@(compile-operands env expr '(val))))
+         '(never))
+
         ((self)
          (unless (= (length expr) 1)
            (error 'compile-value "invalid self" expr))
@@ -518,8 +627,20 @@
     (map-in-order (lambda (x k) (compile-checked env x k form)) exprs kinds))
 
 
+  ;; The operands of a call to def, the extra ones packed into its rest parameter's list
   (define (compile-args env def expr)
-    (compile-operands env expr (def-params-kinds def)))
+    (if (def-rest? def)
+        (let ((required (list-head (cdr expr) (def-required def))))
+          (append (compile-exprs env required (map (lambda (x) 'val) required) expr)
+                  (list (compile-rest-list env (list-tail (cdr expr) (def-required def)) expr))))
+        (compile-operands env expr (def-params-kinds def))))
+
+
+  ;; A fresh list of the values of exprs
+  (define (compile-rest-list env exprs form)
+    (fold-right (lambda (op acc) (call-def env (core-def 'cons) (list op acc) form compile-result))
+                (immediate-operand ''())
+                (compile-exprs env exprs (map (lambda (x) 'val) exprs) form)))
 
 
   ;; (op dst . ops), op being call or ccall, for a def with the given result
@@ -534,13 +655,57 @@
        (emit-op! op result ops))))
 
 
-  ;; (code proc arg ...) for a call or tailcall of the procedure value (car expr)
-  (define (compile-indirect env expr)
-    (let* ((ops (compile-exprs env expr (map (lambda (x) 'val) expr) expr))
-           (proc (car ops)))
-      (call-def env (core-def 'check-procedure) (list proc `(quad ,(length (cdr ops)))) expr
-                compile-result)
-      (cons (emit-op! 'load 'raw (list proc '(quad 2))) ops)))
+  ;; The call of the procedure value (car expr), a tailcall when tail?; a tail call that may
+  ;; be a self call computes its arguments first, so that it can reuse the frame, any other
+  ;; call allocates the frame first
+  (define (compile-indirect env expr tail?)
+    (let ((n (length (cdr expr)))
+          (proc (compile-checked env (car expr) 'val expr))
+          (self (current-function)))
+      (if (and tail? (not (def-rest? self)) (= n (length (def-params self))))
+          (let ((ops (compile-exprs env (cdr expr) (map (lambda (x) 'val) (cdr expr)) expr))
+                (other (fresh-label)))
+            (compile-inline (core-def 'same-code?) (list proc (def-code self)) expr
+                            (lambda (env def x) (compile-branch env x #f other)))
+            (emit! `(selfcall ,proc ,@ops))
+            (start-block! other)
+            (frame-call env proc n
+                        (lambda (f) (for-each (lambda (op i) (frame-store! f i op)) ops (iota n)))
+                        expr #t))
+          (frame-call env proc n (lambda (f) (compile-frame-args! env f (cdr expr) expr))
+                      expr tail?))))
+
+
+  ;; The call of proc with n arguments, (fill! f) storing them in its frame f; when the arity
+  ;; is not n, the frame is a placeholder holding them, for apply-frame
+  (define (frame-call env proc n fill! form tail?)
+    (let ((f (call-def env (core-def 'make-call-frame) (list proc `(quad ,n)) form
+                       compile-result))
+          (slow (fresh-label)))
+      (fill! f)
+      (compile-inline (core-def 'frame-fits?) (list f `(quad ,n)) form
+                      (lambda (env def x) (compile-branch env x #f slow)))
+      (if tail?
+          (begin
+            (emit! `(tailcall frame ,f))
+            (start-block! slow)
+            (call-def-tail env (core-def 'apply-frame) (list f) form))
+          (let ((dst (fresh-tmp 'val))
+                (join (fresh-label)))
+            (emit! `(call ,dst frame ,f))
+            (emit! `(jmp ,join))
+            (start-block! slow)
+            (emit! `(mov ,dst ,(call-def env (core-def 'apply-frame) (list f) form
+                                         compile-result)))
+            (start-block! join)
+            dst))))
+
+
+  ;; The tailcall of the def-called? def with the operands ops
+  (define (call-def-tail env def ops form)
+    (let ((f (direct-frame env def form)))
+      (for-each (lambda (op i) (frame-store! f i op)) ops (iota (length ops)))
+      (emit! `(tailcall ,(def-code def) ,f))))
 
 
   ;; Every expression but the last for effect, then (compile-last env last)
@@ -628,9 +793,10 @@
                 (cond
                  ((def-native? callee)
                   (compile-return env def x))
+                 ((eq? callee (current-function))
+                  (emit! `(selfcall (self) ,@(compile-args env callee x))))
                  ((not (def-inline? callee))
-                  (emit! `(tailcall ,(def-code callee) ,(def-proc callee)
-                                    ,@(compile-args env callee x))))
+                  (compile-direct env callee x #t))
                  ((and (eq? (def-result def) 'val) (eq? (def-result callee) 'val))
                   (compile-inline callee (compile-args env callee x) x
                                   (lambda (env callee x) (compile-tail env callee x))))
@@ -638,7 +804,7 @@
                   (compile-return env def x)))))
 
           (else
-           (emit! `(tailcall ,@(compile-indirect env x)))))))))
+           (compile-indirect env x #t)))))))
 
 
   (define (compile-return env def x)
@@ -796,9 +962,9 @@
   ;; filled with the captures
   (define (compile-lambda env name args body)
     (let* ((captures (map (lambda (var) (assq var env))
-                          (reverse (captured-vars env args body))))
+                          (reverse (captured-vars env (formals-names args) body))))
            (def (make-def (or name 'lambda) (mangle (fresh-name (or name 'lambda)))
-                          (map (lambda (x) (cons x 'val)) args) 'val
+                          (formals->params args) 'val
                           #f #f #f #t (unsafe-code?) (length captures) (not name) #f body #f)))
       (for-each (lambda (c)
                   (when (eq? (kind (local-binding-operand (cdr c))) 'raw)
@@ -830,7 +996,8 @@
            (blocks
             (with-function
              (lambda ()
-               (parameterize ((unsafe-code? (def-unsafe? def)))
+               (parameterize ((unsafe-code? (def-unsafe? def))
+                              (current-function def))
                  (let* ((inner (append (map (lambda (c i)
                                               (cons (car c)
                                                     (make-local-binding
@@ -856,7 +1023,8 @@
            (blocks
             (with-function
              (lambda ()
-               (parameterize ((unsafe-code? (def-unsafe? def)))
+               (parameterize ((unsafe-code? (def-unsafe? def))
+                              (current-function def))
                  (let* ((vars (free-vars (bind-scope env (map car params)) (def-body def)))
                         (body-env (append (map (lambda (p i)
                                                  (when (boxed? (car p) vars)
@@ -960,7 +1128,10 @@
              (if (and (def-inline? def) (eq? (def-result def) 'val))
                  (compile-inline def (compile-args env def test) test
                                  (lambda (env def x) (compile-branch env x jump-if label)))
-                 (compare-false (call-def env def (compile-args env def test) test compile-result)
+                 (compare-false (if (def-called? def)
+                                    (compile-direct env def test #f)
+                                    (call-def env def (compile-args env def test) test
+                                              compile-result))
                                 test jump-if label))))
 
        (else
@@ -1006,11 +1177,19 @@
 
     (for-each (lambda (block)
                 (for-each (lambda (instr)
-                            (when (or (memq (car instr) '(call tailcall alloc))
+                            (when (or (memq (car instr) '(call tailcall selfcall alloc allocframe))
                                       (self? instr))
                               (error 'check-native "safepoint or self in a native def" name instr)))
                           (cddr block)))
               body))
+
+
+  ;; A variadic twin stands for its def
+  (define (procedure-name def)
+    (let ((s (symbol->string (def-name def))))
+      (if (and (> (string-length s) 9) (string=? (substring s 0 9) "variadic-"))
+          (substring s 9 (string-length s))
+          s)))
 
 
   ;; The def's name, procedure object and function; a closure def's object is the template
@@ -1019,8 +1198,8 @@
     (let* ((proc (def-proc def))
            (arity (length (def-params def)))
            (name (and (not (def-anonymous? def)) (string-append proc "_name"))))
-      `(,@(if name `((string ,name ,(symbol->string (def-name def)))) '())
-        (rodata ,proc (quad ,procedure-type) (quad ,arity)
+      `(,@(if name `((string ,name ,(procedure-name def))) '())
+        (rodata ,proc (quad ,procedure-type) (quad ,(if (def-rest? def) (- arity) arity))
                 (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
         (function ,(def-code def) (arity ,arity)
                   ,@(map lower-block blocks))))))

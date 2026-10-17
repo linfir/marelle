@@ -99,7 +99,7 @@
 
         ((lambda)
          (let-values (((args body) (parse-lambda expr)))
-           (let ((inner (walk-exprs (bind-inside env args) body no-vars)))
+           (let ((inner (walk-exprs (bind-inside env (formals-names args)) body no-vars)))
              (make-var-sets (union (var-sets-refs inner) (var-sets-refs acc))
                             (union (var-sets-sets inner) (var-sets-sets acc))
                             (union (var-sets-refs inner) (var-sets-caps acc))))))

@@ -20,7 +20,7 @@
 
   ;; Instructions without a destination
   (define (no-dst? instr)
-    (memq (car instr) `(cmp store store8 copy fill ret tailcall unreachable ,@jumps)))
+    (memq (car instr) `(cmp store store8 copy fill ret tailcall selfcall unreachable ,@jumps)))
 
 
   (define (instr-defs instr)
@@ -40,7 +40,7 @@
   (define (falls-through? block)
     (let ((instrs (cddr block)))
       (not (and (pair? instrs)
-                (memq (caar (last-pair instrs)) '(jmp ret tailcall unreachable))))))
+                (memq (caar (last-pair instrs)) '(jmp ret tailcall selfcall unreachable))))))
 
 
   ;; Raw slots hold untagged words, so none may be live across a safepoint
@@ -78,7 +78,7 @@
             (loop))))
 
       (walk-all (lambda (instr live)
-                  (when (memq (car instr) '(call tailcall alloc))
+                  (when (memq (car instr) '(call tailcall alloc allocframe))
                     (let ((across (set-minus live (instr-defs instr))))
                       (unless (zero? across)
                         (error 'check-gc-safety "raw live across a safepoint"

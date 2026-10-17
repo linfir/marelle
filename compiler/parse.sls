@@ -1,5 +1,6 @@
 (library (parse)
   (export undef immediate? vector-literal? special? special-keyword marker call? define-form? validate-parameters
+          formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-case parse-begin parse-set!
           scan-defs scan-library
@@ -65,10 +66,24 @@
     (and (special-keyword env expr) #t))
 
 
-  (define (validate-parameters args)
-    (unless (list? args)
-      (error 'validate-parameters "invalid parameter list" args))
-    (let loop ((args args)
+  ;; Formals are (x ...), (x ... . rest) or rest
+  (define (formals-names formals)
+    (cond
+     ((null? formals) '())
+     ((pair? formals) (cons (car formals) (formals-names (cdr formals))))
+     (else (list formals))))
+
+
+  ;; ((x . val) ... (rest . rest)): a rest parameter holds the list of the extra arguments
+  (define (formals->params formals)
+    (cond
+     ((null? formals) '())
+     ((pair? formals) (cons (cons (car formals) 'val) (formals->params (cdr formals))))
+     (else (list (cons formals 'rest)))))
+
+
+  (define (validate-parameters formals)
+    (let loop ((args (formals-names formals))
                (seen '()))
       (unless (null? args)
         (let ((arg (car args)))
@@ -76,12 +91,10 @@
             (error 'validate-parameters "invalid parameter" arg))
           (when (memq arg seen)
             (error 'validate-parameters "duplicate parameter" arg))
-          (loop (cdr args) (cons arg seen)))))
-    (when (> (length args) 6)
-      (error 'validate-parameters "too many parameters" args)))
+          (loop (cdr args) (cons arg seen))))))
 
 
-  ;; (lambda (arg ...) body ...) => (values args body)
+  ;; (lambda formals body ...) => (values formals body)
   (define (parse-lambda form)
     (unless (>= (length form) 3)
       (error 'parse-lambda "invalid lambda" form))
@@ -281,29 +294,39 @@
          (eq? (car (caddr form)) 'declare)))
 
 
+  ;; x, (raw x), or the rest parameter (x . rest)
+  (define (parse-typed-params ps)
+    (cond
+     ((null? ps) '())
+     ((pair? ps) (cons (parse-typed-param (car ps)) (parse-typed-params (cdr ps))))
+     ((symbol? ps) (list (cons ps 'rest)))
+     (else (error 'parse-typed-param "invalid parameter" ps))))
+
+
   (define (parse-library-define form)
     (unless (and (define-form? form)
                  (>= (length form) 3)
                  (pair? (cadr form))
-                 (symbol? (caadr form))
-                 (list? (cdadr form)))
+                 (symbol? (caadr form)))
       (error 'parse-library-define "invalid define" form))
-    (let* ((params (map parse-typed-param (cdadr form)))
+    (let* ((params (parse-typed-params (cdadr form)))
            (body (cddr form))
            (declare? (and (non-empty-list? (car body)) (eq? (caar body) 'declare))))
       (validate-parameters (map car params))
       (when (and declare? (null? (cdr body)))
         (error 'parse-library-define "invalid define" form))
       (let-values (((result attrs unsafe?) (parse-declare (if declare? (cdar body) '()))))
-        (let ((vals? (and (for-all (lambda (p) (eq? (cdr p) 'val)) params) (eq? result 'val))))
+        (let* ((vals? (and (for-all (lambda (p) (memq (cdr p) '(val rest))) params)
+                           (eq? result 'val)))
+               (procedure? (and vals? (for-all (lambda (a) (eq? a ':public)) attrs))))
           (when (and (memq ':public attrs) (not vals?))
             (error 'parse-library-define "public define with raw values" form))
           (when (and (or (not vals?) (memq ':native attrs)) (not unsafe?))
             (error 'parse-library-define "raw values or native without unsafe" form))
+          (when (and (exists (lambda (p) (eq? (cdr p) 'rest)) params) (not procedure?))
+            (error 'parse-library-define "rest parameter in a non-procedure define" form))
           (make-library-def (caadr form) (map car params) (map cdr params) result attrs
-                            (if declare? (cdr body) body)
-                            (and vals? (for-all (lambda (a) (eq? a ':public)) attrs))
-                            unsafe?)))))
+                            (if declare? (cdr body) body) procedure? unsafe?)))))
 
 
   (define (parse-define-data form)

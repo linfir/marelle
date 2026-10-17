@@ -1,0 +1,4 @@
+(-)
+---
+stage = "executable"
+stderr_contains = "Error: procedure of arity at least 1 called with 0 arguments\n"

@@ -65,3 +65,7 @@
       (begin
         (f (car l))
         (for-each f (cdr l)))))
+
+(define (list . xs)
+  (declare public)
+  xs)
