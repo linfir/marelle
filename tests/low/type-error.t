@@ -1,5 +1,0 @@
-(def main () -> (val) ()
-     (car 5))
----
-stage = "executable"
-stderr = "Error: `car` expected a pair: 5\n"

@@ -41,21 +41,20 @@ def lib_missing():
     return None
 
 
-def compile_source(source, low):
-    stage, flags = ("low", ["--low"]) if low else ("compiler", [])
+def compile_source(source):
     # Chez loads the compiled compiler libraries in build/chez instead of the .sls
-    command = ["scheme", "--libdirs", ".::build/chez", "--program", ROOT / "run", *flags]
-    return run_stage(stage, command, input=source, cwd=ROOT).stdout
+    command = ["scheme", "--libdirs", ".::build/chez", "--program", ROOT / "run"]
+    return run_stage("compiler", command, input=source, cwd=ROOT).stdout
 
 
-def run_pipeline(source, *, env=None, low=False):
+def run_pipeline(source, *, env=None):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         assembly = work / "out.s"
         obj = work / "out.o"
         executable = work / "out"
 
-        assembly.write_text(compile_source(source, low))
+        assembly.write_text(compile_source(source))
 
         run_stage("as", ["as", "-o", obj, assembly])
         run_stage("ld", ["ld", "-o", executable, obj, LIB])
@@ -71,7 +70,6 @@ def parse_args():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("-e", metavar="STRING")
     source.add_argument("file", nargs="?", type=Path)
-    parser.add_argument("--low", action="store_true", help="the source is a low program")
     return parser.parse_args()
 
 
@@ -85,7 +83,7 @@ def main():
         exit(1)
 
     try:
-        result = run_pipeline(source, low=args.low)
+        result = run_pipeline(source)
     except PipelineFailure as error:
         sys.stdout.write(error.result.stdout)
         sys.stderr.write(f"run.py: {error}\n")

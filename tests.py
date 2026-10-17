@@ -13,7 +13,7 @@ from run import PipelineFailure, lib_missing, run_chez, run_pipeline
 
 ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
-STAGES = {"compiler", "low", "as", "ld", "executable", "result"}
+STAGES = {"compiler", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", *OUTPUT_FIELDS}
 SKIP = "skip"
@@ -77,9 +77,9 @@ def check_case(path, chez=False, gc_stress=None):
     except (OSError, TestFormatError) as error:
         return "format", [str(error)]
 
-    # Cases under tests/low/ are low programs
-    low = path.relative_to(TEST_ROOT).parts[0] == "low"
-    if chez and (low or expected.get("chez") == SKIP):
+    # Cases under tests/unsafe/ use unsafe defines, which Chez lacks
+    unsafe = path.relative_to(TEST_ROOT).parts[0] == "unsafe"
+    if chez and (unsafe or expected.get("chez") == SKIP):
         return SKIP
     if gc_stress and expected.get("gc_stress") == SKIP:
         return SKIP
@@ -89,7 +89,7 @@ def check_case(path, chez=False, gc_stress=None):
         env = {"SCHEME_GC_STRESS": str(gc_stress)} | env
 
     try:
-        result = run_chez(source) if chez else run_pipeline(source, env=env, low=low)
+        result = run_chez(source) if chez else run_pipeline(source, env=env)
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result

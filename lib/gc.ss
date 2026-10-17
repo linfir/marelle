@@ -19,7 +19,7 @@
 
 ;; Each stretch between collections allocates from the words copied up to the used words
 (define (print-gc-stats)
-  (declare native (result void))
+  (declare unsafe native (result void))
   (put-string (stderr) "GC: ")
   (put-int (stderr) (load gc-count (raw 0)))
   (put-string (stderr) " collections, ")
@@ -33,7 +33,7 @@
 
 ;; Counts down to the next forced collection in stress mode (SCHEME_GC_STRESS)
 (define (gc-stress-due?)
-  (declare inline)
+  (declare unsafe inline)
   (and (not (raw= (load gc-stress (raw 0)) (raw 0)))
        (begin
          (store gc-countdown (raw 0) (raw- (load gc-countdown (raw 0)) (raw 1)))
@@ -47,7 +47,7 @@
 ;; each space is zero past its used part, so frame slots not yet written hold 0
 
 (define (object-words (raw p))
-  (declare native (result raw))
+  (declare unsafe native (result raw))
   (cond
    ((raw= (load p (raw 0)) (frame-type)) (load p (raw 1)))
    ((raw= (load p (raw 0)) (procedure-type)) (raw+ (load p (raw 4)) (raw 5)))
@@ -57,7 +57,7 @@
 ;; The new address of the object x points to, copied to gc-free if it is in the
 ;; current space; a moved object holds forward-type and its new address
 (define (forward (raw x))
-  (declare native (result raw))
+  (declare unsafe native (result raw))
   (let ((t (bit-and x (raw 7))))
     (if (not (or (raw= t (raw 0)) (raw= t (raw 3))))
         x
@@ -83,7 +83,7 @@
               (bit-or new t))))))))
 
 (define (forward-words (raw p) (raw n))
-  (declare native (result void))
+  (declare unsafe native (result void))
   (let forward-next ((i (raw 0)))
     (if (raw= i n)
         undef
@@ -94,7 +94,7 @@
 ;; Forwards the values of the object at p in the new space, returns its length;
 ;; the raw slots of a frame are not scanned
 (define (scan (raw p))
-  (declare native (result raw))
+  (declare unsafe native (result raw))
   (let* ((n (object-words p))
          (header (load p (raw 0)))
          (frame? (raw= header (frame-type)))
@@ -111,7 +111,7 @@
 ;; Moves the live objects and updates the roots, which must hold every heap pointer in use;
 ;; the rest is reached through them
 (define (collect (raw roots) (raw nroots))
-  (declare native (result void))
+  (declare unsafe native (result void))
   (let ((to (load spare-mem (raw 0))))
     (store gc-free (raw 0) to)
     (forward-words roots nroots)
@@ -133,13 +133,13 @@
       (store scheme-len (raw 0) copied))))
 
 (define (free-words)
-  (declare inline (result raw))
+  (declare unsafe inline (result raw))
   (raw- (load scheme-cap (raw 0)) (load scheme-len (raw 0))))
 
 ;; nwords words of the current space, after a collection if it is full;
 ;; called from the stubs in asm.sls, the only place where a collection may happen
 (define (alloc-words (raw nwords) (raw roots) (raw nroots))
-  (declare native (result raw))
+  (declare unsafe native (result raw))
   (when (or (gc-stress-due?) (raw>u nwords (free-words)))
     (collect roots nroots)
     (when (raw>u nwords (free-words))

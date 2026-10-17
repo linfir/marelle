@@ -6,6 +6,7 @@
           make-global-def global-def-name global-def-index global-def-args global-def-body
           library-def? library-def-name library-def-args library-def-kinds
           library-def-result library-def-attrs library-def-body library-def-procedure?
+          library-def-unsafe? declared-define? parse-library-define parse-define-data
           library-data? library-data-name library-data-nwords)
   (import (chezscheme)
           (utils))
@@ -193,7 +194,7 @@
   ;; attrs low's def attributes; a procedure (only vals, attrs at most :public) is lifted
   ;; like a lambda, any other is a low def
   (define-record-type library-def
-    (fields name args kinds result attrs body procedure?))
+    (fields name args kinds result attrs body procedure? unsafe?))
 
 
   ;; (define-data name nwords)
@@ -210,22 +211,33 @@
      (else (error 'parse-typed-param "invalid parameter" p))))
 
 
-  ;; (declare decl ...) => (values result attrs)
+  ;; (declare decl ...) => (values result attrs unsafe?)
   (define (parse-declare decls)
     (let loop ((decls decls)
                (result 'val)
-               (attrs '()))
+               (attrs '())
+               (unsafe? #f))
       (if (null? decls)
-          (values result (reverse attrs))
+          (values result (reverse attrs) unsafe?)
           (let ((d (car decls)))
             (cond
              ((memq d '(inline public native))
               (loop (cdr decls) result
-                    (cons (string->symbol (format ":~a" d)) attrs)))
+                    (cons (string->symbol (format ":~a" d)) attrs) unsafe?))
+             ((eq? d 'unsafe)
+              (loop (cdr decls) result attrs #t))
              ((and (list? d) (= (length d) 2) (eq? (car d) 'result)
                    (memq (cadr d) '(val raw void never)))
-              (loop (cdr decls) (cadr d) attrs))
+              (loop (cdr decls) (cadr d) attrs unsafe?))
              (else (error 'parse-declare "invalid declaration" d)))))))
+
+
+  ;; A define whose body starts with (declare ...)
+  (define (declared-define? form)
+    (and (define-form? form)
+         (>= (length form) 3)
+         (non-empty-list? (caddr form))
+         (eq? (car (caddr form)) 'declare)))
 
 
   (define (parse-library-define form)
@@ -241,13 +253,16 @@
       (validate-parameters (map car params))
       (when (and declare? (null? (cdr body)))
         (error 'parse-library-define "invalid define" form))
-      (let-values (((result attrs) (parse-declare (if declare? (cdar body) '()))))
+      (let-values (((result attrs unsafe?) (parse-declare (if declare? (cdar body) '()))))
         (let ((vals? (and (for-all (lambda (p) (eq? (cdr p) 'val)) params) (eq? result 'val))))
           (when (and (memq ':public attrs) (not vals?))
             (error 'parse-library-define "public define with raw values" form))
+          (when (and (or (not vals?) (memq ':native attrs)) (not unsafe?))
+            (error 'parse-library-define "raw values or native without unsafe" form))
           (make-library-def (caadr form) (map car params) (map cdr params) result attrs
                             (if declare? (cdr body) body)
-                            (and vals? (for-all (lambda (a) (eq? a ':public)) attrs)))))))
+                            (and vals? (for-all (lambda (a) (eq? a ':public)) attrs))
+                            unsafe?)))))
 
 
   (define (parse-define-data form)

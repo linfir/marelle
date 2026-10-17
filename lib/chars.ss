@@ -1,17 +1,17 @@
 ;; Characters: the immediate (code << 8) | 34
 (define (char? x)
-  (declare inline public)
+  (declare unsafe inline public)
   (raw= (bit-and (as-raw x) (raw 255)) (raw 34)))
 
 ;; ((code << 8) | 34) >> 5 is (code << 3) | 1, the fixnum code
 (define (char->integer x)
-  (declare inline public)
+  (declare unsafe inline public)
   (unless (char? x)
     (scheme-error "`char->integer` expected a character" x))
   (as-val (raw>> (as-raw x) (raw 5))))
 
 (define (integer->char x)
-  (declare inline public)
+  (declare unsafe inline public)
   (unless (and (fixnum? x)
                (let ((n (raw>> (as-raw x) (raw 3))))
                  (and (raw<=u n (raw 1114111))
@@ -20,7 +20,7 @@
   (as-val (bit-or (raw<< (as-raw x) (raw 5)) (raw 2))))
 
 (define (check-chars x y (raw msg))
-  (declare inline (result void))
+  (declare unsafe inline (result void))
   (unless (char? x)
     (scheme-error msg x))
   (unless (char? y)
@@ -28,27 +28,27 @@
 
 ;; Comparing characters compares their codes
 (define (char=? x y)
-  (declare inline public)
+  (declare unsafe inline public)
   (check-chars x y "`char=?` expected a character")
   (raw= (as-raw x) (as-raw y)))
 
 (define (char<? x y)
-  (declare inline public)
+  (declare unsafe inline public)
   (check-chars x y "`char<?` expected a character")
   (raw< (as-raw x) (as-raw y)))
 
 (define (char<=? x y)
-  (declare inline public)
+  (declare unsafe inline public)
   (check-chars x y "`char<=?` expected a character")
   (raw<= (as-raw x) (as-raw y)))
 
 (define (char>? x y)
-  (declare inline public)
+  (declare unsafe inline public)
   (check-chars x y "`char>?` expected a character")
   (raw> (as-raw x) (as-raw y)))
 
 (define (char>=? x y)
-  (declare inline public)
+  (declare unsafe inline public)
   (check-chars x y "`char>=?` expected a character")
   (raw>= (as-raw x) (as-raw y)))
 

@@ -2,8 +2,7 @@
 
 ;; Run from the project root; compile, low and asm in one process.
 ;; scheme-script run --lib DIR: the library, lib/*.ss, into DIR/lib.s and the interface DIR/lib.scm
-;; scheme-script run [--low] < SOURCE > ASM: a program, against build/lib.scm;
-;; with --low, the source is a low program
+;; scheme-script run < SOURCE > ASM: a program, against build/lib.scm
 
 (import (chezscheme)
         (utils)
@@ -50,10 +49,6 @@
       (let* ((source (let ((s (get-string-all (current-input-port))))
                        (if (eof-object? s) "" s)))
              (interface (with-input-from-file "build/lib.scm" read-all))
-             (low (stage (lambda (forms)
-                           (if (member "--low" args)
-                               (compile-low-program interface forms)
-                               (compile-scheme interface forms)))
-                         source))
+             (low (stage (lambda (forms) (compile-scheme interface forms)) source))
              (ir (stage (lambda (forms) (compile-low forms #f)) low)))
         (display (stage compile-asm ir)))))

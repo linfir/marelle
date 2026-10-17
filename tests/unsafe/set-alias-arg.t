@@ -1,0 +1,17 @@
+(define (bump x)
+  (declare unsafe inline)
+  (set! x (+ x 10))
+  x)
+
+(define (f y)
+  (declare unsafe)
+  (let ((z y))
+    (set! z (+ z 100))
+    (cons (bump y) (cons z y))))
+
+(define (entry)
+  (declare unsafe)
+  (f 1))
+(entry)
+---
+stdout = "(11 101 . 1)"

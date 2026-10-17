@@ -2,7 +2,7 @@
 ;; low does the rest (tmps, labels, tail calls, assigned locals)
 
 (library (compile)
-  (export compile-scheme compile-low-program compile-scheme-library print-low)
+  (export compile-scheme compile-scheme-library print-low)
   (import (chezscheme)
           (utils)
           (only (low-parse) binary-ops tests keywords)
@@ -10,11 +10,11 @@
           (compile-vars))
 
 
-  ;; True while lowering the library, which may use strings, named lets and low operations
-  (define library-code? (make-parameter #f))
+  ;; True while lowering an unsafe define, which may use strings and low operations
+  (define unsafe-code? (make-parameter #f))
 
 
-  ;; The low operations the library may call
+  ;; The low operations unsafe defines may call
   (define low-ops
     (append (map car binary-ops)
             (map car tests)
@@ -71,7 +71,7 @@
      ((number? expr)
       (error 'lower-value "unsupported number" expr))
 
-     ((and (string? expr) (library-code?))
+     ((and (string? expr) (unsafe-code?))
       expr)
 
      ((special? env expr)
@@ -172,7 +172,7 @@
     (let ((test (lower-test prog env (cadr expr)))
           (body (map-in-order (lambda (x) (lower-value prog env x)) (cddr expr))))
       (cond
-       ((library-code?) `(,(car expr) ,test ,@body))
+       ((unsafe-code?) `(,(car expr) ,test ,@body))
        ((eq? (car expr) 'when) `(if ,test (begin ,@body) undef))
        (else `(if ,test undef (begin ,@body))))))
 
@@ -449,6 +449,49 @@
      (else (make-primitive-binding name (length (library-def-args x))))))
 
 
+  ;; What only unsafe defines see, after their other names
+  (define unsafe-bindings
+    (append (map (lambda (op) (cons op (make-low-op-binding op))) low-ops)
+            (list (cons 'undef (make-constant-binding 'undef)))))
+
+
+  ;; Data, and defines with raw parameters or result, only unsafe defines may use
+  (define (unsafe-item? x)
+    (or (library-data? x)
+        (eq? (library-def-result x) 'raw)
+        (memq 'raw (library-def-kinds x))))
+
+
+  ;; Names the defines and data, sets the arity of the procedures; returns the names,
+  ;; the bindings of the safe items, then those of the unsafe ones
+  (define (bind-items! prog items)
+    (let ((names (map-in-order (lambda (x) (library-low-name prog x)) items)))
+      (for-each (lambda (x name)
+                  (when (and (library-def? x) (library-def-procedure? x))
+                    (hashtable-set! (low-program-arity prog) name (length (library-def-args x)))))
+                items names)
+      (let ((bindings (map (lambda (x name) (cons (library-item-name x) (library-binding x name)))
+                           items names)))
+        (define (select unsafe?)
+          (fold-right (lambda (x b acc) (if (eq? (and (unsafe-item? x) #t) unsafe?) (cons b acc) acc))
+                      '() items bindings))
+        (values names (select #f) (select #t)))))
+
+
+  ;; Lowers the defines and data, an unsafe define in unsafe-env, any other in env
+  (define (lower-items! prog env unsafe-env items names)
+    (for-each (lambda (x name)
+                (if (library-data? x)
+                    (add-def! prog `(data ,name ,(library-data-nwords x) ()))
+                    (let ((env (if (library-def-unsafe? x) unsafe-env env)))
+                      (parameterize ((unsafe-code? (library-def-unsafe? x)))
+                        (if (library-def-procedure? x)
+                            (lift-procedure! prog env name (library-def-name x)
+                                             (library-def-args x) (library-def-body x))
+                            (lower-low-def! prog env x name))))))
+              items names))
+
+
   (define (result->low k)
     (case k
       ((val raw) (list k))
@@ -483,29 +526,13 @@
   ;; (procedure name def arity) for the public procedures, then the low declarations;
   ;; every name is bound before any body is lowered, so any define may use any other
   (define (library->low library)
-    (let* ((prog (make-low-program 0))
-           (items (scan-library library))
-           (names (map-in-order (lambda (x) (library-low-name prog x)) items))
-           (env (append (map (lambda (x name) (cons (library-item-name x) (library-binding x name)))
-                             items names)
-                        (map (lambda (op) (cons op (make-low-op-binding op))) low-ops)
-                        (list (cons 'undef (make-constant-binding 'undef)))))
-           (public (filter (lambda (x) (and (library-def? x) (memq ':public (library-def-attrs x))))
-                           items)))
-      (for-each (lambda (x name)
-                  (when (and (library-def? x) (library-def-procedure? x))
-                    (hashtable-set! (low-program-arity prog) name (length (library-def-args x)))))
-                items names)
-      (parameterize ((library-code? #t))
-        (for-each (lambda (x name)
-                    (cond
-                     ((library-data? x)
-                      (add-def! prog `(data ,name ,(library-data-nwords x) ())))
-                     ((library-def-procedure? x)
-                      (lift-procedure! prog env name (library-def-name x)
-                                       (library-def-args x) (library-def-body x)))
-                     (else (lower-low-def! prog env x name))))
-                  items names))
+    (let*-values (((prog) (make-low-program 0))
+                  ((items) (scan-library library))
+                  ((names env data) (bind-items! prog items))
+                  ((public) (filter (lambda (x)
+                                      (and (library-def? x) (memq ':public (library-def-attrs x))))
+                                    items)))
+      (lower-items! prog env (append env data unsafe-bindings) items names)
       (let ((forms (reverse (low-program-defs prog)))
             (exports (lambda (procedure?)
                        (map (lambda (x)
@@ -537,7 +564,29 @@
     (filter (lambda (x) (memq (car x) '(def data))) interface))
 
 
-  ;; The low declarations of the interface, (globals n), the lifted defs, then main
+  ;; Every def and data of the interface's declarations, by Scheme name: what unsafe defines
+  ;; see of the library besides its public names
+  (define (internal-bindings interface)
+    (fold-right (lambda (x env)
+                  (case (car x)
+                    ((def)
+                     (let ((as (assq ':as (filter pair? (list-ref x 5)))))
+                       (acons (if as (cadr as) (cadr x))
+                              (make-primitive-binding (cadr x) (length (caddr x)))
+                              env)))
+                    ((data)
+                     (acons (cadr x) (make-constant-binding (cadr x)) env))
+                    (else env)))
+                '() interface))
+
+
+  (define (define-data-form? form)
+    (and (non-empty-list? form) (eq? (car form) 'define-data)))
+
+
+  ;; The low declarations of the interface, (globals n), the lifted defs, then main;
+  ;; a define with a declare and define-data are static, like the library's, other defines
+  ;; are global cells
   (define (program->low interface program)
     (when (null? program)
       (error 'program->low "empty program"))
@@ -552,15 +601,24 @@
                                 (else env)))
                             '() interface)))
       ;; A program ending with a define evaluates to undef
-      (let-values (((forms expr) (if (define-form? (car (last-pair program)))
-                                     (values program undef)
-                                     (split-last program))))
-        (let* ((globals (scan-defs forms make-global-def))
+      (let*-values (((forms expr) (if (or (define-form? (car (last-pair program)))
+                                          (define-data-form? (car (last-pair program))))
+                                      (values program undef)
+                                      (split-last program)))
+                    ((static) (filter (lambda (x) (or (declared-define? x) (define-data-form? x)))
+                                      forms))
+                    ((items) (scan-library static))
+                    ((names items-env data) (bind-items! prog items)))
+        (let* ((globals (scan-defs (filter (lambda (x) (not (memq x static))) forms)
+                                   make-global-def))
                (env (append (map (lambda (g)
                                    (cons (global-def-name g)
                                          (make-global-binding (global-def-index g))))
                                  globals)
+                            items-env
                             env))
+               (unsafe-env (append env data (internal-bindings interface) unsafe-bindings))
+               (_ (lower-items! prog env unsafe-env items names))
                (inits (map-in-order (lambda (g)
                                       `(global-set! (raw ,(global-def-index g))
                                                     ,(lower-global prog env g)))
@@ -586,11 +644,6 @@
   ;; Prints the low program of a Scheme program
   (define (compile-scheme interface program)
     (print-low (program->low interface program)))
-
-
-  ;; Prints the declarations of the interface, then the low program forms
-  (define (compile-low-program interface forms)
-    (print-low (append (interface-declarations interface) forms)))
 
 
   ;; Prints the low library, returns the interface

@@ -1,8 +1,0 @@
-(def main () -> (val) ()
-     (let ((n (raw 3))
-           (acc (raw 1)))
-       (set! acc (raw* acc n))
-       (set! n (raw+ n (raw 1)))
-       (as-val (raw+ (raw<< (raw* acc n) (raw 3)) (raw 1)))))
----
-stdout = "12"
