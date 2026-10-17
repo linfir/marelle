@@ -1,8 +1,8 @@
-#!/usr/bin/env scheme-script
+#!/usr/bin/env -S scheme --libdirs compiler::build/chez --program
 
 ;; Run from the project root; compile and asm in one process.
-;; scheme-script run --lib DIR: the library, lib/*.ss, into DIR/lib.s and the interface DIR/lib.scm
-;; scheme-script run < SOURCE > ASM: a program, against build/lib.scm
+;; ./run --lib DIR: the library, lib/*.ss, into DIR/lib.s and the interface DIR/lib.scm
+;; ./run < SOURCE > ASM: a program, against build/lib.scm
 
 (import (chezscheme)
         (utils)

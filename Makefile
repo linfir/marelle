@@ -2,11 +2,11 @@
 SHELL = /bin/bash
 
 # A missing source is not a prerequisite, so a built library works without its sources
-SOURCES = $(wildcard lib/*.ss run *.sls)
-CHEZ_LIBS = $(wildcard *.sls)
-CHEZ_OBJS = $(patsubst %.sls,build/chez/%.so,$(CHEZ_LIBS))
+SOURCES = $(wildcard lib/*.ss run compiler/*.sls)
+CHEZ_LIBS = $(wildcard compiler/*.sls)
+CHEZ_OBJS = $(patsubst compiler/%.sls,build/chez/%.so,$(CHEZ_LIBS))
 # Chez with the compiled compiler libraries, which it loads instead of a .sls when not older
-CHEZ = scheme --libdirs .::build/chez
+CHEZ = scheme --libdirs compiler::build/chez
 
 all: chez prebuild
 
@@ -38,7 +38,7 @@ test-chez:
 
 fmt:
 	black --line-length 120 *.py
-	emacs -Q --batch --eval '(progn (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss *.sls compile asm run
+	emacs -Q --batch --eval '(progn (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss compiler/*.sls compile asm run
 
 clean:
 	rm -rf build

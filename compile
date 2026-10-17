@@ -1,6 +1,6 @@
-#!/usr/bin/env scheme-script
+#!/usr/bin/env -S scheme --libdirs compiler::build/chez --program
 
-;; scheme-script compile < SOURCE > IR, against build/lib.scm, run from the project root
+;; ./compile < SOURCE > IR, against build/lib.scm, run from the project root
 
 (import (chezscheme)
         (utils)

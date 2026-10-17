@@ -1,6 +1,6 @@
-#!/usr/bin/env scheme-script
+#!/usr/bin/env -S scheme --libdirs compiler::build/chez --program
 
-;; scheme-script asm < IR > ASM
+;; ./asm < IR > ASM, run from the project root
 
 (import (chezscheme)
         (utils)
