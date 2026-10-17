@@ -1,4 +1,5 @@
-SOURCES = runtime.ss prelude.ss run $(wildcard *.sls)
+# A missing source is not a prerequisite, so a built library works without its sources
+SOURCES = $(wildcard runtime.ss prelude.ss run *.sls)
 
 prebuild: build/lib.o build/lib.scm
 
