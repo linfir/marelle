@@ -1,12 +1,10 @@
 #!/usr/bin/env scheme-script
 
-;; scheme-script compile < SOURCE > LOW, run from the project root
+;; scheme-script compile < SOURCE > LOW, against build/lib.scm, run from the project root
 
 (import (chezscheme)
         (utils)
         (compile))
 
 
-(compile-scheme (with-input-from-file "runtime.ss" read-all)
-                (with-input-from-file "prelude.ss" read-all)
-                (read-all))
+(compile-scheme (with-input-from-file "build/lib.scm" read-all) (read-all))

@@ -409,10 +409,11 @@
                  (list (cons 'quad (make-list n (cadddr x))))))))
       ((function native)
        (function->asm x))
+      ((stubs) runtime-asm)
       (else (error 'top->asm "unknown top-level entry" x))))
 
 
-  ;; The process entry and the allocation stubs, in every program
+  ;; The process entry and the allocation stubs, in the library
   (define runtime-asm
     `((text)
       ;; The process entry: rsp points to argc and is 16-byte aligned;
@@ -438,6 +439,7 @@
       ;;   - rax: the object
       ;;   - rbp: the current frame, moved if a collection happened
       ;; Clobbers: rdi, rsi, rdx, rcx, r8, r9, r10, r11
+      (globl "alloc_object")
       (label "alloc_object")
       (push rbp)                        ; roots[0], also realigns rsp to 16
       (mov rdi rax)
@@ -459,6 +461,7 @@
       ;;   - rbp: the new frame
       ;;   - r10 and argument registers, moved if a collection happened
       ;; Clobbers: rax, r11
+      (globl "alloc_frame")
       (label "alloc_frame")
       (push rcx)                        ; also realigns rsp to 16
       (mov rcx (rip "scheme_len"))
@@ -517,7 +520,6 @@
     (append '((intel_syntax noprefix))
             (map (lambda (name) `(globl ,name)) exports)
             (apply append (map top->asm tops))
-            runtime-asm
             '((section ".note.GNU-stack" "" %progbits))))
 
 

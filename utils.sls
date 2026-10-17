@@ -4,11 +4,14 @@
   (import (chezscheme))
 
 
-  (define (make-counter)
-    (let ((n 0))
+  ;; Gives start + 1, start + 2, ...
+  (define make-counter
+    (case-lambda
+     (() (make-counter 0))
+     ((n)
       (lambda ()
         (set! n (+ n 1))
-        n)))
+        n))))
 
 
   (define (acons k v alist)

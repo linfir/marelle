@@ -752,23 +752,41 @@
                   ,@(map lower-block body)))))
 
 
-  ;; Prints the IR of the program made of forms
-  (define (compile-low forms)
+  ;; Prints the IR of the program made of forms; extern defs and data are another object's.
+  ;; A library (the runtime and the prelude) has no globals, exports every symbol it
+  ;; defines and holds the stubs; a program exports what the library uses
+  (define (compile-low forms library?)
     ;; First pass: every def is known before any code is compiled
     (let-values (((defs datas globals) (parse-program forms)))
       (parameterize ((current-defs defs)
                      (current-datas datas)
                      (current-strings '()))
         ;; Second pass: the globals and data, then the strings the defs use, then the defs
-        (let ((entries (apply append (map-in-order compile-def (filter def-emitted? (map cdr defs))))))
-          (emit-globals globals)
+        (let* ((defs (filter (lambda (d) (and (def-emitted? d) (not (def-extern? d))))
+                             (map cdr defs)))
+               (datas (filter (lambda (d) (not (data-extern? d))) (map cdr datas)))
+               (entries (apply append (map-in-order compile-def defs))))
+          (if library?
+              (print-entry `(export ,@(apply append
+                                             (map (lambda (d)
+                                                    (if (def-native? d)
+                                                        (list (def-code d))
+                                                        (list (def-code d) (def-proc d))))
+                                                  defs))
+                                    ,@(map data-symbol datas)))
+              (begin
+                (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"))
+                (emit-globals globals)))
 
           (for-each (lambda (d)
                       (print-entry `(data ,(data-symbol d) ,(data-nwords d) 0)))
-                    (map cdr datas))
+                    datas)
 
           (for-each (lambda (s)
                       (print-entry `(string ,(cdr s) ,(car s))))
                     (reverse (current-strings)))
 
-          (for-each print-entry entries))))))
+          (for-each print-entry entries)
+
+          (when library?
+            (print-entry '(stubs))))))))

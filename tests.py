@@ -3,11 +3,12 @@
 import argparse
 import fnmatch
 import os
+import sys
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from run import PipelineFailure, run_chez, run_pipeline
+from run import PipelineFailure, build_lib, run_chez, run_pipeline
 
 
 ROOT = Path(__file__).resolve().parent
@@ -194,6 +195,13 @@ def main():
     if not paths:
         print("No tests matched")
         exit(2)
+
+    if not args.chez:
+        try:
+            build_lib()
+        except PipelineFailure as error:
+            sys.stderr.write(f"tests.py: {error}\n{error.result.stderr}")
+            exit(1)
 
     failures = []
     skipped = 0

@@ -2,7 +2,7 @@
 ;; low does the rest (tmps, labels, tail calls, assigned locals)
 
 (library (compile)
-  (export compile-scheme compile-runtime)
+  (export compile-scheme compile-low-program compile-scheme-library print-low)
   (import (chezscheme)
           (utils)
           (only (low-parse) binary-ops tests keywords)
@@ -36,8 +36,8 @@
     (fields names (mutable defs) arity)
     (protocol
      (lambda (new)
-       (lambda ()
-         (new (make-counter) '() (make-eq-hashtable))))))
+       (lambda (first-name)
+         (new (make-counter first-name) '() (make-eq-hashtable))))))
 
 
   ;; Every local and def gets a name x.N, unique in the program
@@ -467,11 +467,11 @@
                            ,@(lower-body prog body-env body lower-value)))))
 
 
-  ;; The low defs and data of runtime.ss, the prelude and the program, after (globals n)
-  (define (program->low runtime prelude program)
-    (when (null? program)
-      (error 'program->low "empty program"))
-    (let* ((prog (make-low-program))
+  ;; The low defs and data of runtime.ss and the prelude, and the interface a program
+  ;; compiles against: (names n), where its fresh names start, (primitive name def arity) for the
+  ;; public runtime defs, (procedure name def arity) for the prelude's, then the low declarations
+  (define (library->low runtime prelude)
+    (let* ((prog (make-low-program 0))
            (public (lower-runtime! prog runtime))
            (prelude-defs (scan-prelude prelude))
            (prelude-names (map-in-order (lambda (d) (fresh-name prog (prelude-def-name d)))
@@ -487,6 +487,49 @@
                   (lift-procedure! prog env name (prelude-def-name d)
                                    (prelude-def-args d) (prelude-def-body d)))
                 prelude-defs prelude-names)
+      (let ((forms (reverse (low-program-defs prog))))
+        (values forms
+                `((names ,((low-program-names prog)))
+                  ,@(map (lambda (b)
+                           `(primitive ,(car b) ,(procedure-binding-proc (cdr b))
+                                       ,(primitive-binding-arity (cdr b))))
+                         public)
+                  ,@(map (lambda (d name)
+                           `(procedure ,(prelude-def-name d) ,name ,(length (prelude-def-args d))))
+                         prelude-defs prelude-names)
+                  ,@(map low-declaration forms))))))
+
+
+  ;; A def or data of the library as a program sees it: inline defs whole, other defs and data
+  ;; declared
+  (define (low-declaration form)
+    (if (eq? (car form) 'data)
+        `(data ,(cadr form) ,(caddr form) (:extern))
+        (let ((head (list-head form 5))
+              (attrs `(,@(list-ref form 5) :extern)))
+          (if (memq ':inline attrs)
+              `(,@head ,attrs ,@(list-tail form 6))
+              `(,@head ,attrs)))))
+
+
+  (define (interface-declarations interface)
+    (filter (lambda (x) (memq (car x) '(def data))) interface))
+
+
+  ;; The low declarations of the interface, (globals n), the lifted defs, then main
+  (define (program->low interface program)
+    (when (null? program)
+      (error 'program->low "empty program"))
+    (let* ((prog (make-low-program (cadr (assq 'names interface))))
+           (env (fold-right (lambda (x env)
+                              (case (car x)
+                                ((primitive)
+                                 (acons (cadr x) (make-primitive-binding (caddr x) (cadddr x)) env))
+                                ((procedure)
+                                 (hashtable-set! (low-program-arity prog) (caddr x) (cadddr x))
+                                 (acons (cadr x) (make-procedure-binding (caddr x)) env))
+                                (else env)))
+                            '() interface)))
       ;; A program ending with a define evaluates to undef
       (let-values (((forms expr) (if (define-form? (car (last-pair program)))
                                      (values program undef)
@@ -502,7 +545,8 @@
                                                     ,(lower-global prog env g)))
                                     globals))
                (main `(def main () -> (val) () ,@inits ,(lower-value prog env expr))))
-          `((globals ,(length globals))
+          `(,@(interface-declarations interface)
+            (globals ,(length globals))
             ,@(reverse (low-program-defs prog))
             ,main)))))
 
@@ -513,14 +557,23 @@
         (lower-named prog env (global-def-name g) (car (global-def-body g)))))
 
 
-  (define (compile-scheme runtime prelude program)
+  (define (print-low forms)
     (parameterize ((print-brackets #f))
-      (for-each pretty-print (program->low runtime prelude program))))
+      (for-each pretty-print forms)))
 
 
-  ;; The low defs and data of runtime.ss alone, for low programs
-  (define (compile-runtime runtime)
-    (let ((prog (make-low-program)))
-      (lower-runtime! prog runtime)
-      (parameterize ((print-brackets #f))
-        (for-each pretty-print (reverse (low-program-defs prog)))))))
+  ;; Prints the low program of a Scheme program
+  (define (compile-scheme interface program)
+    (print-low (program->low interface program)))
+
+
+  ;; Prints the declarations of the interface, then the low program forms
+  (define (compile-low-program interface forms)
+    (print-low (append (interface-declarations interface) forms)))
+
+
+  ;; Prints the low library, returns the interface
+  (define (compile-scheme-library runtime prelude)
+    (let-values (((forms interface) (library->low runtime prelude)))
+      (print-low forms)
+      interface)))

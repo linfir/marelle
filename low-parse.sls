@@ -1,9 +1,9 @@
 (library (low-parse)
   (export parse-program binary-ops tests keywords bindings?
           def-name def-params def-result def-inline? def-public? def-body def-emitted? def-as
-          def-anonymous? def-captures def-native?
+          def-anonymous? def-captures def-native? def-extern?
           def-proc def-code def-params-names def-params-kinds
-          data-nwords data-symbol)
+          data-nwords data-symbol data-extern?)
   (import (chezscheme)
           (utils))
 
@@ -15,15 +15,18 @@
   ;; anonymous? from :anonymous, the procedure object has no name
   ;; captures number of captures from (:captures n), 0 for a static procedure
   ;; native?  from :native, System V convention and a machine stack frame, never collects
+  ;; extern?  from :extern, emitted in another object (separate compilation)
   ;; symbol   the mangled name, prefix of the def's symbols
   (define-record-type def
-    (fields name params result inline? public? body emitted? as anonymous? captures native? symbol))
+    (fields name params result inline? public? body emitted? as anonymous? captures native?
+            extern? symbol))
 
 
   ;; nwords   number of words, zeroed
+  ;; extern?  from (:extern), defined in another object
   ;; symbol   the mangled name
   (define-record-type data
-    (fields name nwords symbol))
+    (fields name nwords extern? symbol))
 
 
   (define (def-proc def) (string-append (def-symbol def) "_proc"))
@@ -186,10 +189,11 @@
     (for-each unbind-local! params))
 
 
-  ;; (def name (param ...) -> (kind ...) (attr ...) body ...)
+  ;; (def name (param ...) -> (kind ...) (attr ...) body ...);
+  ;; an :extern def has no body unless it is :inline
   (define (parse-def form)
     (unless (and (list? form)
-                 (>= (length form) 7)
+                 (>= (length form) 6)
                  (eq? (car form) 'def)
                  (symbol? (cadr form))
                  (list? (caddr form))
@@ -203,10 +207,13 @@
            (public? (and (memq ':public attrs) #t))
            (anonymous? (and (memq ':anonymous attrs) #t))
            (native? (and (memq ':native attrs) #t))
+           (extern? (and (memq ':extern attrs) #t))
            (as (attr-value attrs ':as))
            (captures (or (attr-value attrs ':captures) 0)))
+      (unless (eq? (null? body) (and extern? (not inline?)))
+        (error 'parse-def (if (null? body) "def without a body" "body in an extern def") name))
       (for-each (lambda (a)
-                  (unless (or (memq a '(:inline :public :anonymous :native))
+                  (unless (or (memq a '(:inline :public :anonymous :native :extern))
                               (and (pair? a) (= (length a) 2)
                                    (or (and (eq? (car a) ':as) (symbol? (cadr a)))
                                        (and (eq? (car a) ':captures)
@@ -235,7 +242,7 @@
                            (memq result '(val never))))
             (error 'parse-def "raw parameter or result in a non-inline def" name))
           (let ((def (make-def name params result inline? public? body emitted?
-                               (or as name) anonymous? captures native? (mangle name))))
+                               (or as name) anonymous? captures native? extern? (mangle name))))
             (for-each (lambda (sym) (add-symbol! sym name))
                       (if (eq? name 'main)
                           (list (def-proc def))
@@ -267,11 +274,14 @@
       (error 'parse-data "invalid data" form))
     (let ((name (cadr form))
           (attrs (cadddr form)))
-      (for-each (lambda (a) (error 'parse-data "unknown attribute" a)) attrs)
+      (for-each (lambda (a)
+                  (unless (eq? a ':extern)
+                    (error 'parse-data "unknown attribute" a)))
+                attrs)
       (bind-name! name 'def)
       (let ((sym (mangle name)))
         (add-symbol! sym name)
-        (make-data name (caddr form) sym))))
+        (make-data name (caddr form) (and (memq ':extern attrs) #t) sym))))
 
 
   ;; The (name . def) and (name . data) alists in source order, and the number of global cells

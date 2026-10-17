@@ -1,8 +1,9 @@
 #!/usr/bin/env scheme-script
 
-;; scheme-script run [--low] < SOURCE > ASM, run from the project root
-;; compile, low and asm in one process;
-;; with --low, the source is a low program, compiled after runtime.ss
+;; Run from the project root; compile, low and asm in one process.
+;; scheme-script run --lib DIR: runtime.ss and prelude.ss into DIR/lib.s and the interface DIR/lib.scm
+;; scheme-script run [--low] < SOURCE > ASM: a program, against build/lib.scm;
+;; with --low, the source is a low program
 
 (import (chezscheme)
         (utils)
@@ -18,14 +19,31 @@
         (lambda () (f (read-all)))))))
 
 
-(let* ((source (let ((s (get-string-all (current-input-port))))
-                 (if (eof-object? s) "" s)))
-       (runtime (with-input-from-file "runtime.ss" read-all))
-       (low (if (member "--low" (cdr (command-line)))
-                (string-append (with-output-to-string (lambda () (compile-runtime runtime)))
-                               source)
-                (stage (lambda (program)
-                         (compile-scheme runtime (with-input-from-file "prelude.ss" read-all) program))
-                       source)))
-       (ir (stage compile-low low)))
-  (display (stage compile-asm ir)))
+(define (write-file path text)
+  (call-with-port (open-file-output-port path (file-options no-fail) (buffer-mode block)
+                                         (native-transcoder))
+    (lambda (port) (put-string port text))))
+
+
+(let ((args (cdr (command-line))))
+  (if (and (pair? args) (string=? (car args) "--lib"))
+      (let* ((interface #f)
+             (low (with-output-to-string
+                    (lambda ()
+                      (set! interface
+                            (compile-scheme-library (with-input-from-file "runtime.ss" read-all)
+                                             (with-input-from-file "prelude.ss" read-all))))))
+             (ir (stage (lambda (forms) (compile-low forms #t)) low)))
+        (write-file (string-append (cadr args) "/lib.scm")
+                    (with-output-to-string (lambda () (print-low interface))))
+        (write-file (string-append (cadr args) "/lib.s") (stage compile-asm ir)))
+      (let* ((source (let ((s (get-string-all (current-input-port))))
+                       (if (eof-object? s) "" s)))
+             (interface (with-input-from-file "build/lib.scm" read-all))
+             (low (stage (lambda (forms)
+                           (if (member "--low" args)
+                               (compile-low-program interface forms)
+                               (compile-scheme interface forms)))
+                         source))
+             (ir (stage (lambda (forms) (compile-low forms #f)) low)))
+        (display (stage compile-asm ir)))))

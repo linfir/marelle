@@ -1,10 +1,10 @@
 #!/usr/bin/env scheme-script
 
-;; scheme-script low < SOURCE > IR
+;; scheme-script low [--library] < SOURCE > IR
 
 (import (chezscheme)
         (utils)
         (low-compile))
 
 
-(compile-low (read-all))
+(compile-low (read-all) (and (member "--library" (cdr (command-line))) #t))
