@@ -9,8 +9,7 @@ from subprocess import CompletedProcess, run
 
 
 ROOT = Path(__file__).resolve().parent
-BUILD = ROOT / "build"
-LIB = BUILD / "lib.o"
+LIB = ROOT / "build" / "lib.o"
 
 
 class PipelineFailure(Exception):
@@ -33,13 +32,8 @@ def run_stage(stage, command, **kwargs):
 
 
 def build_lib():
-    """Compiles runtime.ss and prelude.ss into build/lib.o and build/lib.scm when out of date."""
-    sources = [ROOT / "runtime.ss", ROOT / "prelude.ss", ROOT / "run", *ROOT.glob("*.sls")]
-    if LIB.exists() and all(s.stat().st_mtime < LIB.stat().st_mtime for s in sources):
-        return
-    BUILD.mkdir(exist_ok=True)
-    run_stage("lib", ["scheme-script", ROOT / "run", "--lib", BUILD], cwd=ROOT)
-    run_stage("lib", ["as", "-o", LIB, BUILD / "lib.s"])
+    """Makes build/lib.o and build/lib.scm, the precompiled runtime and prelude, when out of date."""
+    run_stage("lib", ["make", "-s", "-C", ROOT, "build/lib.o"])
 
 
 def compile_source(source, low):
