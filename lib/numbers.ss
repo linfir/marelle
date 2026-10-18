@@ -209,6 +209,68 @@
                 (* h h)))
    (else (* b (expt-by-squaring b (- n 1))))))
 
+;; R7RS integer division: floor rounds the quotient down, truncate toward zero
+(define (floor/ n m)
+  (declare unsafe public)
+  (check-division n m "`floor/` expected an integer" "`floor/` expected a nonzero divisor")
+  (values (floor-quotient-integers n m) (modulo n m)))
+
+(define (floor-quotient n m)
+  (declare unsafe public)
+  (check-division n m "`floor-quotient` expected an integer"
+                  "`floor-quotient` expected a nonzero divisor")
+  (floor-quotient-integers n m))
+
+(define (floor-remainder n m)
+  (declare unsafe public)
+  (check-division n m "`floor-remainder` expected an integer"
+                  "`floor-remainder` expected a nonzero divisor")
+  (modulo n m))
+
+(define (truncate/ n m)
+  (declare unsafe public)
+  (check-division n m "`truncate/` expected an integer" "`truncate/` expected a nonzero divisor")
+  (values (quotient n m) (remainder n m)))
+
+(define (truncate-quotient n m)
+  (declare unsafe public)
+  (check-division n m "`truncate-quotient` expected an integer"
+                  "`truncate-quotient` expected a nonzero divisor")
+  (quotient n m))
+
+(define (truncate-remainder n m)
+  (declare unsafe public)
+  (check-division n m "`truncate-remainder` expected an integer"
+                  "`truncate-remainder` expected a nonzero divisor")
+  (remainder n m))
+
+;; The number of bits of the nonnegative integer n
+(define (bit-length n)
+  (declare unsafe)
+  (cond
+   ((eq? n 0) 0)
+   ((fixnum? n) (make-fixnum (raw- (raw 64) (leading-zeros (fixnum-value n)))))
+   (else
+    (let ((k (load (as-raw n) (raw 1))))
+      (make-fixnum (raw- (raw<< k (raw 6)) (leading-zeros (load (as-raw n) (raw+ k (raw 2))))))))))
+
+;; s and n - s^2, s the integer square root: Newton's method from a power of two above it
+(define (exact-integer-sqrt n)
+  (declare unsafe public)
+  (unless (and (integer? n) (>= n 0))
+    (scheme-error "`exact-integer-sqrt` expected a nonnegative integer" n))
+  (if (< n 2)
+      (values n 0)
+      (let next ((x (bitwise-arithmetic-shift-left 1 (quotient (+ (bit-length n) 1) 2))))
+        (let ((y (quotient (+ x (quotient n x)) 2)))
+          (if (>= y x)
+              (values x (- n (* x x)))
+              (next y))))))
+
+(define (square x)
+  (declare public)
+  (* x x))
+
 (define (fibo n)
   (declare public)
   (cond

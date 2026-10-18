@@ -1,0 +1,4 @@
+(exact-integer-sqrt -4)
+---
+stage = "executable"
+stderr = "Error: `exact-integer-sqrt` expected a nonnegative integer: -4\n"
