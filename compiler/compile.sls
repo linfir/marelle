@@ -33,7 +33,7 @@
           (copy-prop))
 
 
-;; The def of the function being compiled, for self tail calls
+  ;; The def of the function being compiled, for self tail calls
   (define current-function (make-parameter #f))
 
 
@@ -1064,15 +1064,15 @@
                (parameterize ((unsafe-code? (def-unsafe? def))
                               (current-function def))
                  (let ((body-env (append (map (lambda (p i)
-                                                 (when (boxed? (car p))
-                                                   (error 'compile-low-def
-                                                          "assigned and captured parameter" (car p)))
-                                                 (let ((arg `(arg ,(+ i 1))))
-                                                   (bind-local (car p)
-                                                               (if (eq? (cdr p) 'raw) `(as-raw ,arg) arg)
-                                                               #t)))
-                                               params (iota (length params)))
-                                          env)))
+                                                (when (boxed? (car p))
+                                                  (error 'compile-low-def
+                                                         "assigned and captured parameter" (car p)))
+                                                (let ((arg `(arg ,(+ i 1))))
+                                                  (bind-local (car p)
+                                                              (if (eq? (cdr p) 'raw) `(as-raw ,arg) arg)
+                                                              #t)))
+                                              params (iota (length params)))
+                                         env)))
                    (compile-seq body-env (def-core-body def)
                                 (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)
@@ -1080,7 +1080,7 @@
           (begin
             (check-noalloc (def-name def) blocks)
             (add-entries! `((noalloc ,(def-code def) (arity ,(length params))
-                                    ,@(propagate-copies (map lower-block blocks) #t)))))
+                                     ,@(propagate-copies (map lower-block blocks) #t)))))
           (add-entries! (procedure-entries def blocks)))))
 
 

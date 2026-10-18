@@ -61,7 +61,7 @@
 
   (define *special-forms*
     '(if cond case and or let let* letrec letrec* lambda begin set! when unless do define
-      let-values let*-values define-values))
+         let-values let*-values define-values))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
@@ -75,7 +75,7 @@
     (car (find (lambda (m) (eq? (cdr m) keyword)) markers)))
 
 
-;; (core name), the library def name, even where a program rebinds it
+  ;; (core name), the library def name, even where a program rebinds it
   (define (core-ref name)
     `(,(marker 'core) ,name))
 
@@ -190,7 +190,7 @@
     (values (cadr form) (cddr form)))
 
 
-;; (let-values ((formals init) ...) body ...), or let*-values => (values bindings body)
+  ;; (let-values ((formals init) ...) body ...), or let*-values => (values bindings body)
   (define (parse-let-values form duplicates-ok?)
     (unless (and (>= (length form) 3)
                  (list? (cadr form)))
