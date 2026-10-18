@@ -8,6 +8,7 @@
           (front)
           (letrec)
           (vars)
+          (closure)
           (defs)
           (compile)
           (output))
@@ -69,12 +70,12 @@
           def)))
 
 
-  ;; The core of a def, its letrec* forms fixed, analyzed
+  ;; The core of a def, its letrec* forms fixed, analyzed, its closures converted
   (define (make-core env names body unsafe?)
     (let* ((core (front-def env names body unsafe?))
            (core (cons (car core) (fix-letrec (cdr core)))))
       (analyze-def! (car core) (cdr core))
-      core))
+      (cons (car core) (convert-closures (cdr core)))))
 
 
   ;; Each def's env: env, or unsafe-env for an unsafe def, then its core when it has a body

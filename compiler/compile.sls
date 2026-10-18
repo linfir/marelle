@@ -1,4 +1,4 @@
-;; Scheme to block IR: closure conversion, kinds, tail calls, named lets as loops, inlining.
+;; Scheme to block IR: closures, kinds, tail calls, named lets as loops, inlining.
 ;;
 ;; There are 4 kinds:
 ;; - raw    a plain word
@@ -25,6 +25,7 @@
           (utils)
           (parse)
           (vars)
+          (closure)
           (defs)
           (gc-check)
           (output)
@@ -298,7 +299,7 @@
           (,(marker 'if) ,t ,t ,(expand-or (cdr exprs))))))))
 
 
-  ;; if, let, begin, lambda, set!, and when and unless in unsafe defines
+  ;; if, let, begin, closure, set!, and when and unless in unsafe defines
   (define (compile-special env keyword expr)
     (case keyword
       ((if)
@@ -313,7 +314,7 @@
       ((begin)
        (compile-seq env (parse-begin expr) compile-value))
 
-      ((lambda)
+      ((closure)
        (compile-lambda env #f expr))
 
       ((set!)
@@ -848,9 +849,9 @@
                      body compile-last))))
 
 
-  ;; expr, naming it name if it is a lambda
+  ;; expr, naming it name if it is a closure
   (define (compile-named env name expr)
-    (if (eq? (special-keyword expr) 'lambda)
+    (if (eq? (special-keyword expr) 'closure)
         (compile-lambda env name expr)
         (compile-value env expr)))
 
@@ -873,8 +874,8 @@
       (immediate 'undef)))
 
 
-  ;; Lifts the lambda into its own function, and returns its procedure object, or a closure
-  ;; filled with the captures
+  ;; Lifts the closure form into its own function, and returns its procedure object, or a
+  ;; closure filled with the captures
   (define (compile-lambda env name form)
     (let* ((captures (lambda-captures env form))
            (def (lambda-def name form captures)))
@@ -887,15 +888,19 @@
             (emit-op! 'mov 'val (list `(as-val ,c)))))))
 
 
-  ;; The entries of env a lambda form captures: its free locals bound to a local-binding
+  ;; The entries of env a closure form captures
   (define (lambda-captures env form)
-    (filter (lambda (entry) (and entry (local-binding? (cdr entry))))
-            (map (lambda (var) (assq var env)) (free-locals form))))
+    (map (lambda (var)
+           (let ((entry (assq var env)))
+             (unless (and entry (local-binding? (cdr entry)))
+               (error 'compile-lambda "capture not a local" var))
+             entry))
+         (cadr form)))
 
 
-  ;; The def of a lambda form, with its symbols
+  ;; The def of a closure form, with its symbols
   (define (lambda-def name form captures)
-    (let-values (((args body) (parse-lambda form)))
+    (let-values (((capture-names args body) (parse-closure form)))
       (let ((def (make-def (or name 'lambda) (mangle (fresh-name (or name 'lambda)))
                            (formals->params args) 'val
                            #f #f #f #t (unsafe-code?) (length captures) (not name) #f body
@@ -918,16 +923,16 @@
               captures (iota (length captures))))
 
 
-  ;; (fix ((name lambda) ...) body ...), from the letrec pass: unassigned names bound to
-  ;; lambdas, which may refer to each other. When they capture nothing else, the names are
-  ;; static procedures, called directly. Else each is a closure (or a static procedure object
+  ;; (fix ((name closure) ...) body ...), from the letrec pass: unassigned names bound to
+  ;; lambdas, which may refer to each other. When they capture nothing, the names are static
+  ;; procedures, called directly. Else each is a closure (or a static procedure object
   ;; when it captures nothing); they are all allocated, their captures set to undef so a
   ;; collection finds no garbage, then filled.
   (define (compile-fix env x compile-last)
     (let ((names (map car (cadr x)))
           (forms (map cadr (cadr x)))
           (body (cddr x)))
-      (if (for-all (lambda (form) (null? (lambda-captures env form))) forms)
+      (if (for-all (lambda (form) (null? (cadr form))) forms)
           (let* ((defs (map (lambda (name form) (lambda-def name form '())) names forms))
                  (inner (append (map (lambda (name def) (cons name (make-def-binding def)))
                                      names defs)

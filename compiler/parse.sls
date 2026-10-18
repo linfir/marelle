@@ -49,10 +49,10 @@
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
-  ;; fix and check-defined have no source form
+  ;; fix, check-defined and closure have no source form
   (define markers
     (map (lambda (k) (cons (gensym (symbol->string k)) k))
-         (append '(eq? fix check-defined) *special-forms*)))
+         (append '(eq? fix check-defined closure) *special-forms*)))
 
 
   (define (marker keyword)
