@@ -55,7 +55,7 @@
    ((raw= (load p (raw 0)) (vector-type)) (raw+ (load p (raw 1)) (raw 2)))
    ((raw= (load p (raw 0)) (flexvector-type)) (raw 3))
    ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
-   (else (raw 2)))) ; pair, box or values
+   (else (raw 2)))) ; pair, box, values or symbol
 
 ;; The new address of the object x points to, copied to gc-free if it is in the
 ;; current space; a moved object holds forward-type and its new address
@@ -106,6 +106,7 @@
                  ((raw= header (procedure-type)) (raw 5))
                  ((raw= header (box-type)) (raw 1))
                  ((raw= header (values-type)) (raw 1))
+                 ((raw= header (symbol-type)) (raw 1)) ; the name
                  ((raw= header (bignum-type)) n) ; only raw words
                  ((raw= header (vector-type)) (raw 2))
                  ((raw= header (flexvector-type)) (raw 2)) ; the storage
@@ -126,6 +127,7 @@
     (forward-words (address "scheme_literals") (load (address "scheme_nliterals") (raw 0)))
     (forward-words (address "scheme_library_literals")
                    (load (address "scheme_library_nliterals") (raw 0)))
+    (forward-words symbol-table (raw 1))
     (let scan-next ((p to))
       (if (raw<u p (load gc-free (raw 0)))
           (scan-next (raw+ p (raw<< (scan p) (raw 3))))

@@ -112,6 +112,7 @@
    ((raw= (load (as-raw x) (raw 0)) (bignum-type)) (display-bignum out (as-raw x)))
    ((raw= (load (as-raw x) (raw 0)) (vector-type)) (display-vector out x))
    ((string-header? (load (as-raw x) (raw 0))) (display-string out x))
+   ((raw= (load (as-raw x) (raw 0)) (symbol-type)) (display-symbol out x))
    ((raw= (load (as-raw x) (raw 0)) (flexvector-type)) (put-string out "#<flexvector>"))
    ((raw= (load (as-raw x) (raw 0)) (values-type)) (display-values out x))
    ((raw= (load (as-raw x) (raw 0)) (procedure-type))
@@ -143,6 +144,17 @@
            (else (put-utf8 out n)))
           (char-next (raw+ i (raw 1))))))
   (put-string out "\""))
+
+;; Its name, bare
+(define (display-symbol (raw out) sym)
+  (declare unsafe noalloc (result void))
+  (let ((s (symbol-name sym)))
+    (let char-next ((i (raw 0)))
+      (if (raw= i (string-nchars s))
+          undef
+          (begin
+            (put-utf8 out (string-code s i))
+            (char-next (raw+ i (raw 1))))))))
 
 ;; The escape of the character n in a string, or 0
 (define (string-escape (raw n))

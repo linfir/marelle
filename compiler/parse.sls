@@ -1,5 +1,6 @@
 (library (parse)
-  (export undef unbound immediate? vector-literal? special? special-keyword source-keyword marker
+  (export undef unbound immediate? vector-literal? quoted-datum? make-quoted-symbol quoted-symbol?
+          quoted-symbol-name special? special-keyword source-keyword marker
           define-form? validate-parameters
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
@@ -41,7 +42,16 @@
   ;; #(...) or '#(...)
   (define (vector-literal? x)
     (or (vector? x)
-        (and (list? x) (= (length x) 2) (eq? (car x) 'quote) (vector? (cadr x)))))
+        (and (quoted-datum? x) (vector? (cadr x)))))
+
+
+  (define (quoted-datum? x)
+    (and (list? x) (= (length x) 2) (eq? (car x) 'quote)))
+
+
+  ;; 'name after the front pass, a leaf for the passes after it
+  (define-record-type quoted-symbol
+    (fields name))
 
 
   (define *special-forms*

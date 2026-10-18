@@ -154,7 +154,8 @@
   ;; Locals are the gensyms of the front pass; a global may change in any call
   (define (simple-init? x simple-vars group)
     (cond
-     ((or (immediate? x) (and (integer? x) (exact? x)) (string? x) (vector-literal? x))
+     ((or (immediate? x) (and (integer? x) (exact? x)) (string? x) (vector-literal? x)
+          (quoted-symbol? x))
       #t)
      ((symbol? x)
       (and (gensym? x)

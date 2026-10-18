@@ -139,7 +139,10 @@
      ((string? expr)
       (if (unsafe-code?)
           (intern-string! expr)
-          (emit-op! 'load 'val (list (literals-symbol) `(quad ,(intern-literal! expr))))))
+          (literal-ref expr)))
+
+     ((quoted-symbol? expr)
+      (literal-ref (quoted-symbol-name expr)))
 
      ((symbol? expr)
       (compile-variable env expr))
@@ -158,6 +161,11 @@
 
      (else
       (error 'compile-value "unsupported expression" expr))))
+
+
+  ;; The load of the literal cell of the string or symbol x
+  (define (literal-ref x)
+    (emit-op! 'load 'val (list (literals-symbol) `(quad ,(intern-literal! x)))))
 
 
   (define (compile-variable env x)
@@ -203,17 +211,21 @@
 
 
   ;; A vector literal, rebuilt at each evaluation like bignums, so it is never static;
-  ;; its elements are integers, booleans, characters, strings, () and vectors
+  ;; its elements are integers, booleans, characters, strings, symbols, () and vectors
   (define (compile-vector-literal env v)
     (let ((t (call-def env (core-def 'make-vector)
                        (list (immediate-operand (vector-length v)) (immediate-operand 0))
                        v compile-result)))
       (for-each (lambda (x i)
-                  (unless (or (integer? x) (boolean? x) (char? x) (string? x) (null? x) (vector? x))
+                  (unless (or (integer? x) (boolean? x) (char? x) (string? x) (symbol? x) (null? x)
+                              (vector? x))
                     (error 'compile-value "unsupported literal" x))
                   (call-def env (core-def 'vector-set!)
                             (list t (immediate-operand i)
-                                  (compile-value env (if (null? x) ''() x)))
+                                  (compile-value env (cond
+                                                      ((null? x) ''())
+                                                      ((symbol? x) (make-quoted-symbol x))
+                                                      (else x))))
                             v compile-result))
                 (vector->list v) (iota (vector-length v)))
       t))
@@ -1028,8 +1040,9 @@
       (add-entries! (procedure-entries def blocks))))
 
 
-  ;; The function of def, which fills the literal cells of the compilation at startup: each
-  ;; with literal-string of its string's UTF-8 bytes, a static string
+  ;; The function of def, which fills the literal cells of the compilation at startup, in order:
+  ;; a string's with literal-string of its UTF-8 bytes, a static string, a symbol's with
+  ;; string->symbol of its name's cell, filled before
   (define (compile-literal-init def)
     (let ((blocks
            (with-function
@@ -1037,20 +1050,26 @@
               (parameterize ((unsafe-code? #t)
                              (current-function def))
                 (for-each (lambda (l)
-                            (let* ((s (car l))
-                                   (ascii? (for-all (lambda (c) (< (char->integer c) 128))
-                                                    (string->list s)))
-                                   (op (call-def '() (core-def 'literal-string)
-                                                 (list (intern-string! s)
-                                                       `(quad ,(bytevector-length (string->utf8 s)))
-                                                       `(quad ,(string-length s))
-                                                       `(quad ,(if ascii? 1 0)))
-                                                 s compile-result)))
+                            (let* ((x (car l))
+                                   (op (if (symbol? x)
+                                           (call-def '() (core-def 'string->symbol)
+                                                     (list (literal-ref (symbol->string x)))
+                                                     x compile-result)
+                                           (call-def '() (core-def 'literal-string)
+                                                     (list (intern-string! x)
+                                                           `(quad ,(bytevector-length (string->utf8 x)))
+                                                           `(quad ,(string-length x))
+                                                           `(quad ,(if (ascii? x) 1 0)))
+                                                     x compile-result))))
                               (emit! `(store ,(literals-symbol) (quad ,(cdr l)) ,op))))
                           (reverse (current-literals)))
                 (compile-tail '() def undef))))))
       (check-gc-safety (def-name def) blocks)
       (add-entries! (procedure-entries def blocks))))
+
+
+  (define (ascii? s)
+    (for-all (lambda (c) (< (char->integer c) 128)) (string->list s)))
 
 
   ;; A def with typed parameters, compiled in its env

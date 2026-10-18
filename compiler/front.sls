@@ -56,6 +56,8 @@
         (if (and entry (symbol? (cdr entry))) (cdr entry) x)))
      ((or (immediate? x) (vector-literal? x) (not (non-empty-list? x)))
       x)
+     ((quoted-datum? x)
+      (front-quoted (cadr x)))
      (else
       (let ((keyword (source-keyword env x)))
         (case keyword
@@ -266,8 +268,16 @@
             `(,(marker 'if) ,test (,(marker 'begin) ,@body) ,(expand-cond env rest)))))))
 
 
+  ;; A quoted symbol, or a self-evaluating datum; other quoted data are not supported yet
+  (define (front-quoted x)
+    (cond
+     ((symbol? x) (make-quoted-symbol x))
+     ((or (immediate? x) (and (integer? x) (exact? x)) (string? x)) x)
+     (else (error 'front-expr "unsupported quoted datum" x))))
+
+
   ;; Each clause is ((datum ...) expr ...), ((datum ...) => f), or a last (else expr ...) or
-  ;; (else => f); the key is compared with eq?, so the datums are immediates
+  ;; (else => f); the key is compared with eq?, so the datums are immediates or symbols
   (define (expand-case env expr)
     (let-values (((key clauses) (parse-case expr)))
       (let ((t (gensym "case")))
@@ -279,9 +289,11 @@
                 `(,(caddr clause) ,t))
               `(,(marker 'begin) ,@(cdr clause))))
         (define (datum x)
-          (unless (or (immediate? x) (null? x))
-            (error 'expand-case "unsupported case datum" x))
-          (if (null? x) ''() x))
+          (cond
+           ((null? x) ''())
+           ((symbol? x) (make-quoted-symbol x))
+           ((immediate? x) x)
+           (else (error 'expand-case "unsupported case datum" x))))
         `(,(marker 'let) ((,t ,key))
           ,(let loop ((clauses clauses))
              (cond

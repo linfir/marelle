@@ -135,14 +135,18 @@
   (code->char (string-code s (fixnum-value i))))
 
 ;; Same kind and length, then the units, whose padding is zero
-(define (string=? a b)
-  (declare unsafe public)
-  (check-string a "`string=?` expected a string")
-  (check-string b "`string=?` expected a string")
+(define (same-string? a b)
+  (declare unsafe noalloc)
   (and (raw= (load (as-raw a) (raw 0)) (load (as-raw b) (raw 0)))
        (raw= (string-nchars a) (string-nchars b))
        (words=? (raw+ (as-raw a) (raw 24)) (raw+ (as-raw b) (raw 24))
                 (raw- (string-words (load (as-raw a) (raw 0)) (string-nchars a)) (raw 3)))))
+
+(define (string=? a b)
+  (declare unsafe public)
+  (check-string a "`string=?` expected a string")
+  (check-string b "`string=?` expected a string")
+  (same-string? a b))
 
 (define (string-append . strings)
   (declare unsafe public)

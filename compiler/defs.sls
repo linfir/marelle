@@ -97,7 +97,8 @@
 
 
   ;; Per compilation: the fresh name counter, the symbols (symbol => name), the interned strings
-  ;; ((string . name), newest first), the string literals ((string . cell index), newest first)
+  ;; ((string . name), newest first), the string and symbol literals ((datum . cell index),
+  ;; newest first)
   ;; and the data of their cells, the defs main calls first, the entries of the compiled functions
   ;; (newest first), the library defs the compiler calls (name => def), and the inline defs being
   ;; expanded
@@ -153,11 +154,14 @@
         name))))
 
 
-  ;; The index of the literal cell of the Scheme string x
+  ;; The index of the literal cell of the Scheme string or symbol x; a symbol's name gets its
+  ;; cell first, so it is filled first
   (define (intern-literal! x)
     (cond
      ((assoc x (current-literals)) => cdr)
      (else
+      (when (symbol? x)
+        (intern-literal! (symbol->string x)))
       (let ((i (length (current-literals))))
         (current-literals (acons x i (current-literals)))
         i))))

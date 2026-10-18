@@ -70,7 +70,7 @@
   ;; The library defs a letrec init may call and stay simple
   (define pure-names
     '(car cdr cons + - * = < > <= >= eq? eqv? not null? pair? boolean? integer? procedure?
-      char? vector? zero?))
+      char? string? symbol? vector? zero?))
 
 
   ;; Per compilation: the library's defs of pure-names
