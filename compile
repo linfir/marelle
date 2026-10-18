@@ -7,4 +7,8 @@
         (library))
 
 
+;; Locals and the markers are gensyms: errors print their names
+(print-gensym #f)
+
+
 (compile-scheme-program (with-input-from-file "build/lib.scm" read-all) (read-all))

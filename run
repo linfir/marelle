@@ -10,6 +10,10 @@
         (asm))
 
 
+;; Locals and the markers are gensyms: errors print their names
+(print-gensym #f)
+
+
 ;; The forms of lib/*.ss, in file name order
 (define (library-forms)
   (apply append

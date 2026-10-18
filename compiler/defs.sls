@@ -3,6 +3,7 @@
 (library (defs)
   (export make-def def? def-name def-symbol def-params def-result def-inline? def-public? def-native?
           def-procedure? def-unsafe? def-captures def-anonymous? def-extern? def-body def-env def-env-set!
+          def-core def-core-set! def-core-names def-core-body
           make-data data? data-name data-symbol data-nwords data-extern?
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
           procedure-type binary-ops tests low-ops unsafe-bindings
@@ -68,9 +69,10 @@
   ;; anonymous? the procedure object has no name
   ;; extern?    emitted in another object (the library, for a program)
   ;; env        the env of the body, set once every name is bound
+  ;; core       (names . body): the parameters' names and the body after the front pass
   (define-record-type def
     (fields name symbol params result inline? public? native? procedure? unsafe? captures
-            anonymous? extern? body (mutable env)))
+            anonymous? extern? body (mutable env) (mutable core)))
 
 
   (define-record-type data
@@ -84,6 +86,8 @@
         "scheme_main"
         (string-append (def-symbol def) "_code")))
   (define (def-params-kinds def) (map cdr (def-params def)))
+  (define (def-core-names def) (car (def-core def)))
+  (define (def-core-body def) (cdr (def-core def)))
   (define (def-rest? def)
     (and (pair? (def-params def)) (eq? (cdar (last-pair (def-params def))) 'rest)))
   ;; The parameters but the rest one

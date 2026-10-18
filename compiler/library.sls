@@ -5,6 +5,7 @@
   (import (chezscheme)
           (utils)
           (parse)
+          (front)
           (vars)
           (defs)
           (compile)
@@ -51,7 +52,7 @@
                               (library-def-result x)
                               (and (memq ':inline attrs) #t) (and (memq ':public attrs) #t)
                               (and (memq ':native attrs) #t) (library-def-procedure? x)
-                              (library-def-unsafe? x) 0 #f #f (library-def-body x) #f)))
+                              (library-def-unsafe? x) 0 #f #f (library-def-body x) #f #f)))
           (when (and (def-native? def) (or (def-inline? def) (def-public? def)))
             (error 'scanned-item ":native with another attribute" name))
           ;; Natives take their arguments in the System V registers
@@ -67,11 +68,14 @@
           def)))
 
 
-  ;; Each def's env: env, or unsafe-env for an unsafe def
+  ;; Each def's env: env, or unsafe-env for an unsafe def, then its core when it has a body
   (define (set-envs! items env unsafe-env)
     (for-each (lambda (x)
                 (when (def? x)
-                  (def-env-set! x (if (def-unsafe? x) unsafe-env env))))
+                  (def-env-set! x (if (def-unsafe? x) unsafe-env env))
+                  (unless (null? (def-body x))
+                    (def-core-set! x (front-def (def-env x) (map car (def-params x))
+                                                (def-body x))))))
               items))
 
 
@@ -152,7 +156,7 @@
         (apply (lambda (name symbol params result attrs unsafe? procedure? . body)
                  (make-def name symbol params result (and (memq 'inline attrs) #t)
                            (and (memq 'public attrs) #t) (and (memq 'native attrs) #t)
-                           procedure? unsafe? 0 #f #t body #f))
+                           procedure? unsafe? 0 #f #t body #f #f))
                (cdr x))))
 
 
@@ -235,12 +239,12 @@
              (parameterize ((core-defs (map (lambda (x) (cons (def-name x) x))
                                             (filter def? library))))
                (compile-defs! items)
-               (compile-procedure
-                (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f
-                          (main-body forms globals (or (define-form? (car (last-pair all)))
-                                                       (define-data-form? (car (last-pair all)))))
-                          env)
-                env '()))
+               (let ((body (main-body forms globals (or (define-form? (car (last-pair all)))
+                                                        (define-data-form? (car (last-pair all)))))))
+                 (compile-procedure
+                  (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
+                            (front-def env '() body))
+                  env '())))
              (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"))
              (emit-globals (length globals))
              (print-data items)

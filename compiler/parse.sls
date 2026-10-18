@@ -44,7 +44,7 @@
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them
   (define markers
     (map (lambda (k) (cons (gensym (symbol->string k)) k))
-         '(if let letrec* begin set! lambda or eq?)))
+         (cons 'eq? *special-forms*)))
 
 
   (define (marker keyword)

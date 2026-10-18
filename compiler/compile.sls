@@ -263,7 +263,7 @@
               (unless (>= (length expr) 3)
                 (error 'expand "invalid when or unless" expr))
               (let ((body `(,(marker 'begin) ,@(cddr expr))))
-                (if (eq? (car expr) 'when)
+                (if (eq? (special-keyword env expr) 'when)
                     `(,(marker 'if) ,(cadr expr) ,body ,undef)
                     `(,(marker 'if) ,(cadr expr) ,undef ,body))))))
       (else (expand-variadic env expr))))
@@ -897,14 +897,14 @@
   (define (compile-inline def ops form compile-last)
     (when (memq def (inlining))
       (error 'compile-inline "recursive inline def" (def-name def)))
-    (let* ((names (map car (def-params def)))
+    (let* ((names (def-core-names def))
            (env (def-env def))
-           (vars (free-vars (bind-scope env names) (def-body def)))
+           (vars (free-vars (bind-scope env names) (def-core-body def)))
            (callee-env (append (map (lambda (name op) (bind-local name op vars #f)) names ops)
                                env)))
       (parameterize ((inlining (cons def (inlining)))
                      (unsafe-code? (def-unsafe? def)))
-        (compile-body callee-env (def-body def)
+        (compile-body callee-env (def-core-body def)
                       (lambda (env x) (compile-last env def x))))))
 
 
@@ -973,7 +973,8 @@
                           (reverse (captured-vars env (formals-names args) body))))
            (def (make-def (or name 'lambda) (mangle (fresh-name (or name 'lambda)))
                           (formals->params args) 'val
-                          #f #f #f #t (unsafe-code?) (length captures) (not name) #f body #f)))
+                          #f #f #f #t (unsafe-code?) (length captures) (not name) #f body #f
+                          (cons (formals-names args) body))))
       (for-each (lambda (c)
                   (when (eq? (kind (local-binding-operand (cdr c))) 'raw)
                     (error 'compile-lambda "captured raw variable" (car c))))
@@ -998,8 +999,8 @@
   ;; Compiles the procedure def (a lambda, a procedure define or main) in env, the enclosing
   ;; env, with its captures, (name . binding) pairs of env, loaded from the closure
   (define (compile-procedure def env captures)
-    (let* ((args (map car (def-params def)))
-           (body (def-body def))
+    (let* ((args (def-core-names def))
+           (body (def-core-body def))
            (outer (disable-loops (filter (lambda (b) (not (local-binding? (cdr b)))) env) 'lambda))
            (blocks
             (with-function
@@ -1026,14 +1027,14 @@
 
   ;; A def with typed parameters, compiled in its env
   (define (compile-low-def def)
-    (let* ((params (def-params def))
+    (let* ((params (map cons (def-core-names def) (def-params-kinds def)))
            (env (def-env def))
            (blocks
             (with-function
              (lambda ()
                (parameterize ((unsafe-code? (def-unsafe? def))
                               (current-function def))
-                 (let* ((vars (free-vars (bind-scope env (map car params)) (def-body def)))
+                 (let* ((vars (free-vars (bind-scope env (map car params)) (def-core-body def)))
                         (body-env (append (map (lambda (p i)
                                                  (when (boxed? (car p) vars)
                                                    (error 'compile-low-def
@@ -1044,7 +1045,7 @@
                                                                vars #t)))
                                                params (iota (length params)))
                                           env)))
-                   (compile-body body-env (def-body def)
+                   (compile-body body-env (def-core-body def)
                                  (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)
       (if (def-native? def)
