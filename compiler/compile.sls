@@ -256,7 +256,7 @@
        (let-values (((bindings body) (parse-letrec expr)))
          `(,(marker 'let) ,(map (lambda (b) (list (car b) undef)) bindings)
            ,@(map (lambda (b) `(,(marker 'set!) ,@b)) bindings)
-           ,@body)))
+           ,@(expand-body (bind-scope env (map car bindings)) body))))
       ((when unless)
        (and (not (unsafe-code?))
             (begin
@@ -410,6 +410,9 @@
       ((set!)
        (let-values (((var value) (parse-set! expr)))
          (compile-set! env var value)))
+
+      ((define)
+       (error 'compile-value "invalid context for definition" expr))
 
       ;; The body's value when it is a val, else undef, so the body may have any kind
       ((when unless)
@@ -716,6 +719,10 @@
       (compile-last env last)))
 
 
+  (define (compile-body env body compile-last)
+    (compile-seq env (expand-body env body) compile-last))
+
+
   ;; The value of a def's last expression x, checked against its result
   (define (compile-result env def x)
     (finish-result def (compile-value env x)))
@@ -834,12 +841,12 @@
                       (error 'compile-loop "assigned and captured loop variable" v)))
                   vars)
         (start-block! label)
-        (compile-seq (append (map (lambda (v slot)
-                                    (cons v (make-local-binding `(mutable ,slot) #f)))
-                                  vars slots)
-                             (acons name (make-loop-binding label slots 'here) env))
-                     body
-                     compile-last))))
+        (compile-body (append (map (lambda (v slot)
+                                     (cons v (make-local-binding `(mutable ,slot) #f)))
+                                   vars slots)
+                              (acons name (make-loop-binding label slots 'here) env))
+                      body
+                      compile-last))))
 
 
   ;; Reading a var copies its slot, so the args are computed before any slot is set
@@ -897,8 +904,8 @@
                                env)))
       (parameterize ((inlining (cons def (inlining)))
                      (unsafe-code? (def-unsafe? def)))
-        (compile-seq callee-env (def-body def)
-                     (lambda (env x) (compile-last env def x))))))
+        (compile-body callee-env (def-body def)
+                      (lambda (env x) (compile-last env def x))))))
 
 
   ;; The env entry of the variable name bound to op, vars being the variables of its scope:
@@ -928,9 +935,9 @@
                                       (error 'compile-let "expected a val or a raw" b))
                                     op))
                                 bindings)))
-        (compile-seq (append (map (lambda (b op) (bind-local (car b) op vars #f)) bindings ops)
-                             env)
-                     body compile-last))))
+        (compile-body (append (map (lambda (b op) (bind-local (car b) op vars #f)) bindings ops)
+                              env)
+                      body compile-last))))
 
 
   ;; expr, naming it name if it is a lambda
@@ -1012,7 +1019,7 @@
                         (body-env (append (map (lambda (x i) (bind-local x `(arg ,(+ i 1)) vars #t))
                                                args (iota (length args)))
                                           inner)))
-                   (compile-seq body-env body (lambda (env x) (compile-tail env def x)))))))))
+                   (compile-body body-env body (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)
       (add-entries! (procedure-entries def blocks))))
 
@@ -1037,8 +1044,8 @@
                                                                vars #t)))
                                                params (iota (length params)))
                                           env)))
-                   (compile-seq body-env (def-body def)
-                                (lambda (env x) (compile-tail env def x)))))))))
+                   (compile-body body-env (def-body def)
+                                 (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)
       (if (def-native? def)
           (begin

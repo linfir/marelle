@@ -160,10 +160,41 @@
     (and (non-empty-list? form) (eq? (car form) 'define-data)))
 
 
-  ;; Prints the IR of the program; a define with a declare and define-data are static, like the
-  ;; library's, other defines are global cells, set in order by main before its last expression
+  (define (splice-begins forms)
+    (apply append (map (lambda (x)
+                         (if (and (non-empty-list? x) (eq? (car x) 'begin))
+                             (splice-begins (cdr x))
+                             (list x)))
+                       forms)))
+
+
+  ;; The body of main: forms in order, each define a set! of its global, then undef if the
+  ;; program ends with a define
+  (define (main-body forms globals ends-with-define?)
+    (let loop ((forms forms)
+               (globals globals)
+               (acc '()))
+      (cond
+       ((null? forms)
+        (reverse (if ends-with-define? (cons undef acc) acc)))
+       ((define-form? (car forms))
+        (let ((g (car globals)))
+          (loop (cdr forms)
+                (cdr globals)
+                (cons `(,(marker 'set!) ,(global-def-name g)
+                        ,(if (global-def-args g)
+                             `(,(marker 'lambda) ,(global-def-args g) ,@(global-def-body g))
+                             (car (global-def-body g))))
+                      acc))))
+       (else
+        (loop (cdr forms) globals (cons (car forms) acc))))))
+
+
+  ;; Prints the IR of the program, its top-level forms with begins spliced: a define with a declare
+  ;; and define-data are static, like the library's, other defines are global cells, set in order
+  ;; by main among the expressions; the last form gives the result
   (define (compile-scheme-program interface program)
-    (when (null? program)
+    (when (null? (splice-begins program))
       (error 'compile-scheme-program "empty program"))
     (new-compilation
      (cadr (assq 'names interface))
@@ -178,14 +209,11 @@
                    library)
          (let-values (((safe unsafe) (item-bindings library)))
            (set-envs! library safe (append safe unsafe unsafe-bindings)))
-         (let*-values (((forms expr) (if (or (define-form? (car (last-pair program)))
-                                             (define-data-form? (car (last-pair program))))
-                                         (values program undef)
-                                         (split-last program)))
+         (let*-values (((all) (splice-begins program))
                        ((static) (filter (lambda (x) (or (declared-define? x) (define-data-form? x)))
-                                         forms))
-                       ((globals) (scan-defs (filter (lambda (x) (not (memq x static))) forms)
-                                             make-global-def))
+                                         all))
+                       ((forms) (filter (lambda (x) (not (memq x static))) all))
+                       ((globals) (scan-defs (filter define-form? forms) make-global-def))
                        ((items) (map scanned-item (scan-library static)))
                        ((safe unsafe) (item-bindings items)))
            (for-each (lambda (g)
@@ -209,14 +237,8 @@
                (compile-defs! items)
                (compile-procedure
                 (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f
-                          `(,@(map (lambda (g)
-                                     `(,(marker 'set!) ,(global-def-name g)
-                                       ,(if (global-def-args g)
-                                            `(,(marker 'lambda) ,(global-def-args g)
-                                              ,@(global-def-body g))
-                                            (car (global-def-body g)))))
-                                   globals)
-                            ,expr)
+                          (main-body forms globals (or (define-form? (car (last-pair all)))
+                                                       (define-data-form? (car (last-pair all)))))
                           env)
                 env '()))
              (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"))

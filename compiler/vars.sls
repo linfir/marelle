@@ -50,7 +50,7 @@
     (fields label slots state))
 
 
-  ;; Free variables of exprs, not bound to a bound-binding in env:
+  ;; Free variables of a body, not bound to a bound-binding in env:
   ;; the referenced, the assigned, and the ones used in a lambda
   (define-record-type var-sets
     (fields refs sets caps))
@@ -59,8 +59,12 @@
   (define no-vars (make-var-sets '() '() '()))
 
 
-  (define (free-vars env exprs)
-    (walk-exprs env exprs no-vars))
+  (define (free-vars env body)
+    (walk-body env body no-vars))
+
+
+  (define (walk-body env body acc)
+    (walk-exprs env (expand-body env body) acc))
 
 
   (define (walk-exprs env exprs acc)
@@ -80,9 +84,9 @@
         ((let)
          (if (named-let? expr)
              (let-values (((name bindings body) (parse-named-let expr)))
-               (walk-exprs (bind-inside env (cons name (map car bindings)))
-                           body
-                           (walk-exprs env (map cadr bindings) acc)))
+               (walk-body (bind-inside env (cons name (map car bindings)))
+                          body
+                          (walk-exprs env (map cadr bindings) acc)))
              (let-values (((bindings body) (parse-let expr)))
                (walk-let env bindings body acc))))
 
@@ -93,13 +97,14 @@
         ;; The variables are bound in the inits too, and each is assigned
         ((letrec letrec*)
          (let-values (((bindings body) (parse-letrec expr)))
-           (walk-exprs (bind-inside env (map car bindings))
-                       (append (map (lambda (b) `(,(marker 'set!) ,@b)) bindings) body)
-                       acc)))
+           (let ((inner (bind-inside env (map car bindings))))
+             (walk-body inner
+                        body
+                        (walk-exprs inner (map (lambda (b) `(,(marker 'set!) ,@b)) bindings) acc)))))
 
         ((lambda)
          (let-values (((args body) (parse-lambda expr)))
-           (let ((inner (walk-exprs (bind-inside env (formals-names args)) body no-vars)))
+           (let ((inner (walk-body (bind-inside env (formals-names args)) body no-vars)))
              (make-var-sets (union (var-sets-refs inner) (var-sets-refs acc))
                             (union (var-sets-sets inner) (var-sets-sets acc))
                             (union (var-sets-refs inner) (var-sets-caps acc))))))
@@ -118,14 +123,14 @@
 
 
   (define (walk-let env bindings body acc)
-    (walk-exprs (bind-inside env (map car bindings))
-                body
-                (walk-exprs env (map cadr bindings) acc)))
+    (walk-body (bind-inside env (map car bindings))
+               body
+               (walk-exprs env (map cadr bindings) acc)))
 
 
   (define (walk-let* env bindings body acc)
     (if (null? bindings)
-        (walk-exprs env body acc)
+        (walk-body env body acc)
         (walk-let* (bind-inside env (list (caar bindings)))
                    (cdr bindings)
                    body

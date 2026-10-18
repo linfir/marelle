@@ -2,7 +2,7 @@
   (export undef immediate? vector-literal? special? special-keyword marker call? define-form? validate-parameters
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
-          parse-if parse-cond parse-case parse-begin parse-set!
+          parse-if parse-cond parse-case parse-begin parse-set! expand-body
           scan-defs scan-library
           make-global-def global-def-name global-def-index global-def-args global-def-body
           library-def? library-def-name library-def-args library-def-kinds
@@ -37,12 +37,14 @@
         (and (list? x) (= (length x) 2) (eq? (car x) 'quote) (vector? (cadr x)))))
 
 
-  (define *special-forms* '(if cond case and or let let* letrec letrec* lambda begin set! when unless))
+  (define *special-forms*
+    '(if cond case and or let let* letrec letrec* lambda begin set! when unless define))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them
   (define markers
-    (map (lambda (k) (cons (gensym (symbol->string k)) k)) '(if let begin set! lambda or eq?)))
+    (map (lambda (k) (cons (gensym (symbol->string k)) k))
+         '(if let letrec* begin set! lambda or eq?)))
 
 
   (define (marker keyword)
@@ -221,6 +223,26 @@
             (error 'parse-define "invalid define name" form))
           (validate-parameters args)
           (values name args (cddr form)))))
+
+
+  ;; A body with its leading defines, also inside begins, as a letrec* around the rest;
+  ;; a later define is an error when compiled
+  (define (expand-body env body)
+    (let loop ((forms body)
+               (bindings '()))
+      (case (and (pair? forms) (special-keyword env (car forms)))
+        ((define)
+         (let-values (((name args init) (parse-define (car forms))))
+           (loop (cdr forms)
+                 (cons (list name (if args `(,(marker 'lambda) ,args ,@init) (car init)))
+                       bindings))))
+        ((begin)
+         (loop (append (cdar forms) (cdr forms)) bindings))
+        (else
+         (cond
+          ((null? forms) (error 'expand-body "no expression in body" body))
+          ((null? bindings) forms)
+          (else `((,(marker 'letrec*) ,(reverse bindings) ,@forms))))))))
 
 
   (define-record-type global-def
