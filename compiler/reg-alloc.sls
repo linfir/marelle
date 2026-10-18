@@ -56,9 +56,13 @@
 ;;   d               |-----------|      full: d ends last, d is spilled
 ;;   e                   |-|            b and c are gone: e takes R2
 ;;
-;; An interval ending at position p is still live for one starting at p
-;; (strict < in the expiry test), so (mov (tmp 2) (tmp 1)) never puts both
-;; in the same register. Safe, sometimes one register more than needed.
+;; An interval ending where another starts, at position p, ends at a read
+;; there: a jump defines nothing. asm reads the operands of an instruction
+;; before writing its destination, so the variable defined at p may take the
+;; register of one read for the last time at p: (add (raw 2) (raw 1) (quad 1))
+;; becomes add rsi, 1 when raw 1 dies there. The registers freed at p come
+;; first, so they are preferred. Not for frame slots: a save around the call
+;; at p writes its slot before the call reads its operands.
 ;;
 ;; The scan is linear: one pass, no backtracking. A variable is in one
 ;; register or one frame slot for its whole life (no interval splitting).
@@ -200,8 +204,9 @@
   ;; The loop carries active, the intervals holding a location, sorted by
   ;; end (insert-by-end), and free, the locations nobody holds. For each iv:
   ;;
-  ;; 1. Intervals of active ending before iv starts are dropped, and their
-  ;;    locations go back to free.
+  ;; 1. Intervals of active ending before iv starts, or where it starts if
+  ;;    touching?, are dropped, and their locations go back to free, the last
+  ;;    freed first.
   ;; 2. If a free location fits iv, iv takes the best one and joins active.
   ;; 3. Otherwise, if the last of active holding a location that fits iv ends
   ;;    after iv, it is the victim: iv takes its location and replaces it in
@@ -209,7 +214,7 @@
   ;; 4. Otherwise iv is spilled, and active is unchanged.
   ;;
   ;; A spilled interval never gets a location back.
-  (define (sweep! intervals locs rank)
+  (define (sweep! intervals locs rank touching?)
     (let loop ((ivs intervals)
                (active '())
                (free locs))
@@ -217,9 +222,11 @@
         (let ((iv (car ivs)))
           ;; active is sorted by end, so the expired intervals are a prefix
           (let-values (((expired active)
-                        (span (lambda (a) (< (interval-end a) (interval-start iv)))
+                        (span (lambda (a)
+                                (or (< (interval-end a) (interval-start iv))
+                                    (and touching? (= (interval-end a) (interval-start iv)))))
                               active)))
-            (let* ((free (append (map interval-loc expired) free))
+            (let* ((free (append-reverse (map interval-loc expired) free))
                    (loc (best-loc iv free rank)))
               (cond
                (loc
@@ -310,7 +317,8 @@
   (define (allocate-slots! intervals kind)
     (sweep! (sort-by-start intervals)
             (map (lambda (k) (list kind (+ k 1))) (iota (length intervals)))
-            (lambda (iv loc) 0)))
+            (lambda (iv loc) 0)
+            #f))
 
 
   ;; Replace each variable in x by its location
@@ -344,7 +352,8 @@
                   intervals))
       (sweep! intervals
               (map (lambda (r) (list 'reg r)) (append caller-saved-registers callee-saved-registers))
-              register-rank)
+              register-rank
+              #t)
       (record-locs!)
       (let ((saves (if native? (make-eqv-hashtable) (call-saves blocks starts ins locs))))
         (allocate-slots! (append (spilled 'tmp)
