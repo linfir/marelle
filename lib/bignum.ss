@@ -67,13 +67,14 @@
                ((raw>u x y) (raw 1))
                (else (limb-next (raw- i (raw 1))))))))))))
 
-;; -1, 0 or 1 as x is below, equal to or above y; both normalized integers, else an error;
-;; a bignum is beyond every fixnum, so its sign decides against one
+;; -1, 0 or 1 as x is below, equal to or above y, normalized integers; 2 when one is a ratnum;
+;; else an error; a bignum is beyond every fixnum, so its sign decides against one
 (define (compare-integers x y (raw msg))
   (declare unsafe noalloc (result raw))
-  (check-integer x msg)
-  (check-integer y msg)
+  (check-number x msg)
+  (check-number y msg)
   (cond
+   ((or (ratnum? x) (ratnum? y)) (raw 2))
    ((and (fixnum? x) (fixnum? y))
     (cond
      ((raw< (as-raw x) (as-raw y)) (raw -1))
@@ -496,24 +497,30 @@
   (when (raw= (as-raw y) (as-raw 0))
     (scheme-error zero-msg y)))
 
-;; The slow paths, out of line: a bignum operand or result
-(define (add-integers x y)
+;; The slow paths, out of line: a bignum or ratnum operand, or a bignum result
+(define (add-numbers x y)
   (declare unsafe)
-  (check-integer x "`+` expected an integer")
-  (check-integer y "`+` expected an integer")
-  (add-bignums (->bignum x) (->bignum y) #f))
+  (check-number x "`+` expected a number")
+  (check-number y "`+` expected a number")
+  (if (and (integer? x) (integer? y))
+      (add-bignums (->bignum x) (->bignum y) #f)
+      (add-rationals x y #f)))
 
-(define (subtract-integers x y)
+(define (subtract-numbers x y)
   (declare unsafe)
-  (check-integer x "`-` expected an integer")
-  (check-integer y "`-` expected an integer")
-  (add-bignums (->bignum x) (->bignum y) #t))
+  (check-number x "`-` expected a number")
+  (check-number y "`-` expected a number")
+  (if (and (integer? x) (integer? y))
+      (add-bignums (->bignum x) (->bignum y) #t)
+      (add-rationals x y #t)))
 
-(define (multiply-integers x y)
+(define (multiply-numbers x y)
   (declare unsafe)
-  (check-integer x "`*` expected an integer")
-  (check-integer y "`*` expected an integer")
-  (multiply-bignums (->bignum x) (->bignum y)))
+  (check-number x "`*` expected a number")
+  (check-number y "`*` expected a number")
+  (if (and (integer? x) (integer? y))
+      (multiply-bignums (->bignum x) (->bignum y))
+      (multiply-rationals x y)))
 
 (define (quotient-integers x y)
   (declare unsafe)

@@ -129,7 +129,7 @@
      ((immediate? expr)
       (immediate-operand expr))
 
-     ((and (integer? expr) (exact? expr))
+     ((exact-rational? expr)
       `(as-val ,(intern-number! expr)))
 
      ((number? expr)
@@ -211,14 +211,14 @@
 
 
   ;; A vector literal, rebuilt at each evaluation like bignums, so it is never static;
-  ;; its elements are integers, booleans, characters, strings, symbols, () and vectors
+  ;; its elements are numbers, booleans, characters, strings, symbols, () and vectors
   (define (compile-vector-literal env v)
     (let ((t (call-def env (core-def 'make-vector)
                        (list (immediate-operand (vector-length v)) (immediate-operand 0))
                        v compile-result)))
       (for-each (lambda (x i)
-                  (unless (or (integer? x) (boolean? x) (char? x) (string? x) (symbol? x) (null? x)
-                              (vector? x))
+                  (unless (or (exact-rational? x) (boolean? x) (char? x) (string? x) (symbol? x)
+                              (null? x) (vector? x))
                     (error 'compile-value "unsupported literal" x))
                   (call-def env (core-def 'vector-set!)
                             (list t (immediate-operand i)

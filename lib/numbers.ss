@@ -7,10 +7,10 @@
   (declare unsafe inline public)
   (or (fixnum? x) (bignum? x)))
 
-;; Exact integers only, until rationals
+;; Exact integers and ratnums only, no flonums
 (define (number? x)
-  (declare public)
-  (integer? x))
+  (declare unsafe inline public)
+  (or (integer? x) (ratnum? x)))
 
 (define (exact-integer? x)
   (declare public)
@@ -85,21 +85,21 @@
   (let ((s (raw- (raw+ (as-raw x) (as-raw y)) (raw 1))))
     (if (and (fixnum? x) (fixnum? y) (not (sum-overflow? (as-raw x) (as-raw y) s)))
         (as-val s)
-        (add-integers x y))))
+        (add-numbers x y))))
 
 (define (- x y)
   (declare unsafe inline public)
   (let ((d (raw- (as-raw x) (as-raw y))))
     (if (and (fixnum? x) (fixnum? y) (not (difference-overflow? (as-raw x) (as-raw y) d)))
         (as-val (raw+ d (raw 1)))
-        (subtract-integers x y))))
+        (subtract-numbers x y))))
 
 ;; (n << 3) | 1 times m is (n * m) << 3 plus m, so subtract the tag first
 (define (* x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y) (small-fixnum? x) (small-fixnum? y))
       (as-val (raw+ (raw* (raw- (as-raw x) (raw 1)) (fixnum-value y)) (raw 1)))
-      (multiply-integers x y)))
+      (multiply-numbers x y)))
 
 ;; Fixnums, the divisor neither 0 nor -1 (-2^60 / -1 is a bignum)
 (define (quotient x y)
@@ -124,31 +124,31 @@
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw= (as-raw x) (as-raw y))
-      (raw= (compare-integers x y "`=` expected an integer") (raw 0))))
+      (raw= (compare-numbers x y "`=` expected a number") (raw 0))))
 
 (define (< x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw< (as-raw x) (as-raw y))
-      (raw< (compare-integers x y "`<` expected an integer") (raw 0))))
+      (raw< (compare-numbers x y "`<` expected a number") (raw 0))))
 
 (define (<= x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw<= (as-raw x) (as-raw y))
-      (raw<= (compare-integers x y "`<=` expected an integer") (raw 0))))
+      (raw<= (compare-numbers x y "`<=` expected a number") (raw 0))))
 
 (define (> x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw> (as-raw x) (as-raw y))
-      (raw> (compare-integers x y "`>` expected an integer") (raw 0))))
+      (raw> (compare-numbers x y "`>` expected a number") (raw 0))))
 
 (define (>= x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw>= (as-raw x) (as-raw y))
-      (raw>= (compare-integers x y "`>=` expected an integer") (raw 0))))
+      (raw>= (compare-numbers x y "`>=` expected a number") (raw 0))))
 
 (define (zero? n)
   (declare public)
@@ -193,15 +193,21 @@
   (check-integer n "`odd?` expected an integer")
   (raw= (integer-bit-0 n) (raw 1)))
 
-;; By squaring; no rationals, so the exponent is nonnegative
+;; By squaring; a negative exponent gives the inverse
 (define (expt b n)
   (declare unsafe public)
+  (check-number b "`expt` expected a number")
+  (check-integer n "`expt` expected an integer exponent")
+  (if (< n 0)
+      (/ 1 (expt-by-squaring b (- 0 n)))
+      (expt-by-squaring b n)))
+
+(define (expt-by-squaring b n)
   (cond
-   ((< n 0) (scheme-error "`expt` expected a nonnegative exponent" n))
    ((zero? n) 1)
-   ((even? n) (let ((h (expt b (quotient n 2))))
+   ((even? n) (let ((h (expt-by-squaring b (quotient n 2))))
                 (* h h)))
-   (else (* b (expt b (- n 1))))))
+   (else (* b (expt-by-squaring b (- n 1))))))
 
 (define (fibo n)
   (declare public)

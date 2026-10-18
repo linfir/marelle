@@ -54,6 +54,7 @@
    ((raw= (load p (raw 0)) (bignum-type)) (raw+ (load p (raw 1)) (raw 3)))
    ((raw= (load p (raw 0)) (vector-type)) (raw+ (load p (raw 1)) (raw 2)))
    ((raw= (load p (raw 0)) (flexvector-type)) (raw 3))
+   ((raw= (load p (raw 0)) (ratnum-type)) (raw 3))
    ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
    (else (raw 2)))) ; pair, box, values or symbol
 
@@ -110,6 +111,7 @@
                  ((raw= header (bignum-type)) n) ; only raw words
                  ((raw= header (vector-type)) (raw 2))
                  ((raw= header (flexvector-type)) (raw 2)) ; the storage
+                 ((raw= header (ratnum-type)) (raw 1))
                  ((string-header? header) n) ; only raw words
                  (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))

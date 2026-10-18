@@ -63,6 +63,10 @@
   (declare unsafe inline (result raw))
   (raw 432)) ; 54 << 3
 
+(define (ratnum-type)
+  (declare unsafe inline (result raw))
+  (raw 440)) ; 55 << 3
+
 (define (fixnum? x)
   (declare unsafe inline)
   (tag=? x (raw 1)))
@@ -75,11 +79,12 @@
   (declare unsafe inline public)
   (raw= (as-raw x) (as-raw y)))
 
-;; eq?, except that bignums are compared by value
+;; eq?, except that bignums and ratnums are compared by value
 (define (eqv? x y)
   (declare unsafe inline public)
   (or (raw= (as-raw x) (as-raw y))
-      (and (bignum? x) (bignum? y) (= x y))))
+      (and (bignum? x) (bignum? y) (= x y))
+      (and (ratnum? x) (ratnum? y) (= x y))))
 
 (define (arity-error proc (raw nargs))
   (declare unsafe noalloc (result never))

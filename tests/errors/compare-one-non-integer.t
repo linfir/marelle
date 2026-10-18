@@ -1,4 +1,4 @@
 (< #t)
 ---
 stage = "executable"
-stderr_contains = "expected an integer"
+stderr_contains = "expected a number"

@@ -1,5 +1,5 @@
 (library (parse)
-  (export undef unbound immediate? vector-literal? quoted-datum? make-quoted-symbol quoted-symbol?
+  (export undef unbound immediate? exact-rational? vector-literal? quoted-datum? make-quoted-symbol quoted-symbol?
           quoted-symbol-name special? special-keyword source-keyword marker
           define-form? validate-parameters
           formals-names formals->params
@@ -26,6 +26,11 @@
   ;; The value of a letrec variable before its init, which no program can make
   (define-record-type unbound-value)
   (define unbound (make-unbound-value))
+
+
+  ;; A number literal: an integer of any size or a ratio; inexact ones are not supported
+  (define (exact-rational? x)
+    (and (rational? x) (exact? x)))
 
 
   (define (immediate? x)

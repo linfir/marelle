@@ -272,12 +272,13 @@
   (define (front-quoted x)
     (cond
      ((symbol? x) (make-quoted-symbol x))
-     ((or (immediate? x) (and (integer? x) (exact? x)) (string? x)) x)
+     ((or (immediate? x) (exact-rational? x) (string? x)) x)
      (else (error 'front-expr "unsupported quoted datum" x))))
 
 
   ;; Each clause is ((datum ...) expr ...), ((datum ...) => f), or a last (else expr ...) or
   ;; (else => f); the key is compared with eq? to immediates and symbols, with eqv? to bignums
+  ;; and ratios
   (define (expand-case env expr)
     (let-values (((key clauses) (parse-case expr)))
       (let ((t (gensym "case")))
@@ -293,7 +294,7 @@
            ((null? x) `(,(marker 'eq?) ,t ''()))
            ((symbol? x) `(,(marker 'eq?) ,t ,(make-quoted-symbol x)))
            ((immediate? x) `(,(marker 'eq?) ,t ,x))
-           ((and (integer? x) (exact? x)) `(,(core-ref 'eqv?) ,t ,x))
+           ((exact-rational? x) `(,(core-ref 'eqv?) ,t ,x))
            (else (error 'expand-case "unsupported case datum" x))))
         `(,(marker 'let) ((,t ,key))
           ,(let loop ((clauses clauses))

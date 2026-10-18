@@ -1,4 +1,4 @@
 (abs #t)
 ---
 stage = "executable"
-stderr = "Error: `<` expected an integer: #t\n"
+stderr = "Error: `<` expected a number: #t\n"

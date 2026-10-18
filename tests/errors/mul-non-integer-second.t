@@ -1,4 +1,4 @@
 (* 2 '())
 ---
 stage = "executable"
-stderr = "Error: `*` expected an integer: ()\n"
+stderr = "Error: `*` expected a number: ()\n"

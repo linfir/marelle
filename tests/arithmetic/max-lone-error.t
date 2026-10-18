@@ -1,4 +1,4 @@
 (max #\a)
 ---
 stage = "executable"
-stderr = "Error: `<` expected an integer: #\\a\n"
+stderr = "Error: `<` expected a number: #\\a\n"

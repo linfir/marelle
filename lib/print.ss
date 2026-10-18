@@ -110,6 +110,10 @@
   (cond
    ((raw= (as-raw x) (raw 0)) (put-string out "#<null>"))
    ((raw= (load (as-raw x) (raw 0)) (bignum-type)) (display-bignum out (as-raw x)))
+   ((raw= (load (as-raw x) (raw 0)) (ratnum-type))
+    (display out (as-val (load (as-raw x) (raw 1))))
+    (put-string out "/")
+    (display out (as-val (load (as-raw x) (raw 2)))))
    ((raw= (load (as-raw x) (raw 0)) (vector-type)) (display-vector out x))
    ((string-header? (load (as-raw x) (raw 0))) (display-string out x))
    ((raw= (load (as-raw x) (raw 0)) (symbol-type)) (display-symbol out x))

@@ -1,0 +1,4 @@
+(quotient 1/2 3)
+---
+stage = "executable"
+stderr = "Error: `quotient` expected an integer: 1/2\n"

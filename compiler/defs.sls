@@ -20,8 +20,9 @@
   (define procedure-type (* 42 8))
 
 
-  ;; bignum-type in lib/objects.ss
+  ;; bignum-type and ratnum-type in lib/objects.ss
   (define bignum-type (* 46 8))
+  (define ratnum-type (* 55 8))
 
 
   (define binary-ops
@@ -160,22 +161,28 @@
         name))))
 
 
-  ;; The static bignum n, [bignum-type, nlimbs, sign, limb ...] in read-only data
+  ;; The static bignum or ratnum n in read-only data: [bignum-type, nlimbs, sign, limb ...] or
+  ;; [ratnum-type, numerator, denominator], each a fixnum or a static bignum
   (define (intern-number! n)
+    (define (word x)
+      (if (<= (- (expt 2 60)) x (- (expt 2 60) 1))
+          (+ (* x 8) 1)
+          (intern-number! x)))
     (cond
      ((assv n (current-numbers)) => cadr)
      (else
-      (let ((name (format "num~a" (+ 1 (length (current-numbers)))))
-            (limbs (let loop ((m (abs n)))
-                     (if (= m 0)
-                         '()
-                         (cons (bitwise-and m (- (expt 2 64) 1))
-                               (loop (bitwise-arithmetic-shift-right m 64)))))))
-        (current-numbers
-         (cons (cons* n name `(rodata ,name (quad ,bignum-type) (quad ,(length limbs))
-                                      (quad ,(if (< n 0) 1 0))
-                                      ,@(map (lambda (l) `(quad ,l)) limbs)))
-               (current-numbers)))
+      (let* ((entry (if (integer? n)
+                        (let ((limbs (let loop ((m (abs n)))
+                                       (if (= m 0)
+                                           '()
+                                           (cons (bitwise-and m (- (expt 2 64) 1))
+                                                 (loop (bitwise-arithmetic-shift-right m 64)))))))
+                          `((quad ,bignum-type) (quad ,(length limbs)) (quad ,(if (< n 0) 1 0))
+                            ,@(map (lambda (l) `(quad ,l)) limbs)))
+                        `((quad ,ratnum-type) (quad ,(word (numerator n)))
+                          (quad ,(word (denominator n))))))
+             (name (format "num~a" (+ 1 (length (current-numbers))))))
+        (current-numbers (cons (cons* n name `(rodata ,name ,@entry)) (current-numbers)))
         name))))
 
 
