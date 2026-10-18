@@ -145,6 +145,50 @@
     (and (pair? x) (eq? (car x) 'reg)))
 
 
+  (define (imm32? n)
+    (<= (- (expt 2 31)) n (- (expt 2 31) 1)))
+
+
+  ;; x as an x86 operand, without loading it: a register, a slot or an imm32, else #f
+  (define (operand ctx x)
+    (and (pair? x)
+         (case (car x)
+           ((reg) (cadr x))
+           ((self tmp raw arg) (slot ctx x))
+           ((quad) (and (imm32? (cadr x)) (cadr x)))
+           (else #f))))
+
+
+  ;; x as an operand, loaded into reg unless it has one
+  (define (source! ctx x reg)
+    (or (operand ctx x)
+        (begin
+          (load! ctx reg x)
+          reg)))
+
+
+  ;; x as a register or memory operand, loaded into reg if it is neither
+  (define (place! ctx x reg)
+    (let ((op (operand ctx x)))
+      (if (and op (not (number? op)))
+          op
+          (begin
+            (load! ctx reg x)
+            reg))))
+
+
+  (define (result-register dst)
+    (if (register? dst) (cadr dst) 'rax))
+
+
+  (define (in-register! ctx x reg)
+    (if (register? x)
+        (cadr x)
+        (begin
+          (load! ctx reg x)
+          reg)))
+
+
   (define (load-args! ctx args regs)
     (when (> (length args) (length regs))
       (error 'load-args! "too many arguments" args))
@@ -164,24 +208,44 @@
                    (number->string ((asm-context-ret-counter ctx)))))
 
 
-  ;; The memory operand for word index of the address in rax, using rcx
-  (define (element! ctx index)
-    (case (car index)
-      ((quad)
-       `(mem rax ,(* 8 (cadr index))))
-      (else
-       (load! ctx 'rcx index)
-       '(mem rax rcx 8))))
+  ;; The memory operand for word index of the address base, using rax and rcx
+  (define (element! ctx base index)
+    (let ((base (in-register! ctx base 'rax)))
+      (if (eq? (car index) 'quad)
+          `(mem ,base ,(* 8 (cadr index)))
+          `(mem ,base ,(in-register! ctx index 'rcx) 8))))
 
 
-  ;; The memory operand for byte index of the address in rax, using rcx
-  (define (byte-element! ctx index)
-    (case (car index)
-      ((quad)
-       `(mem8 rax ,(cadr index)))
-      (else
-       (load! ctx 'rcx index)
-       '(mem8 rax rcx))))
+  ;; The memory operand for byte index of the address base, using rax and rcx
+  (define (byte-element! ctx base index)
+    (let ((base (in-register! ctx base 'rax)))
+      (if (eq? (car index) 'quad)
+          `(mem8 ,base ,(cadr index))
+          `(mem8 ,base ,(in-register! ctx index 'rcx)))))
+
+
+  ;; Register d = a op b, b not being in d
+  (define (arith! ctx op d a b)
+    (let ((b-op (operand ctx b)))
+      (if (and (eq? op 'imul) (number? b-op))
+          (emit-asm! ctx `(imul ,d ,(place! ctx a d) ,b-op))
+          (begin
+            (load! ctx d a)
+            (emit-asm! ctx `(,op ,d ,(or b-op (begin (load! ctx 'rcx b) 'rcx))))))))
+
+
+  ;; A constant count is an immediate, any other goes in cl
+  (define (shift! ctx op dst a b)
+    (let ((d (result-register dst)))
+      (if (and (eq? (car b) 'quad) (<= 0 (cadr b) 63))
+          (begin
+            (load! ctx d a)
+            (emit-asm! ctx `(,op ,d ,(cadr b))))
+          (begin
+            (load! ctx 'rcx b)
+            (load! ctx d a)
+            (emit-asm! ctx `(,op ,d cl))))
+      (store! ctx dst d)))
 
 
   ;; The frame in rax, and the code in rcx unless target is a symbol, before rbp moves
@@ -201,13 +265,14 @@
 
   (define (instr->asm! ctx instr)
     (case (car instr)
-      ;; Directly into or from a register, else through rax
+      ;; Directly into or from a register or from an imm32, else through rax
       ((mov)
        (let ((dst (cadr instr))
              (src (caddr instr)))
          (cond
           ((register? dst) (load! ctx (cadr dst) src))
           ((register? src) (store! ctx dst (cadr src)))
+          ((number? (operand ctx src)) (emit-asm! ctx `(mov ,(slot ctx dst) ,(operand ctx src))))
           (else
            (load! ctx 'rax src)
            (store! ctx dst 'rax)))))
@@ -302,37 +367,39 @@
        (let ((base (cadr instr))
              (index (caddr instr))
              (src (cadddr instr)))
-         (load! ctx 'rax base)
-         (load! ctx 'rdx src)
-         (emit-asm! ctx `(mov ,(element! ctx index) rdx))))
+         (let ((src (if (pair? (operand ctx src))
+                        (in-register! ctx src 'rdx)
+                        (source! ctx src 'rdx))))
+           (emit-asm! ctx `(mov ,(element! ctx base index) ,src)))))
 
       ;; A constant word of a symbol, such as a frame length, is one RIP-relative load
       ((load)
        (let ((dst (cadr instr))
              (base (caddr instr))
-             (index (cadddr instr)))
+             (index (cadddr instr))
+             (d (result-register (cadr instr))))
          (if (and (string? base) (eq? (car index) 'quad))
-             (emit-asm! ctx `(mov rax (rip ,base ,(* 8 (cadr index)))))
-             (begin
-               (load! ctx 'rax base)
-               (emit-asm! ctx `(mov rax ,(element! ctx index)))))
-         (store! ctx dst 'rax)))
+             (emit-asm! ctx `(mov ,d (rip ,base ,(* 8 (cadr index)))))
+             (emit-asm! ctx `(mov ,d ,(element! ctx base index))))
+         (store! ctx dst d)))
 
       ((store8)
        (let ((base (cadr instr))
              (index (caddr instr))
              (src (cadddr instr)))
-         (load! ctx 'rax base)
-         (load! ctx 'rdx src)
-         (emit-asm! ctx `(mov ,(byte-element! ctx index) dl))))
+         (if (and (eq? (car src) 'quad) (<= -128 (cadr src) 255))
+             (emit-asm! ctx `(mov ,(byte-element! ctx base index) ,(cadr src)))
+             (begin
+               (load! ctx 'rdx src)
+               (emit-asm! ctx `(mov ,(byte-element! ctx base index) dl))))))
 
       ((load8)
        (let ((dst (cadr instr))
              (base (caddr instr))
-             (index (cadddr instr)))
-         (load! ctx 'rax base)
-         (emit-asm! ctx `(movzx eax ,(byte-element! ctx index)))
-         (store! ctx dst 'rax)))
+             (index (cadddr instr))
+             (d (result-register (cadr instr))))
+         (emit-asm! ctx `(movzx ,d ,(byte-element! ctx base index)))
+         (store! ctx dst d)))
 
       ((copy)
        (let ((dst (cadr instr))
@@ -352,22 +419,34 @@
          (load! ctx 'rax x)
          (emit-asm! ctx '(rep stosq))))
 
+      ;; Not both in memory
       ((cmp)
-       (let ((a (cadr instr))
-             (b (caddr instr)))
-         (load! ctx 'rax a)
-         (load! ctx 'rcx b)
-         (emit-asm! ctx '(cmp rax rcx))))
+       (let* ((b (source! ctx (caddr instr) 'rcx))
+              (a (place! ctx (cadr instr) 'rax))
+              (a (if (and (pair? a) (pair? b))
+                     (begin
+                       (load! ctx 'rax (cadr instr))
+                       'rax)
+                     a)))
+         (emit-asm! ctx `(cmp ,a ,b))))
 
-      ((add sub mul sal sar shr and or)
+      ;; In the destination register when it has one, else in rax
+      ((add sub mul and or)
        (let ((op (if (eq? (car instr) 'mul) 'imul (car instr)))
              (dst (cadr instr))
              (a (caddr instr))
              (b (cadddr instr)))
-         (load! ctx 'rax a)
-         (load! ctx 'rcx b)
-         (emit-asm! ctx `(,op rax ,(if (memq op '(sal sar shr)) 'cl 'rcx)))
-         (store! ctx dst 'rax)))
+         (cond
+          ((and (register? dst) (not (equal? b dst)))
+           (arith! ctx op (cadr dst) a b))
+          ((and (register? dst) (not (eq? op 'sub)))
+           (arith! ctx op (cadr dst) b a))
+          (else
+           (arith! ctx op 'rax a b)
+           (store! ctx dst 'rax)))))
+
+      ((sal sar shr)
+       (shift! ctx (car instr) (cadr instr) (caddr instr) (cadddr instr)))
 
       ;; The high 64 bits of the unsigned product: rdx:rax = rax * rcx
       ((mulhu)
