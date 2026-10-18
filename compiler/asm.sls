@@ -224,12 +224,20 @@
           `(mem ,base ,(in-register! ctx index 'rcx) 8))))
 
 
-  ;; The memory operand for byte index of the address base, using rax and rcx
-  (define (byte-element! ctx base index)
+  ;; The memory operand of size mem8 or mem32 for byte index of the address base, using rax
+  ;; and rcx
+  (define (byte-element! ctx base index size)
     (let ((base (in-register! ctx base 'rax)))
       (if (eq? (car index) 'quad)
-          `(mem8 ,base ,(cadr index))
-          `(mem8 ,base ,(in-register! ctx index 'rcx)))))
+          `(,size ,base ,(cadr index))
+          `(,size ,base ,(in-register! ctx index 'rcx)))))
+
+
+  ;; The low 32 bits of a register; writing them zeroes the high ones
+  (define (register32 reg)
+    (cdr (assq reg '((rax . eax) (rbx . ebx) (rcx . ecx) (rdx . edx) (rsi . esi) (rdi . edi)
+                     (r8 . r8d) (r9 . r9d) (r10 . r10d) (r11 . r11d) (r12 . r12d) (r13 . r13d)
+                     (r14 . r14d) (r15 . r15d)))))
 
 
   ;; Register d = a op b, b not being in d
@@ -398,17 +406,35 @@
              (index (caddr instr))
              (src (cadddr instr)))
          (if (and (eq? (car src) 'quad) (<= -128 (cadr src) 255))
-             (emit-asm! ctx `(mov ,(byte-element! ctx base index) ,(cadr src)))
+             (emit-asm! ctx `(mov ,(byte-element! ctx base index 'mem8) ,(cadr src)))
              (begin
                (load! ctx 'rdx src)
-               (emit-asm! ctx `(mov ,(byte-element! ctx base index) dl))))))
+               (emit-asm! ctx `(mov ,(byte-element! ctx base index 'mem8) dl))))))
+
+      ((store32)
+       (let ((base (cadr instr))
+             (index (caddr instr))
+             (src (cadddr instr)))
+         (if (and (eq? (car src) 'quad) (imm32? (cadr src)))
+             (emit-asm! ctx `(mov ,(byte-element! ctx base index 'mem32) ,(cadr src)))
+             (begin
+               (load! ctx 'rdx src)
+               (emit-asm! ctx `(mov ,(byte-element! ctx base index 'mem32) edx))))))
 
       ((load8)
        (let ((dst (cadr instr))
              (base (caddr instr))
              (index (cadddr instr))
              (d (result-register (cadr instr))))
-         (emit-asm! ctx `(movzx ,d ,(byte-element! ctx base index)))
+         (emit-asm! ctx `(movzx ,d ,(byte-element! ctx base index 'mem8)))
+         (store! ctx dst d)))
+
+      ((load32)
+       (let ((dst (cadr instr))
+             (base (caddr instr))
+             (index (cadddr instr))
+             (d (result-register (cadr instr))))
+         (emit-asm! ctx `(mov ,(register32 d) ,(byte-element! ctx base index 'mem32)))
          (store! ctx dst d)))
 
       ((copy)
@@ -703,8 +729,8 @@
       (write-gas-string x))
      ((and (eq? (car x) 'mem) (= (length x) 4))
       (printf "qword ptr [~a + ~a*~a]" (cadr x) (caddr x) (cadddr x)))
-     ((memq (car x) '(mem mem8))
-      (let ((size (if (eq? (car x) 'mem) "qword" "byte"))
+     ((memq (car x) '(mem mem8 mem32))
+      (let ((size (case (car x) ((mem) "qword") ((mem8) "byte") (else "dword")))
             (off (caddr x)))
         (if (symbol? off)
             (printf "~a ptr [~a + ~a]" size (cadr x) off)

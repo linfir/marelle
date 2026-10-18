@@ -7,8 +7,9 @@
           make-data data? data-name data-symbol data-nwords data-extern?
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
           procedure-type binary-ops tests low-ops unsafe-bindings
-          names symbols current-strings current-entries core-defs inlining unsafe-code?
-          fresh-name add-symbol! add-def-symbols! intern-string! add-entries! core-def)
+          names symbols current-strings current-literals literals-symbol startup-defs current-entries
+          core-defs inlining unsafe-code?
+          fresh-name add-symbol! add-def-symbols! intern-string! intern-literal! add-entries! core-def)
   (import (chezscheme)
           (utils)
           (vars)
@@ -50,7 +51,7 @@
   (define low-ops
     (append (map car binary-ops)
             (map car tests)
-            '(raw as-raw as-val syscall load store load8 store8 copy-words fill-words raw/wu
+            '(raw as-raw as-val syscall load store load8 store8 load32 store32 copy-words fill-words raw/wu
                   alloc alloc-frame tail-call-frame self address)))
 
 
@@ -96,15 +97,20 @@
 
 
   ;; Per compilation: the fresh name counter, the symbols (symbol => name), the interned strings
-  ;; ((string . name), newest first), the entries of the compiled functions (newest first),
-  ;; the library defs the compiler calls (name => def), and the inline defs being expanded
+  ;; ((string . name), newest first), the string literals ((string . cell index), newest first)
+  ;; and the data of their cells, the defs main calls first, the entries of the compiled functions
+  ;; (newest first), the library defs the compiler calls (name => def), and the inline defs being
+  ;; expanded
   (define names (make-parameter #f))
   (define symbols (make-parameter #f))
   (define current-strings (make-parameter '()))
+  (define current-literals (make-parameter '()))
+  (define literals-symbol (make-parameter #f))
+  (define startup-defs (make-parameter '()))
   (define current-entries (make-parameter '()))
   (define core-defs (make-parameter '()))
   (define inlining (make-parameter '()))
-  ;; True while compiling an unsafe define, which may use strings and low operations
+  ;; True while compiling an unsafe define, which may use C strings and low operations
   (define unsafe-code? (make-parameter #f))
 
 
@@ -114,7 +120,8 @@
 
   ;; Symbols the IR and the stubs define
   (define reserved-symbols
-    '("scheme_main" "scheme_globals" "scheme_nglobals" "_start" "alloc_frame" "alloc_object"))
+    '("scheme_main" "scheme_globals" "scheme_nglobals" "scheme_literals" "scheme_nliterals"
+      "scheme_library_literals" "scheme_library_nliterals" "_start" "alloc_frame" "alloc_object"))
 
 
   ;; Mangling is not injective, so two names giving the same symbol are an error;
@@ -144,6 +151,16 @@
       (let ((name (format "str~a" (+ 1 (length (current-strings))))))
         (current-strings (acons x name (current-strings)))
         name))))
+
+
+  ;; The index of the literal cell of the Scheme string x
+  (define (intern-literal! x)
+    (cond
+     ((assoc x (current-literals)) => cdr)
+     (else
+      (let ((i (length (current-literals))))
+        (current-literals (acons x i (current-literals)))
+        i))))
 
 
   (define (add-entries! entries)

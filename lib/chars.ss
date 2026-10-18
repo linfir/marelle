@@ -3,6 +3,14 @@
   (declare unsafe inline public)
   (raw= (bit-and (as-raw x) (raw 255)) (raw 34)))
 
+(define (char-code c)
+  (declare unsafe inline (result raw))
+  (raw>> (as-raw c) (raw 8)))
+
+(define (code->char (raw n))
+  (declare unsafe inline)
+  (as-val (bit-or (raw<< n (raw 8)) (raw 34))))
+
 ;; ((code << 8) | 34) >> 5 is (code << 3) | 1, the fixnum code
 (define (char->integer x)
   (declare unsafe inline public)

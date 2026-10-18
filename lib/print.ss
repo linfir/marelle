@@ -111,6 +111,7 @@
    ((raw= (as-raw x) (raw 0)) (put-string out "#<null>"))
    ((raw= (load (as-raw x) (raw 0)) (bignum-type)) (display-bignum out (as-raw x)))
    ((raw= (load (as-raw x) (raw 0)) (vector-type)) (display-vector out x))
+   ((string-header? (load (as-raw x) (raw 0))) (display-string out x))
    ((raw= (load (as-raw x) (raw 0)) (flexvector-type)) (put-string out "#<flexvector>"))
    ((raw= (load (as-raw x) (raw 0)) (values-type)) (display-values out x))
    ((raw= (load (as-raw x) (raw 0)) (procedure-type))
@@ -122,6 +123,41 @@
             (put-string out name)
             (put-string out ">")))))
    (else (put-string out "#<unknown ptr>"))))
+
+;; Like Chez's write: in quotes, with escapes; hexadecimal for the other control characters,
+;; delete and the line separators U+0085 and U+2028, else UTF-8
+(define (display-string (raw out) s)
+  (declare unsafe noalloc (result void))
+  (put-string out "\"")
+  (let char-next ((i (raw 0)))
+    (if (raw= i (string-nchars s))
+        undef
+        (let* ((n (string-code s i))
+               (escape (string-escape n)))
+          (cond
+           ((not (raw= escape (raw 0))) (put-string out escape))
+           ((or (raw< n (raw 32)) (raw= n (raw 127)) (raw= n (raw 133)) (raw= n (raw 8232)))
+            (put-string out "\\x")
+            (put-digits out n (raw 16) (raw 1))
+            (put-string out ";"))
+           (else (put-utf8 out n)))
+          (char-next (raw+ i (raw 1))))))
+  (put-string out "\""))
+
+;; The escape of the character n in a string, or 0
+(define (string-escape (raw n))
+  (declare unsafe noalloc (result raw))
+  (cond
+   ((raw= n (raw 7))  "\\a")
+   ((raw= n (raw 8))  "\\b")
+   ((raw= n (raw 9))  "\\t")
+   ((raw= n (raw 10)) "\\n")
+   ((raw= n (raw 11)) "\\v")
+   ((raw= n (raw 12)) "\\f")
+   ((raw= n (raw 13)) "\\r")
+   ((raw= n (raw 34)) "\\\"")
+   ((raw= n (raw 92)) "\\\\")
+   (else (raw 0))))
 
 ;; One per line, like Chez's REPL
 (define (display-values (raw out) x)

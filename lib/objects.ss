@@ -42,14 +42,22 @@
   (declare unsafe inline (result raw))
   (raw 376)) ; 47 << 3
 
-;; 48 and 49 are kept for strings and symbols (STRINGS.md)
+;; The string types, one per kind, are 48 to 51 (lib/strings.ss); 52 is kept for symbols
+(define (ascii-string-type)
+  (declare unsafe inline (result raw))
+  (raw 384)) ; 48 << 3
+
+(define (utf32-string-type)
+  (declare unsafe inline (result raw))
+  (raw 392)) ; 49 << 3
+
 (define (flexvector-type)
   (declare unsafe inline (result raw))
-  (raw 400)) ; 50 << 3
+  (raw 424)) ; 53 << 3
 
 (define (values-type)
   (declare unsafe inline (result raw))
-  (raw 408)) ; 51 << 3
+  (raw 432)) ; 54 << 3
 
 (define (fixnum? x)
   (declare unsafe inline)

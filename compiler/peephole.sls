@@ -26,8 +26,19 @@
   (define (register x)
     (case x
       ((eax) 'rax)
-      ((cl) 'rcx)
-      ((dl) 'rdx)
+      ((ebx) 'rbx)
+      ((cl ecx) 'rcx)
+      ((dl edx) 'rdx)
+      ((esi) 'rsi)
+      ((edi) 'rdi)
+      ((r8d) 'r8)
+      ((r9d) 'r9)
+      ((r10d) 'r10)
+      ((r11d) 'r11)
+      ((r12d) 'r12)
+      ((r13d) 'r13)
+      ((r14d) 'r14)
+      ((r15d) 'r15)
       (else (and (symbol? x) x))))
 
 

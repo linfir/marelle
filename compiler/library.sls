@@ -153,16 +153,31 @@
               (reverse (current-strings))))
 
 
+  ;; The cells of the literals, 0 until the init function fills them, and their count
+  (define (print-literals symbol count-symbol)
+    (let ((n (length (current-literals))))
+      (print-entry `(data ,symbol ,n 0))
+      (print-entry `(rodata ,count-symbol (quad ,n)))))
+
+
+  ;; The def of the function filling a unit's literal cells, called by main
+  (define (literal-init-def symbol extern?)
+    (make-def 'literal-init symbol '() 'val #f #f #f #f #t 0 #t extern? '() #f #f))
+
+
   (define (print-data items)
     (for-each (lambda (d)
                 (print-entry `(data ,(data-symbol d) ,(data-nwords d) 0)))
               (filter (lambda (x) (and (data? x) (not (data-extern? x)))) items)))
 
 
-  (define (new-compilation first-name thunk)
+  (define (new-compilation first-name literals thunk)
     (parameterize ((names (make-counter first-name))
                    (symbols (make-hashtable string-hash string=?))
                    (current-strings '())
+                   (current-literals '())
+                   (literals-symbol literals)
+                   (startup-defs '())
                    (current-entries '())
                    (inlining '())
                    (var-facts (make-eq-hashtable))
@@ -177,18 +192,22 @@
   ;; inline ones with their body, and each data
   (define (compile-scheme-library forms)
     (new-compilation
-     0
+     0 "scheme_library_literals"
      (lambda ()
-       (let ((items (map scanned-item (scan-library forms))))
+       (let ((items (map scanned-item (scan-library forms)))
+             (init (literal-init-def "scheme_library_init" #f)))
+         (add-def-symbols! init)
          (set-pure-defs! items)
          (let-values (((safe unsafe) (item-bindings items)))
            (set-envs! items safe (append safe unsafe unsafe-bindings)))
          (parameterize ((core-defs (map (lambda (x) (cons (item-name x) x)) (filter def? items))))
-           (compile-defs! items))
+           (compile-defs! items)
+           (compile-literal-init init))
          (let ((entries (reverse (current-entries))))
            (print-entry `(export ,@(apply append (map entry-symbols entries))
                                  ,@(map data-symbol (filter data? items))))
            (print-data items)
+           (print-literals "scheme_library_literals" "scheme_library_nliterals")
            (print-strings)
            (for-each print-entry entries)
            (print-entry '(stubs)))
@@ -261,11 +280,15 @@
     (when (null? (splice-begins program))
       (error 'compile-scheme-program "empty program"))
     (new-compilation
-     (cadr (assq 'names interface))
+     (cadr (assq 'names interface)) "scheme_literals"
      (lambda ()
        (let ((library (map interface-item
-                           (filter (lambda (x) (memq (car x) '(def data))) interface))))
+                           (filter (lambda (x) (memq (car x) '(def data))) interface)))
+             (library-init (literal-init-def "scheme_library_init" #t))
+             (init (literal-init-def "scheme_init" #f)))
          (add-symbol! "main_proc" 'main)
+         (add-def-symbols! library-init)
+         (add-def-symbols! init)
          (set-pure-defs! library)
          (for-each (lambda (x)
                      (if (def? x)
@@ -298,12 +321,16 @@
                (compile-defs! items)
                (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
                                                      (define-data-form? (car (last-pair all))))))))
-                 (compile-procedure
-                  (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
-                            (make-main-core env body))
-                  env '())))
-             (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"))
+                 (parameterize ((startup-defs (list library-init init)))
+                   (compile-procedure
+                    (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
+                              (make-main-core env body))
+                    env '())))
+               (compile-literal-init init))
+             (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"
+                                   "scheme_literals" "scheme_nliterals"))
              (emit-globals (hashtable-size (top-globals)))
              (print-data items)
+             (print-literals "scheme_literals" "scheme_nliterals")
              (print-strings)
              (for-each print-entry (reverse (current-entries))))))))))

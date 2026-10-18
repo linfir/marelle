@@ -54,6 +54,7 @@
    ((raw= (load p (raw 0)) (bignum-type)) (raw+ (load p (raw 1)) (raw 3)))
    ((raw= (load p (raw 0)) (vector-type)) (raw+ (load p (raw 1)) (raw 2)))
    ((raw= (load p (raw 0)) (flexvector-type)) (raw 3))
+   ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
    (else (raw 2)))) ; pair, box or values
 
 ;; The new address of the object x points to, copied to gc-free if it is in the
@@ -108,6 +109,7 @@
                  ((raw= header (bignum-type)) n) ; only raw words
                  ((raw= header (vector-type)) (raw 2))
                  ((raw= header (flexvector-type)) (raw 2)) ; the storage
+                 ((string-header? header) n) ; only raw words
                  (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))
                    (raw- (if frame? (raw- n (load p (raw 2))) n) start))
@@ -121,6 +123,9 @@
     (store gc-free (raw 0) to)
     (forward-words roots nroots)
     (forward-words (address "scheme_globals") (load (address "scheme_nglobals") (raw 0)))
+    (forward-words (address "scheme_literals") (load (address "scheme_nliterals") (raw 0)))
+    (forward-words (address "scheme_library_literals")
+                   (load (address "scheme_library_nliterals") (raw 0)))
     (let scan-next ((p to))
       (if (raw<u p (load gc-free (raw 0)))
           (scan-next (raw+ p (raw<< (scan p) (raw 3))))

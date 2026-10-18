@@ -20,7 +20,7 @@
 ;;   - compile-branch, giving a conditional jump
 
 (library (compile)
-  (export compile-procedure compile-low-def)
+  (export compile-procedure compile-low-def compile-literal-init)
   (import (chezscheme)
           (utils)
           (parse)
@@ -121,7 +121,7 @@
 
   ;; Emits the code of expr and returns its operand, one of:
   ;; - a slot: (val n), (raw n), (arg n), (self)
-  ;; - a constant: (quad n), or a string, the address of a symbol
+  ;; - a constant: (quad n), or a string, the address of a symbol (a C string in unsafe code)
   ;; - a marker: (void), (never)
   ;; - a cast: (as-val x) or (as-raw x), only for kind, removed by lower-operand
   (define (compile-value env expr)
@@ -135,10 +135,11 @@
      ((number? expr)
       (error 'compile-value "unsupported number" expr))
 
+     ;; Outside unsafe code, a Scheme string, loaded from its literal cell
      ((string? expr)
-      (unless (unsafe-code?)
-        (error 'compile-value "unsupported string" expr))
-      (intern-string! expr))
+      (if (unsafe-code?)
+          (intern-string! expr)
+          (emit-op! 'load 'val (list (literals-symbol) `(quad ,(intern-literal! expr))))))
 
      ((symbol? expr)
       (compile-variable env expr))
@@ -202,13 +203,13 @@
 
 
   ;; A vector literal, rebuilt at each evaluation like bignums, so it is never static;
-  ;; its elements are integers, booleans, characters, () and vectors
+  ;; its elements are integers, booleans, characters, strings, () and vectors
   (define (compile-vector-literal env v)
     (let ((t (call-def env (core-def 'make-vector)
                        (list (immediate-operand (vector-length v)) (immediate-operand 0))
                        v compile-result)))
       (for-each (lambda (x i)
-                  (unless (or (integer? x) (boolean? x) (char? x) (null? x) (vector? x))
+                  (unless (or (integer? x) (boolean? x) (char? x) (string? x) (null? x) (vector? x))
                     (error 'compile-value "unsupported literal" x))
                   (call-def env (core-def 'vector-set!)
                             (list t (immediate-operand i)
@@ -486,6 +487,15 @@
         ;; (store8 address i x): sets the byte at byte index i of address to the low byte of x
         ((store8)
          (emit! `(store8 ,@(compile-operands env expr '(raw raw raw))))
+         '(void))
+
+        ;; (load32 address i): the 32 bits at byte index i of address, zero-extended
+        ((load32)
+         (emit-op! 'load32 'raw (compile-operands env expr '(raw raw))))
+
+        ;; (store32 address i x): sets the 32 bits at byte index i of address to the low 32 bits of x
+        ((store32)
+         (emit! `(store32 ,@(compile-operands env expr '(raw raw raw))))
          '(void))
 
         ;; (copy-words dst src n): copies n words from src to dst, which do not overlap
@@ -1010,7 +1020,35 @@
                         (body-env (append (map (lambda (x i) (bind-local x `(arg ,(+ i 1)) #t))
                                                args (iota (length args)))
                                           inner)))
+                   (when (string=? (def-symbol def) "main")
+                     (for-each (lambda (d) (call-def env d '() 'main compile-result))
+                               (startup-defs)))
                    (compile-seq body-env body (lambda (env x) (compile-tail env def x)))))))))
+      (check-gc-safety (def-name def) blocks)
+      (add-entries! (procedure-entries def blocks))))
+
+
+  ;; The function of def, which fills the literal cells of the compilation at startup: each
+  ;; with literal-string of its string's UTF-8 bytes, a static string
+  (define (compile-literal-init def)
+    (let ((blocks
+           (with-function
+            (lambda ()
+              (parameterize ((unsafe-code? #t)
+                             (current-function def))
+                (for-each (lambda (l)
+                            (let* ((s (car l))
+                                   (ascii? (for-all (lambda (c) (< (char->integer c) 128))
+                                                    (string->list s)))
+                                   (op (call-def '() (core-def 'literal-string)
+                                                 (list (intern-string! s)
+                                                       `(quad ,(bytevector-length (string->utf8 s)))
+                                                       `(quad ,(string-length s))
+                                                       `(quad ,(if ascii? 1 0)))
+                                                 s compile-result)))
+                              (emit! `(store ,(literals-symbol) (quad ,(cdr l)) ,op))))
+                          (reverse (current-literals)))
+                (compile-tail '() def undef))))))
       (check-gc-safety (def-name def) blocks)
       (add-entries! (procedure-entries def blocks))))
 
