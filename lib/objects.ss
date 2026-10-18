@@ -54,6 +54,12 @@
   (declare unsafe inline public)
   (raw= (as-raw x) (as-raw y)))
 
+;; eq?, except that bignums are compared by value
+(define (eqv? x y)
+  (declare unsafe inline public)
+  (or (raw= (as-raw x) (as-raw y))
+      (and (bignum? x) (bignum? y) (= x y))))
+
 (define (arity-error proc (raw nargs))
   (declare unsafe native (result never))
   (put-string (stderr) "Error: procedure of arity ")
@@ -154,3 +160,8 @@
 (define (not x)
   (declare inline public)
   (if x #f #t))
+
+;; #f is 2 and #t 10: clearing bit 3 gives 2 for them only
+(define (boolean? x)
+  (declare unsafe inline public)
+  (raw= (bit-and (as-raw x) (raw -9)) (as-raw #f)))

@@ -3,6 +3,10 @@
   (unless (or (fixnum? x) (bignum? x))
     (scheme-error msg x)))
 
+(define (integer? x)
+  (declare unsafe inline public)
+  (or (fixnum? x) (bignum? x)))
+
 (define (fixnum-value x)
   (declare unsafe inline (result raw))
   (raw>> (as-raw x) (raw 3)))
