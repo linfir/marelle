@@ -1,4 +1,4 @@
-;; A native keeps values in registers across a call to another native using the same ones
+;; A native saves its values in registers around a call to another native using the same ones
 (define (triangle (raw n))
   (declare unsafe native (result raw))
   (let loop ((i n) (s (raw 0)))

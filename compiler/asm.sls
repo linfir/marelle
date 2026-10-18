@@ -16,16 +16,26 @@
 ;;   rbp + 8*(n+m+6)    (raw 1)
 ;;   ...
 ;;
-;; Native functions have their frame on the machine stack, rsp pointing to it:
+;; Native functions, which never allocate, have their frame on the machine
+;; stack, rbp pointing to it, n being the arity and m the number of tmps and
+;; raws:
 ;;
-;;   rsp + 0            (arg 1)
-;;   ...                then the tmps and the raws, as above
+;;   rbp + 8*(n+1)      (arg n)
+;;   ...
+;;   rbp + 16           (arg 1)
+;;   rbp + 8            return address
+;;   rbp + 0            caller's rbp
+;;   rbp - 8            (tmp 1)
+;;   ...                then the other tmps and the raws
+;;   rbp - 8*m          rsp
 ;;
-;; Native calls (ccall) follow the System V AMD64 ABI:
-;;   - arguments in rdi, rsi, rdx, rcx, r8, r9, result in rax
-;;   - rbx, rbp, rsp, r12-r15 are preserved, all other registers are clobbered
-;;   - rsp is 16-byte aligned at the call; Scheme code never pushes, and
-;;     it is aligned at _start, so a plain call is always aligned
+;; Native calls (stackcall):
+;;   - the caller pushes the arguments, the last first, any number, then calls;
+;;     the callee pushes rbp, points rbp to it and makes room for its tmps and
+;;     raws; it returns with leave and ret, the result in rax, and the caller
+;;     pops the arguments
+;;   - only rbp and rsp are preserved, as in Scheme calls: the caller saves the
+;;     registers it needs around the call
 ;;
 ;; Scheme calls (call, tailcall) use their own convention, without argument registers:
 ;;   - the length of a function's frame is the word before its code
@@ -50,7 +60,6 @@
           (peephole))
 
 
-  (define arg-regs '(rdi rsi rdx rcx r8 r9))
   (define syscall-regs '(rdi rsi rdx r10 r8 r9))
   ;; Never holding operands, which are in rbx, r12-r15 or slots (see reg-alloc.sls)
   (define selfcall-regs '(rax rcx rdx rsi rdi r8 r9 r10 r11))
@@ -71,15 +80,14 @@
         0))
 
 
-  ;; saved: the registers a native pushes on entry and pops before returning
   (define-record-type asm-context
-    (fields fn native? arity ntmp nraw saved (mutable code) ret-counter))
+    (fields fn native? arity ntmp nraw (mutable code) ret-counter))
 
 
   ;; x is the function, blocks its blocks after register allocation
-  (define (new-asm-context x blocks saved)
+  (define (new-asm-context x blocks)
     (make-asm-context (cadr x) (eq? (car x) 'native) (cadr (caddr x))
-                      (count-slots 'tmp blocks) (count-slots 'raw blocks) saved
+                      (count-slots 'tmp blocks) (count-slots 'raw blocks)
                       '() (make-counter)))
 
 
@@ -89,9 +97,11 @@
 
   ;; Word i of the frame after the header, from 1: the args, the tmps, then the raws
   (define (frame-word ctx i)
-    (if (asm-context-native? ctx)
-        `(mem rsp ,(* 8 (- i 1)))
-        `(mem rbp ,(+ frame-self (* 8 i)))))
+    (let ((arity (asm-context-arity ctx)))
+      (cond
+       ((not (asm-context-native? ctx)) `(mem rbp ,(+ frame-self (* 8 i))))
+       ((<= i arity) `(mem rbp ,(+ 8 (* 8 i))))
+       (else `(mem rbp ,(* -8 (- i arity)))))))
 
 
   (define (slot ctx x)
@@ -106,14 +116,6 @@
        (frame-word ctx (+ (asm-context-arity ctx) (asm-context-ntmp ctx) (cadr x))))
       (else
        (error 'slot "not a slot operand" x))))
-
-
-  ;; The bytes of a native frame, keeping rsp 16-byte aligned at calls:
-  ;; it is 8 past a multiple of 16 on entry, the return address being pushed,
-  ;; then the saved registers are pushed
-  (define (native-bytes ctx)
-    (let ((n (+ (asm-context-arity ctx) (asm-context-ntmp ctx) (asm-context-nraw ctx))))
-      (* 8 (if (even? (+ n (length (asm-context-saved ctx)))) (+ n 1) n))))
 
 
   (define (load! ctx reg x)
@@ -188,6 +190,11 @@
         (begin
           (load! ctx reg x)
           reg)))
+
+
+  ;; push takes a register, a slot or an imm32
+  (define (push-args! ctx args)
+    (for-each (lambda (x) (emit-asm! ctx `(push ,(source! ctx x 'rax)))) (reverse args)))
 
 
   (define (load-args! ctx args regs)
@@ -278,12 +285,14 @@
            (load! ctx 'rax src)
            (store! ctx dst 'rax)))))
 
-      ((ccall)
+      ((stackcall)
        (let ((dst (cadr instr))
              (target (caddr instr))
              (args (cdddr instr)))
-         (load-args! ctx args arg-regs)
+         (push-args! ctx args)
          (emit-asm! ctx `(call ,target))
+         (unless (null? args)
+           (emit-asm! ctx `(add rsp ,(* 8 (length args)))))
          (unless (eq? dst 'void)
            (store! ctx dst 'rax))))
 
@@ -497,9 +506,9 @@
           ((asm-context-native? ctx)
            (unless (equal? src '(void))
              (load! ctx 'rax src))
-           (emit-asm! ctx `(add rsp ,(native-bytes ctx)))
-           (for-each (lambda (r) (emit-asm! ctx `(pop ,r))) (reverse (asm-context-saved ctx)))
-           (emit-asm! ctx '(ret)))
+           (emit-asm! ctx
+                      '(leave)
+                      '(ret)))
           (else
            (load! ctx 'rax src)
            (leave! ctx)
@@ -512,23 +521,21 @@
   ;; x is (function|native name (arity n) block ...);
   ;; a block is (block n instr ...), n being its label, and falls through to the next one
   (define (function->asm x)
-    (let*-values (((blocks saved) (allocate-registers (cdddr x) (eq? (car x) 'native)))
-                  ((ctx) (new-asm-context x blocks (if (eq? (car x) 'native) saved '())))
-                  ((fn) (asm-context-fn ctx))
-                  ((arity) (asm-context-arity ctx))
-                  ((nraw) (asm-context-nraw ctx))
-                  ((nwords) (+ 6 arity (asm-context-ntmp ctx) nraw)))
+    (let* ((blocks (allocate-registers (cdddr x)))
+           (ctx (new-asm-context x blocks))
+           (fn (asm-context-fn ctx))
+           (arity (asm-context-arity ctx))
+           (nraw (asm-context-nraw ctx))
+           (nwords (+ 6 arity (asm-context-ntmp ctx) nraw)))
       (if (asm-context-native? ctx)
           (begin
-            (when (> arity (length arg-regs))
-              (error 'function->asm "too many parameters" fn))
             (emit-asm! ctx
                        '(text)
-                       `(label ,fn))
-            (for-each (lambda (r) (emit-asm! ctx `(push ,r))) (asm-context-saved ctx))
-            (emit-asm! ctx `(sub rsp ,(native-bytes ctx)))
-            (for-each (lambda (i reg) (store! ctx (list 'arg (+ i 1)) reg))
-                      (iota arity) (list-head arg-regs arity)))
+                       `(label ,fn)
+                       '(push rbp)
+                       '(mov rbp rsp))
+            (unless (zero? (+ (asm-context-ntmp ctx) nraw))
+              (emit-asm! ctx `(sub rsp ,(* 8 (+ (asm-context-ntmp ctx) nraw))))))
           ;; The frame length, which callers read before the code
           (emit-asm! ctx
                      '(text)
@@ -574,11 +581,11 @@
   ;; The process entry and the allocation stub, in the library
   (define runtime-asm
     `((text)
-      ;; The process entry: rsp points to argc and is 16-byte aligned; it allocates the frame
+      ;; The process entry: rsp points to argc; it allocates the frame
       ;; of scheme_main, which runs in the Scheme calling convention, and nothing returns here
       (globl "_start")
       (label "_start")
-      (mov rdi rsp)
+      (push rsp)
       (call "init_runtime_code")
       (xor ebp ebp)
       (mov rax (rip "scheme_main" -8))
@@ -589,18 +596,17 @@
       (mov rbp rax)
       (jmp "scheme_main")
       (label ".L_start_finish")
-      (mov rdi rax)
+      (push rax)
       (call "finish_program_code")
 
       ;; Allocate an object, zeroed
       ;; Parameters:
       ;;   - rax: length (in words) of the object
       ;;   - rbp: current frame, the only root
-      ;;   - rsp: 8 (mod 16), i.e. aligned before the call
       ;; Output:
       ;;   - rax: the object
       ;;   - rbp: the current frame, moved if a collection happened
-      ;; Clobbers: rdi, rsi, rdx, rcx, r8, r9, r10, r11
+      ;; Clobbers: all other registers
       ;; The fast path bumps scheme_len up to scheme_limit (0 in stress mode)
       (globl "alloc_object")
       (label "alloc_object")
@@ -615,11 +621,13 @@
       (mov rax rcx)
       (ret)
       (label ".Lalloc_object_slow")
-      (push rbp)                        ; roots[0], also realigns rsp to 16
-      (mov rdi rax)
-      (mov rsi rsp)
-      (mov edx 1)
+      (push rbp)                        ; roots[0]
+      (mov rcx rsp)
+      (push 1)
+      (push rcx)
+      (push rax)
       (call "alloc_words_code")
+      (add rsp 24)
       (pop rbp)
       (ret)
 
@@ -628,11 +636,10 @@
       ;;   - rax: length (in words) of the frame
       ;;   - rdx: procedure object, the frame's self, a root
       ;;   - rbp: current frame, a root
-      ;;   - rsp: 8 (mod 16), i.e. aligned before the call
       ;; Output:
       ;;   - rax: the frame
       ;;   - rbp: the current frame, moved if a collection happened
-      ;; Clobbers: rdi, rsi, rdx, rcx, r8, r9, r10, r11
+      ;; Clobbers: all other registers
       (globl "alloc_frame")
       (label "alloc_frame")
       (mov rcx (rip "scheme_len"))
@@ -651,12 +658,14 @@
       (ret)
       (label ".Lalloc_frame_slow")
       (push rax)                        ; saved, not a root
-      (push rdx)                        ; roots: rbp, rdx; rsp realigned to 16
+      (push rdx)                        ; roots: rbp, rdx
       (push rbp)
-      (mov rdi rax)
-      (mov rsi rsp)
-      (mov edx 2)
+      (mov rcx rsp)
+      (push 2)
+      (push rcx)
+      (push rax)
       (call "alloc_words_code")
+      (add rsp 24)
       (mov rcx rax)
       (pop rbp)
       (pop rdx)

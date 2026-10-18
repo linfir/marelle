@@ -69,31 +69,29 @@
 ;;
 ;; Registers and calls
 ;; -------------------
-;; There are two classes of registers. rbx and r12-r15 are callee-saved in
-;; System V, and asm never uses them as scratch registers, so a native call
-;; (ccall) and a system call preserve them: a native saves the ones it uses
-;; (see asm.sls). rsi, rdi and r8-r10 are caller-saved, and asm uses them only
-;; at the clobbering instructions: ccall and syscall (arguments), copy and fill
-;; (rep movsq, rep stosq) and selfcall (its operands). An interval containing
-;; one of these, past its start, only gets a callee-saved register; another
-;; prefers a caller-saved one, keeping the callee-saved ones for the former
-;; and saving natives a push and a pop. A clobbering instruction at the start
-;; is the def: asm writes the destination after clobbering.
+;; There are two classes of registers. asm and the kernel never write rbx
+;; and r12-r15 but at calls. rsi, rdi and r8-r10 are written by asm at the
+;; clobbering instructions: syscall (arguments), copy and fill (rep movsq, rep
+;; stosq) and selfcall (its operands). An interval containing one of these,
+;; past its start, only gets a register of the first class; another prefers
+;; one of the second, keeping the first ones for the former. A clobbering
+;; instruction at the start is the def: asm writes the destination after
+;; clobbering.
 ;;
-;; A Scheme call
-;; clobbers all registers: Scheme has no callee-saved registers, so that every
-;; live value is in its own frame at a call, which keeps the GC and
-;; continuations simple. An alloc may run the GC, whose only root is the
-;; frame: a pointer kept in a register would not be moved.
+;; A call, Scheme (call) or native (stackcall), clobbers all registers: there
+;; are no callee-saved registers, so that every live value is in its own
+;; frame at a Scheme call, which keeps the GC and continuations simple. An
+;; alloc may run the GC, whose only root is the frame: a pointer kept in a
+;; register would not be moved.
 ;;
-;; So in a Scheme function, each register holding a tmp live after a Scheme
-;; call or an alloc is saved to a frame slot just before it and restored just
-;; after it (caller-save). The destination of the call is neither saved nor
-;; restored. No raw is live across them (check-gc-safety), so raws are never
-;; saved. Only live values are saved, at each call they cross: cheaper than
+;; So each register holding a variable live after a call or an alloc is saved
+;; to a frame slot just before it and restored just after it (caller-save).
+;; The destination of the call is neither saved nor restored. No raw is live
+;; across a Scheme call or an alloc (check-gc-safety), but raws may be live
+;; across a native call, which is not a safepoint: they are saved to raw
+;; slots. Only live values are saved, at each call they cross: cheaper than
 ;; spilling for values used often between calls, dearer for values crossing
-;; many calls but rarely used. A native never calls Scheme or allocates, so
-;; it saves nothing.
+;; many calls but rarely used.
 ;;
 ;; Frame slots
 ;; -----------
@@ -116,15 +114,15 @@
           (flow))
 
 
-  ;; Callee-saved in System V, and never used by asm as scratch registers
-  (define callee-saved-registers '(rbx r12 r13 r14 r15))
+  ;; Never written by asm or the kernel but at calls
+  (define kept-registers '(rbx r12 r13 r14 r15))
 
 
-  ;; Caller-saved, used by asm only at the clobbering instructions
-  (define caller-saved-registers '(rsi rdi r8 r9 r10))
+  ;; Written by asm only at the clobbering instructions and calls
+  (define scratch-registers '(rsi rdi r8 r9 r10))
 
 
-  (define clobbering-ops '(ccall syscall copy fill selfcall))
+  (define clobbering-ops '(syscall copy fill selfcall))
 
 
   (define-record-type interval
@@ -270,8 +268,8 @@
     (and (pair? loc) (eq? (car loc) 'reg)))
 
 
-  ;; For each Scheme call or alloc, the registers to save around it, as a
-  ;; hashtable from its position to ((reg . save-interval) ...): the tmps in a
+  ;; For each call or alloc, the registers to save around it, as a hashtable
+  ;; from its position to ((reg . save-interval) ...): the variables in a
   ;; register live after it, but its destination. Two variables live at the
   ;; same point have overlapping intervals, so at most one per register is
   ;; live: the walk keeps those as a short list. A save interval keeps the
@@ -292,13 +290,13 @@
                                        (fold-left (lambda (acc i) (if (memv i acc) acc (cons i acc)))
                                                   live (live-registers (vector-ref ins (cadr instr))))
                                        live)))
-                        (when (memq (car instr) '(call alloc allocframe))
+                        (when (memq (car instr) '(call stackcall alloc allocframe))
                           (hashtable-set!
                            saves position
                            (fold-right
                             (lambda (i acc)
                               (let ((var (index-var i)))
-                                (if (and (eq? (car var) 'tmp) (not (equal? var (cadr instr))))
+                                (if (not (equal? var (cadr instr)))
                                     (cons (cons (hashtable-ref locs i #f)
                                                 (make-interval var position position #f))
                                           acc)
@@ -332,9 +330,8 @@
 
   ;; The blocks of a function with each (tmp n) and (raw n) replaced by a
   ;; register (reg r) or a frame slot of its kind, (tmp k) or (raw k), and the
-  ;; registers saved around Scheme calls and allocs, unless native?.
-  ;; Returns the new blocks and the callee-saved registers used.
-  (define (allocate-registers blocks native?)
+  ;; registers saved around calls and allocs
+  (define (allocate-registers blocks)
     (let* ((starts (block-starts blocks))
            (ins (block-liveness blocks))
            (intervals (sort-by-start (var-intervals blocks starts ins)))
@@ -342,7 +339,7 @@
            (next (next-clobbers blocks)))
       (define (register-rank iv loc)
         (let ((crosses? (<= (vector-ref next (interval-start iv)) (interval-end iv))))
-          (if (memq (cadr loc) callee-saved-registers)
+          (if (memq (cadr loc) kept-registers)
               (if crosses? 0 1)
               (and (not crosses?) 0))))
       (define (spilled kind)
@@ -352,29 +349,26 @@
         (for-each (lambda (iv) (hashtable-set! locs (var-index (interval-var iv)) (interval-loc iv)))
                   intervals))
       (sweep! intervals
-              (map (lambda (r) (list 'reg r)) (append caller-saved-registers callee-saved-registers))
+              (map (lambda (r) (list 'reg r)) (append scratch-registers kept-registers))
               register-rank
               #t)
       (record-locs!)
-      (let ((saves (if native? (make-eqv-hashtable) (call-saves blocks starts ins locs))))
-        (allocate-slots! (append (spilled 'tmp)
-                                 (apply append (map (lambda (s) (map cdr s))
-                                                    (vector->list (hashtable-values saves)))))
-                         'tmp)
-        (allocate-slots! (spilled 'raw) 'raw)
+      (let* ((saves (call-saves blocks starts ins locs))
+             (save-intervals (apply append (map (lambda (s) (map cdr s))
+                                                (vector->list (hashtable-values saves))))))
+        (define (saved kind)
+          (filter (lambda (iv) (eq? (car (interval-var iv)) kind)) save-intervals))
+        (allocate-slots! (append (spilled 'tmp) (saved 'tmp)) 'tmp)
+        (allocate-slots! (append (spilled 'raw) (saved 'raw)) 'raw)
         (record-locs!)
-        (values
-         (map (lambda (b start)
-                `(block ,(cadr b)
-                        ,@(apply append
-                                 (map (lambda (instr position)
-                                        (let ((save (hashtable-ref saves position '())))
-                                          (append (map (lambda (s) `(mov ,(interval-loc (cdr s)) ,(car s))) save)
-                                                  (list (rewrite instr locs))
-                                                  (map (lambda (s) `(mov ,(car s) ,(interval-loc (cdr s)))) save))))
-                                      (cddr b)
-                                      (map (lambda (k) (+ start k)) (iota (length (cddr b))))))))
-              blocks starts)
-         (filter (lambda (r)
-                   (exists (lambda (iv) (equal? (interval-loc iv) (list 'reg r))) intervals))
-                 callee-saved-registers))))))
+        (map (lambda (b start)
+               `(block ,(cadr b)
+                       ,@(apply append
+                                (map (lambda (instr position)
+                                       (let ((save (hashtable-ref saves position '())))
+                                         (append (map (lambda (s) `(mov ,(interval-loc (cdr s)) ,(car s))) save)
+                                                 (list (rewrite instr locs))
+                                                 (map (lambda (s) `(mov ,(car s) ,(interval-loc (cdr s)))) save))))
+                                     (cddr b)
+                                     (map (lambda (k) (+ start k)) (iota (length (cddr b))))))))
+             blocks starts)))))

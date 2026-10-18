@@ -383,9 +383,9 @@
     (cond
      ((def-inline? def)
       (compile-inline def ops form compile-last))
-     ;; A System V call, so not a safepoint
+     ;; A call on the machine stack, so not a safepoint
      ((def-native? def)
-      (emit-call! 'ccall (def-result def) (cons (def-code def) ops)))
+      (emit-call! 'stackcall (def-result def) (cons (def-code def) ops)))
      (else
       (let ((f (direct-frame env def form)))
         (for-each (lambda (op i) (frame-store! f i op)) ops (iota (length ops)))
@@ -565,7 +565,7 @@
                 (compile-exprs env exprs (map (lambda (x) 'val) exprs) form)))
 
 
-  ;; (op dst . ops), op being call or ccall, for a def with the given result
+  ;; (op dst . ops), op being call or stackcall, for a def with the given result
   (define (emit-call! op result ops)
     (case result
       ((void never)
