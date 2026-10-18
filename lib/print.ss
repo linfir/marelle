@@ -198,22 +198,6 @@
             (elem-next (raw+ i (raw 1))))))
     (put-string out ")")))
 
-;; Divides the m limbs at q by 10^9 in place, returns the remainder; each limb is two
-;; 32-bit halves, so rem << 32 | half < 2^62 and the signed raw/ works
-(define (divide-limbs! (raw q) (raw m))
-  (declare unsafe noalloc (result raw))
-  (let limb-next ((i m)
-                  (rem (raw 0)))
-    (if (raw= i (raw 0))
-        rem
-        (let* ((limb (load q (raw- i (raw 1))))
-               (hi (bit-or (raw<< rem (raw 32)) (raw>>u limb (raw 32))))
-               (lo (bit-or (raw<< (raw% hi (raw 1000000000)) (raw 32))
-                           (bit-and limb (raw 4294967295)))))
-          (store q (raw- i (raw 1)) (bit-or (raw<< (raw/ hi (raw 1000000000)) (raw 32))
-                                            (raw/ lo (raw 1000000000))))
-          (limb-next (raw- i (raw 1)) (raw% lo (raw 1000000000)))))))
-
 ;; The number of limbs at q once its leading zero limbs are dropped
 (define (significant-limbs (raw q) (raw m))
   (declare unsafe noalloc (result raw))
@@ -221,32 +205,51 @@
       (significant-limbs q (raw- m (raw 1)))
       m))
 
+;; Stores the decimal digits of n at p + j, at least width of them, zero-padded; returns the
+;; index past them
+(define (store-digits! (raw p) (raw j) (raw n) (raw width))
+  (declare unsafe noalloc (result raw))
+  (let count ((m (raw/ n (raw 10)))
+              (d (raw 1)))
+    (if (raw= m (raw 0))
+        (let ((end (raw+ j (if (raw> d width) d width))))
+          (let digit-next ((i end)
+                           (m n))
+            (if (raw= i j)
+                end
+                (begin
+                  (store8 p (raw- i (raw 1)) (raw+ (raw% m (raw 10)) (raw 48)))
+                  (digit-next (raw- i (raw 1)) (raw/ m (raw 10)))))))
+        (count (raw/ m (raw 10)) (raw+ d (raw 1))))))
+
 ;; Prints the bignum at x in decimal: its limbs, copied to spare-mem (unused outside a
-;; collection), are divided by 10^9 until zero, the remainders stored after them, then printed
-;; most significant first, 9 digits each but the first; spare-mem is zeroed again after
+;; collection), are divided by 10^18 until zero, the remainders stored after them, then
+;; their digits after those, most significant first, 18 each but the first, in one write;
+;; spare-mem is zeroed again after
 (define (display-bignum (raw out) (raw x))
   (declare unsafe noalloc (result void))
   (let* ((n (load x (raw 1)))
          (q (load spare-mem (raw 0)))
          (chunks (raw+ q (raw<< n (raw 3)))))
-    ;; A chunk per 29.9 bits: at most 2.2 n + 1 of them
-    (when (raw>u (raw+ (raw<< n (raw 2)) (raw 1)) (load scheme-cap (raw 0)))
+    ;; A chunk per 59.7 bits, at most 1.08 n + 1 of them, then 18 bytes each: 4.5 n + 5 words
+    (when (raw>u (raw+ (raw* n (raw 5)) (raw 8)) (load scheme-cap (raw 0)))
       (fatal "Out of memory\n"))
-    (when (raw= (load x (raw 2)) (raw 1))
-      (put-string out "-"))
     (copy-words q (raw+ x (raw 24)) n)
     (let chunk-next ((k (raw 0))
                      (m n))
       (if (raw>u m (raw 0))
           (begin
-            (store chunks k (divide-limbs! q m))
+            (store chunks k (divide-limbs-by! q q m (raw 1000000000000000000)))
             (chunk-next (raw+ k (raw 1)) (significant-limbs q m)))
-          (begin
-            (put-digits out (load chunks (raw- k (raw 1))) (raw 10) (raw 1))
-            (let print-next ((i (raw- k (raw 1))))
+          (let* ((text (raw+ chunks (raw<< k (raw 3))))
+                 (sign (if (raw= (load x (raw 2)) (raw 1))
+                           (begin (store8 text (raw 0) (raw 45)) (raw 1)) ; -
+                           (raw 0))))
+            (let print-next ((i (raw- k (raw 1)))
+                             (j (store-digits! text sign (load chunks (raw- k (raw 1))) (raw 1))))
               (if (raw= i (raw 0))
-                  undef
                   (begin
-                    (put-digits out (load chunks (raw- i (raw 1))) (raw 10) (raw 9))
-                    (print-next (raw- i (raw 1))))))
-            (fill-words q (raw+ n k) (raw 0)))))))
+                    (write-bytes out text j)
+                    (fill-words q (raw+ (raw+ n k) (raw+ (raw>>u j (raw 3)) (raw 1))) (raw 0)))
+                  (print-next (raw- i (raw 1))
+                              (store-digits! text j (load chunks (raw- i (raw 1))) (raw 18))))))))))
