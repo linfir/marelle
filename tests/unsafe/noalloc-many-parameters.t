@@ -1,6 +1,6 @@
-;; Natives take any number of arguments, on the machine stack
+;; Noalloc functions take any number of arguments, on the machine stack
 (define (f (raw a) (raw b) (raw c) (raw d) (raw e) (raw f) (raw g))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (raw- g (raw+ a (raw+ b c))))
 
 (define (entry)

@@ -78,7 +78,7 @@
 ;; instruction at the start is the def: asm writes the destination after
 ;; clobbering.
 ;;
-;; A call, Scheme (call) or native (stackcall), clobbers all registers: there
+;; A call, Scheme (call) or noalloc (stackcall), clobbers all registers: there
 ;; are no callee-saved registers, so that every live value is in its own
 ;; frame at a Scheme call, which keeps the GC and continuations simple. An
 ;; alloc may run the GC, whose only root is the frame: a pointer kept in a
@@ -88,7 +88,7 @@
 ;; to a frame slot just before it and restored just after it (caller-save).
 ;; The destination of the call is neither saved nor restored. No raw is live
 ;; across a Scheme call or an alloc (check-gc-safety), but raws may be live
-;; across a native call, which is not a safepoint: they are saved to raw
+;; across a noalloc call, which is not a safepoint: they are saved to raw
 ;; slots. Only live values are saved, at each call they cross: cheaper than
 ;; spilling for values used often between calls, dearer for values crossing
 ;; many calls but rarely used.

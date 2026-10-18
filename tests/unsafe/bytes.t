@@ -2,7 +2,7 @@
 (define-data byte-buffer 2)
 
 (define (copy-bytes (raw src))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let loop ((i (raw 0)))
     (if (raw= (load8 src i) (raw 0))
         i
@@ -11,7 +11,7 @@
           (loop (raw+ i (raw 1)))))))
 
 (define (sum-bytes (raw n))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let loop ((i (raw 0))
              (sum (raw 0)))
     (if (raw= i n)

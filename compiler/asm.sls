@@ -16,9 +16,9 @@
 ;;   rbp + 8*(n+m+6)    (raw 1)
 ;;   ...
 ;;
-;; Native functions, which never allocate, have their frame on the machine
-;; stack, rbp pointing to it, n being the arity and m the number of tmps and
-;; raws:
+;; Noalloc functions, which never allocate or call Scheme, have their frame
+;; on the machine stack, rbp pointing to it, n being the arity and m the
+;; number of tmps and raws:
 ;;
 ;;   rbp + 8*(n+1)      (arg n)
 ;;   ...
@@ -29,7 +29,7 @@
 ;;   ...                then the other tmps and the raws
 ;;   rbp - 8*m          rsp
 ;;
-;; Native calls (stackcall):
+;; Noalloc calls (stackcall):
 ;;   - the caller pushes the arguments, the last first, any number, then calls;
 ;;     the callee pushes rbp, points rbp to it and makes room for its tmps and
 ;;     raws; it returns with leave and ret, the result in rax, and the caller
@@ -81,12 +81,12 @@
 
 
   (define-record-type asm-context
-    (fields fn native? arity ntmp nraw (mutable code) ret-counter))
+    (fields fn noalloc? arity ntmp nraw (mutable code) ret-counter))
 
 
   ;; x is the function, blocks its blocks after register allocation
   (define (new-asm-context x blocks)
-    (make-asm-context (cadr x) (eq? (car x) 'native) (cadr (caddr x))
+    (make-asm-context (cadr x) (eq? (car x) 'noalloc) (cadr (caddr x))
                       (count-slots 'tmp blocks) (count-slots 'raw blocks)
                       '() (make-counter)))
 
@@ -99,7 +99,7 @@
   (define (frame-word ctx i)
     (let ((arity (asm-context-arity ctx)))
       (cond
-       ((not (asm-context-native? ctx)) `(mem rbp ,(+ frame-self (* 8 i))))
+       ((not (asm-context-noalloc? ctx)) `(mem rbp ,(+ frame-self (* 8 i))))
        ((<= i arity) `(mem rbp ,(+ 8 (* 8 i))))
        (else `(mem rbp ,(* -8 (- i arity)))))))
 
@@ -503,7 +503,7 @@
       ((ret)
        (let ((src (cadr instr)))
          (cond
-          ((asm-context-native? ctx)
+          ((asm-context-noalloc? ctx)
            (unless (equal? src '(void))
              (load! ctx 'rax src))
            (emit-asm! ctx
@@ -518,7 +518,7 @@
        (error 'instr->asm! "unknown instruction" instr))))
 
 
-  ;; x is (function|native name (arity n) block ...);
+  ;; x is (function|noalloc name (arity n) block ...);
   ;; a block is (block n instr ...), n being its label, and falls through to the next one
   (define (function->asm x)
     (let* ((blocks (allocate-registers (cdddr x)))
@@ -527,7 +527,7 @@
            (arity (asm-context-arity ctx))
            (nraw (asm-context-nraw ctx))
            (nwords (+ 6 arity (asm-context-ntmp ctx) nraw)))
-      (if (asm-context-native? ctx)
+      (if (asm-context-noalloc? ctx)
           (begin
             (emit-asm! ctx
                        '(text)
@@ -572,7 +572,7 @@
            ,@(if (= n 0)
                  '()
                  (list (cons 'quad (make-list n (cadddr x))))))))
-      ((function native)
+      ((function noalloc)
        (function->asm x))
       ((stubs) runtime-asm)
       (else (error 'top->asm "unknown top-level entry" x))))

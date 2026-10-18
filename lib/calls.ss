@@ -41,7 +41,7 @@
 
 ;; Stores the elements of the list l as the arguments of the frame f
 (define (store-arguments! (raw f) l)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let next ((l l)
              (i (raw 6)))
     (if (pair? l)

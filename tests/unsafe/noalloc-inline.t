@@ -1,5 +1,5 @@
 (define (f x)
-  (declare unsafe native inline)
+  (declare unsafe noalloc inline)
   x)
 
 (define (entry)
@@ -8,4 +8,4 @@
 (entry)
 ---
 stage = "compiler"
-stderr_contains = ":native with another attribute"
+stderr_contains = ":noalloc with another attribute"

@@ -50,7 +50,7 @@
 ;; -1, 0 or 1 as the magnitude of the bignum a is below, equal to or above b's;
 ;; a 1-limb operand may have a zero limb
 (define (compare-magnitudes (raw a) (raw b))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let ((na (load a (raw 1)))
         (nb (load b (raw 1))))
     (cond
@@ -70,7 +70,7 @@
 ;; -1, 0 or 1 as x is below, equal to or above y; both normalized integers, else an error;
 ;; a bignum is beyond every fixnum, so its sign decides against one
 (define (compare-integers x y (raw msg))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (check-integer x msg)
   (check-integer y msg)
   (cond
@@ -92,7 +92,7 @@
 
 ;; The limbs of r: |a| + |b|, max(na, nb) + 1 of them
 (define (add-magnitudes! (raw r) (raw a) (raw b))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let* ((na (load a (raw 1)))
          (nb (load b (raw 1)))
          (n (if (raw>u na nb) na nb)))
@@ -111,7 +111,7 @@
 
 ;; The limbs of r: |a| - |b|, with |a| >= |b|, na of them
 (define (subtract-magnitudes! (raw r) (raw a) (raw b))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let ((na (load a (raw 1)))
         (nb (load b (raw 1))))
     (store r (raw 1) na)
@@ -130,7 +130,7 @@
 ;; The limbs of the zeroed r: |a| * |b|, na + nb of them (schoolbook);
 ;; x * y + r[k] + carry < 2^128, so the high word never overflows
 (define (multiply-magnitudes! r a b)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let* ((r (as-raw r))
          (a (as-raw a))
          (b (as-raw b))
@@ -160,7 +160,7 @@
 
 ;; The bignum r without its leading zero limbs, or its fixnum when in range
 (define (normalize r)
-  (declare unsafe native)
+  (declare unsafe noalloc)
   (let ((r (as-raw r)))
     (let limb-next ((n (load r (raw 1))))
       (if (and (raw>u n (raw 1)) (raw= (load r (raw+ n (raw 2))) (raw 0)))
@@ -178,7 +178,7 @@
 
 ;; r = a + b, or a - b when negate-b? is true, on bignums
 (define (add-signed! r a b negate-b?)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let* ((r (as-raw r))
          (a (as-raw a))
          (b (as-raw b))
@@ -217,7 +217,7 @@
 
 ;; x is nonzero
 (define (leading-zeros (raw x))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let bit-next ((n (raw 0))
                  (x x))
     (if (raw< x (raw 0))
@@ -231,7 +231,7 @@
 
 ;; The n limbs at dst = those at src << s, s below 64; returns the bits pushed out
 (define (shift-limbs-left! (raw dst) (raw src) (raw n) (raw s))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let limb-next ((i (raw 0))
                   (carry (raw 0)))
     (if (raw= i n)
@@ -242,7 +242,7 @@
 
 ;; The n limbs at p >>= s, s below 64
 (define (shift-limbs-right! (raw p) (raw n) (raw s))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let limb-next ((i (raw 0)))
     (if (raw= i n)
         undef
@@ -253,7 +253,7 @@
 
 ;; The n limbs at q = those at a divided by d; returns the remainder
 (define (divide-limbs-by! (raw q) (raw a) (raw n) (raw d))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let limb-next ((i n)
                   (rem (raw 0)))
     (if (raw= i (raw 0))
@@ -273,7 +273,7 @@
 ;; The estimate of the next quotient limb: u[n]:u[n-1]:u[n-2] over the normalized divisor
 ;; v1:v2:..., at most 1 too large (Knuth's step D3)
 (define (estimate-limb (raw u) (raw n) (raw v1) (raw v2))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let* ((hi (load u n))
          (lo (load u (raw- n (raw 1))))
          (x (load u (raw- n (raw 2))))
@@ -290,7 +290,7 @@
 
 ;; The n + 1 limbs at u -= q * the n limbs at v; returns 1 when the result is negative
 (define (multiply-subtract! (raw u) (raw v) (raw n) (raw q))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let limb-next ((i (raw 0))
                   (carry (raw 0)))
     (if (raw= i n)
@@ -309,7 +309,7 @@
 
 ;; The n + 1 limbs at u += the n limbs at v, dropping the carry out
 (define (add-back! (raw u) (raw v) (raw n))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let limb-next ((i (raw 0))
                   (carry (raw 0)))
     (if (raw= i n)
@@ -329,7 +329,7 @@
 ;; The zeroed q gets |a| / |b|, quotient-limbs of them; u, na + nb + 1 zeroed words,
 ;; gets |a| mod |b| in its first nb
 (define (divide-magnitudes! (raw q) (raw u) (raw a) (raw b))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let ((na (load a (raw 1)))
         (nb (load b (raw 1))))
     (cond
@@ -366,7 +366,7 @@
 
 ;; Fills the bignum r, of division-limbs limbs, with a / b, or a mod b, truncating
 (define (divide! r a b quotient?)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let* ((r (as-raw r))
          (a (as-raw a))
          (b (as-raw b))

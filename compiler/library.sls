@@ -53,13 +53,13 @@
                               (map cons (library-def-args x) (library-def-kinds x))
                               (library-def-result x)
                               (and (memq ':inline attrs) #t) (and (memq ':public attrs) #t)
-                              (and (memq ':native attrs) #t) (library-def-procedure? x)
+                              (and (memq ':noalloc attrs) #t) (library-def-procedure? x)
                               (library-def-unsafe? x) 0 #f #f (library-def-body x) #f #f)))
-          (when (and (def-native? def) (or (def-inline? def) (def-public? def)))
-            (error 'scanned-item ":native with another attribute" name))
+          (when (and (def-noalloc? def) (or (def-inline? def) (def-public? def)))
+            (error 'scanned-item ":noalloc with another attribute" name))
           ;; An emitted def is called with the Scheme convention
           (unless (or (not (def-emitted? def))
-                      (def-native? def)
+                      (def-noalloc? def)
                       (and (for-all (lambda (k) (memq k '(val rest))) (def-params-kinds def))
                            (memq (def-result def) '(val never))))
             (error 'scanned-item "raw parameter or result in a non-inline def" name))
@@ -142,7 +142,7 @@
 
   ;; The symbols an entry defines
   (define (entry-symbols entry)
-    (if (memq (car entry) '(rodata function native))
+    (if (memq (car entry) '(rodata function noalloc))
         (list (cadr entry))
         '()))
 
@@ -199,7 +199,7 @@
                         `(def ,(def-name x) ,(def-symbol x) ,(def-params x) ,(def-result x)
                               (,@(if (def-inline? x) '(inline) '())
                                ,@(if (def-public? x) '(public) '())
-                               ,@(if (def-native? x) '(native) '()))
+                               ,@(if (def-noalloc? x) '(noalloc) '()))
                               ,(def-unsafe? x) ,(def-procedure? x)
                               ,@(if (def-inline? x) (def-body x) '()))))
                   items))))))
@@ -211,7 +211,7 @@
         (apply (lambda (name symbol nwords) (make-data name symbol nwords #t)) (cdr x))
         (apply (lambda (name symbol params result attrs unsafe? procedure? . body)
                  (make-def name symbol params result (and (memq 'inline attrs) #t)
-                           (and (memq 'public attrs) #t) (and (memq 'native attrs) #t)
+                           (and (memq 'public attrs) #t) (and (memq 'noalloc attrs) #t)
                            procedure? unsafe? 0 #f #t body #f #f))
                (cdr x))))
 

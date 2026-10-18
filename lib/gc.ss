@@ -19,7 +19,7 @@
 
 ;; Each stretch between collections allocates from the words copied up to the used words
 (define (print-gc-stats)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (put-string (stderr) "GC: ")
   (put-int (stderr) (load gc-count (raw 0)))
   (put-string (stderr) " collections, ")
@@ -47,7 +47,7 @@
 ;; each space is zero past its used part, so frame slots not yet written hold 0
 
 (define (object-words (raw p))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (cond
    ((raw= (load p (raw 0)) (frame-type)) (load p (raw 1)))
    ((raw= (load p (raw 0)) (procedure-type)) (raw+ (load p (raw 4)) (raw 5)))
@@ -59,7 +59,7 @@
 ;; The new address of the object x points to, copied to gc-free if it is in the
 ;; current space; a moved object holds forward-type and its new address
 (define (forward (raw x))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let ((t (bit-and x (raw 7))))
     (if (not (or (raw= t (raw 0)) (raw= t (raw 3))))
         x
@@ -85,7 +85,7 @@
               (bit-or new t))))))))
 
 (define (forward-words (raw p) (raw n))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let forward-next ((i (raw 0)))
     (if (raw= i n)
         undef
@@ -96,7 +96,7 @@
 ;; Forwards the values of the object at p in the new space, returns its length;
 ;; the raw slots of a frame are not scanned
 (define (scan (raw p))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let* ((n (object-words p))
          (header (load p (raw 0)))
          (frame? (raw= header (frame-type)))
@@ -116,7 +116,7 @@
 ;; Moves the live objects and updates the roots, which must hold every heap pointer in use;
 ;; the rest is reached through them
 (define (collect (raw roots) (raw nroots))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let ((to (load spare-mem (raw 0))))
     (store gc-free (raw 0) to)
     (forward-words roots nroots)
@@ -144,7 +144,7 @@
 ;; nwords words of the current space, after a collection if it is full;
 ;; called from the stubs in asm.sls, the only place where a collection may happen
 (define (alloc-words (raw nwords) (raw roots) (raw nroots))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (when (or (gc-stress-due?) (raw>u nwords (free-words)))
     (collect roots nroots)
     (when (raw>u nwords (free-words))

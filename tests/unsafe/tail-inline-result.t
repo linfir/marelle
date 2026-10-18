@@ -1,6 +1,6 @@
 ;; An inline call ending a def is checked against the def's result
 (define (f x)
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (car x))
 
 (define (entry)

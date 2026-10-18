@@ -70,7 +70,7 @@
       (and (bignum? x) (bignum? y) (= x y))))
 
 (define (arity-error proc (raw nargs))
-  (declare unsafe native (result never))
+  (declare unsafe noalloc (result never))
   (put-string (stderr) "Error: procedure of arity ")
   (let ((arity (load (as-raw proc) (raw 1))))
     (if (raw< arity (raw 0))

@@ -3,7 +3,7 @@
   x)
 
 (define (f x)
-  (declare unsafe native)
+  (declare unsafe noalloc)
   (g x))
 
 (define (entry)
@@ -12,4 +12,4 @@
 (entry)
 ---
 stage = "compiler"
-stderr_contains = "safepoint or self in a native def"
+stderr_contains = "safepoint or self in a noalloc def"

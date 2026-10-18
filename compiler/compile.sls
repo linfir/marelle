@@ -196,8 +196,8 @@
     (let ((def (or (variadic-twin def) def)))
       (unless (def-emitted? def)
         (error 'compile-value "inline def without a procedure object" x))
-      (when (def-native? def)
-        (error 'compile-value "native def without a procedure object" x))
+      (when (def-noalloc? def)
+        (error 'compile-value "noalloc def without a procedure object" x))
       `(as-val ,(def-proc def))))
 
 
@@ -372,9 +372,9 @@
         (compile-indirect env expr #f)))))
 
 
-  ;; A def reached by a Scheme call, with a frame, rather than inlined or a native call
+  ;; A def reached by a Scheme call, with a frame, rather than inlined or a noalloc call
   (define (def-called? def)
-    (not (or (def-inline? def) (def-native? def))))
+    (not (or (def-inline? def) (def-noalloc? def))))
 
 
   ;; Calls def with the operands ops, compiling an inline def's last expression with
@@ -384,7 +384,7 @@
      ((def-inline? def)
       (compile-inline def ops form compile-last))
      ;; A call on the machine stack, so not a safepoint
-     ((def-native? def)
+     ((def-noalloc? def)
       (emit-call! 'stackcall (def-result def) (cons (def-code def) ops)))
      (else
       (let ((f (direct-frame env def form)))
@@ -716,7 +716,7 @@
           ((called-def env x)
            => (lambda (callee)
                 (cond
-                 ((def-native? callee)
+                 ((def-noalloc? callee)
                   (compile-return env def x))
                  ((eq? callee (current-function))
                   (emit! `(selfcall (self) ,@(compile-args env callee x))))
@@ -1037,10 +1037,10 @@
                    (compile-seq body-env (def-core-body def)
                                 (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)
-      (if (def-native? def)
+      (if (def-noalloc? def)
           (begin
-            (check-native (def-name def) blocks)
-            (add-entries! `((native ,(def-code def) (arity ,(length params))
+            (check-noalloc (def-name def) blocks)
+            (add-entries! `((noalloc ,(def-code def) (arity ,(length params))
                                     ,@(propagate-copies (map lower-block blocks) #t)))))
           (add-entries! (procedure-entries def blocks)))))
 
@@ -1164,9 +1164,9 @@
           (if (eq? (kind a) 'never) b dst)))))
 
 
-  ;; A native def may run during a collection, so it never collects;
-  ;; it has no procedure object, so no self
-  (define (check-native name body)
+  ;; A noalloc def may run during a collection, so it never allocates or
+  ;; calls Scheme; it has no procedure object, so no self
+  (define (check-noalloc name body)
     (define (self? x)
       (and (pair? x)
            (or (equal? x '(self))
@@ -1177,7 +1177,7 @@
                 (for-each (lambda (instr)
                             (when (or (memq (car instr) '(call tailcall selfcall alloc allocframe))
                                       (self? instr))
-                              (error 'check-native "safepoint or self in a native def" name instr)))
+                              (error 'check-noalloc "safepoint or self in a noalloc def" name instr)))
                           (cddr block)))
               body))
 

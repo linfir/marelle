@@ -1,5 +1,5 @@
 (define (f x)
-  (declare unsafe native)
+  (declare unsafe noalloc)
   x)
 
 (define (entry)
@@ -8,4 +8,4 @@
 (entry)
 ---
 stage = "compiler"
-stderr_contains = "native def without a procedure object"
+stderr_contains = "noalloc def without a procedure object"

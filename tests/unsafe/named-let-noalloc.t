@@ -1,6 +1,6 @@
-;; A raw loop in a native def
+;; A raw loop in a noalloc def
 (define (triangle (raw n))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let loop ((i n) (acc (raw 0)))
     (if (raw= i (raw 0))
         acc

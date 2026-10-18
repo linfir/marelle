@@ -330,7 +330,7 @@
           (values result (reverse attrs) unsafe?)
           (let ((d (car decls)))
             (cond
-             ((memq d '(inline public native))
+             ((memq d '(inline public noalloc))
               (loop (cdr decls) result
                     (cons (string->symbol (format ":~a" d)) attrs) unsafe?))
              ((eq? d 'unsafe)
@@ -376,8 +376,8 @@
                (procedure? (and vals? (for-all (lambda (a) (eq? a ':public)) attrs))))
           (when (and (memq ':public attrs) (not vals?))
             (error 'parse-library-define "public define with raw values" form))
-          (when (and (or (not vals?) (memq ':native attrs)) (not unsafe?))
-            (error 'parse-library-define "raw values or native without unsafe" form))
+          (when (and (or (not vals?) (memq ':noalloc attrs)) (not unsafe?))
+            (error 'parse-library-define "raw values or noalloc without unsafe" form))
           (when (and (exists (lambda (p) (eq? (cdr p) 'rest)) params) (not procedure?))
             (error 'parse-library-define "rest parameter in a non-procedure define" form))
           (make-library-def (caadr form) (map car params) (map cdr params) result attrs

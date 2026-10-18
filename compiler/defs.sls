@@ -1,7 +1,7 @@
 ;; The defs and data of a compilation, and its state
 
 (library (defs)
-  (export make-def def? def-name def-symbol def-params def-result def-inline? def-public? def-native?
+  (export make-def def? def-name def-symbol def-params def-result def-inline? def-public? def-noalloc?
           def-procedure? def-unsafe? def-captures def-anonymous? def-extern? def-body def-env def-env-set!
           def-core def-core-set! def-core-names def-core-body
           make-data data? data-name data-symbol data-nwords data-extern?
@@ -71,7 +71,7 @@
   ;; env        the env of the body, set once every name is bound
   ;; core       (names . body): the parameters' names and the body after the front pass
   (define-record-type def
-    (fields name symbol params result inline? public? native? procedure? unsafe? captures
+    (fields name symbol params result inline? public? noalloc? procedure? unsafe? captures
             anonymous? extern? body (mutable env) (mutable core)))
 
 
@@ -132,7 +132,7 @@
   (define (add-def-symbols! def)
     (for-each (lambda (sym) (add-symbol! sym (def-name def)))
               (cond
-               ((def-native? def) (list (def-code def)))
+               ((def-noalloc? def) (list (def-code def)))
                ((string=? (def-symbol def) "main") (list (def-proc def)))
                (else (list (def-code def) (def-proc def))))))
 

@@ -20,7 +20,7 @@
 
 
   (define (print-entry x)
-    (if (memq (car x) '(function native))
+    (if (memq (car x) '(function noalloc))
         (begin
           (printf "(~s ~s ~s" (car x) (cadr x) (caddr x))
           (for-each (lambda (b)

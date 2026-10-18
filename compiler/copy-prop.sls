@@ -38,9 +38,9 @@
 ;; across a safepoint. In a Scheme function, a copy from a raw to a val (the
 ;; tmp an as-val gives) is not propagated: reading the raw instead could keep
 ;; it live across a safepoint. A copy from a val to a raw is: no safepoint
-;; separates the copy from the reads of the raw. Natives have no safepoints.
-;; A constant (a quad, a symbol's address) never moves, so it replaces any
-;; read.
+;; separates the copy from the reads of the raw. Noalloc functions have no
+;; safepoints. A constant (a quad, a symbol's address) never moves, so it
+;; replaces any read.
 ;;
 ;; Dead copies
 ;; -----------
@@ -79,13 +79,13 @@
 
 
   ;; A copy this pass may propagate: a mov to a variable from another one or a constant
-  (define (copy? instr native?)
+  (define (copy? instr noalloc?)
     (and (eq? (car instr) 'mov)
          (let ((dst (cadr instr))
                (src (caddr instr)))
            (and (operand-var? dst)
                 (not (equal? dst src))
-                (or native?
+                (or noalloc?
                     (not (and (memq (car dst) '(tmp arg)) (pair? src) (eq? (car src) 'raw))))))))
 
 
@@ -96,7 +96,7 @@
     (fields instrs numbers kills by-dst))
 
 
-  (define (find-copies blocks starts native?)
+  (define (find-copies blocks starts noalloc?)
     (let ((numbers (make-eqv-hashtable))
           (kills (make-hashtable equal-hash equal?))
           (by-dst (make-hashtable equal-hash equal?))
@@ -105,7 +105,7 @@
       (for-each (lambda (b start)
                   (for-each-instr
                    (lambda (position instr)
-                     (when (copy? instr native?)
+                     (when (copy? instr noalloc?)
                        (let ((dst (cadr instr))
                              (src (caddr instr)))
                          (hashtable-set! numbers position n)
@@ -329,9 +329,9 @@
 
   ;; The blocks of a function, lowered, with the reads of copied variables rewritten
   ;; and the dead copies removed
-  (define (propagate-copies blocks native?)
+  (define (propagate-copies blocks noalloc?)
     (let* ((starts (block-starts blocks))
-           (copies (find-copies blocks starts native?))
+           (copies (find-copies blocks starts noalloc?))
            (blocks (if (zero? (vector-length (copies-instrs copies)))
                        blocks
                        (rewrite-blocks blocks starts copies

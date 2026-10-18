@@ -1,6 +1,6 @@
-;; Raw arguments and results, recursion, and a raw live across a native call
+;; Raw arguments and results, recursion, and a raw live across a noalloc call
 (define (fact (raw n))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (if (raw= n (raw 0))
       (raw 1)
       (raw* n (fact (raw- n (raw 1))))))

@@ -3,7 +3,7 @@
 (define-data word-target 5)
 
 (define (word-sum (raw p) (raw n))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let loop ((i (raw 0))
              (sum (raw 0)))
     (if (raw= i n)

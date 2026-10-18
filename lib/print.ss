@@ -4,7 +4,7 @@
 ;; Writes the nonnegative n in base radix, at most 16, with uppercase letters,
 ;; zero-padded to width digits (at most 24)
 (define (put-digits (raw fd) (raw n) (raw radix) (raw width))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let digit-next ((m n)
                    (i (raw 24)))
     (let ((j (raw- i (raw 1)))
@@ -15,14 +15,14 @@
           (digit-next (raw/ m radix) j)))))
 
 (define (put-int (raw fd) (raw n))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (when (raw< n (raw 0))
     (put-string fd "-"))
   (put-digits fd (if (raw< n (raw 0)) (raw- (raw 0) n) n) (raw 10) (raw 1)))
 
 ;; Writes the UTF-8 encoding of the code point n
 (define (put-utf8 (raw fd) (raw n))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let ((nbytes (cond
                  ((raw<u n (raw 128)) (raw 1))
                  ((raw<u n (raw 2048)) (raw 2))
@@ -43,7 +43,7 @@
 
 ;; Prints x to the file descriptor out
 (define (display (raw out) x)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (cond
    ((fixnum? x) (put-int out (raw>> (as-raw x) (raw 3))))
    ((char? x) (display-char out x))
@@ -60,7 +60,7 @@
 
 ;; The name of the character n, or 0
 (define (char-name (raw n))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (cond
    ((raw= n (raw 0))   "nul")
    ((raw= n (raw 7))   "alarm")
@@ -78,7 +78,7 @@
 ;; Prints c like Chez's write: a name, hexadecimal for the other control
 ;; characters and the line separators U+0085 and U+2028, else UTF-8
 (define (display-char (raw out) c)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let* ((n (raw>> (as-raw c) (raw 8)))
          (name (char-name n)))
     (put-string out "#\\")
@@ -90,7 +90,7 @@
      (else (put-utf8 out n)))))
 
 (define (display-pair (raw out) x)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (put-string out "(")
   (display out (car x))
   (let more ((rest (cdr x)))
@@ -106,7 +106,7 @@
           (put-string out ")")))))
 
 (define (display-pointer (raw out) x)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (cond
    ((raw= (as-raw x) (raw 0)) (put-string out "#<null>"))
    ((raw= (load (as-raw x) (raw 0)) (bignum-type)) (display-bignum out (as-raw x)))
@@ -125,7 +125,7 @@
 
 ;; One per line, like Chez's REPL
 (define (display-values (raw out) x)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let next ((l (as-val (load (as-raw x) (raw 1))))
              (first #t))
     (if (pair? l)
@@ -137,7 +137,7 @@
         undef)))
 
 (define (display-vector (raw out) v)
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let ((n (load (as-raw v) (raw 1))))
     (put-string out "#(")
     (let elem-next ((i (raw 0)))
@@ -153,7 +153,7 @@
 ;; Divides the m limbs at q by 10^9 in place, returns the remainder; each limb is two
 ;; 32-bit halves, so rem << 32 | half < 2^62 and the signed raw/ works
 (define (divide-limbs! (raw q) (raw m))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (let limb-next ((i m)
                   (rem (raw 0)))
     (if (raw= i (raw 0))
@@ -168,7 +168,7 @@
 
 ;; The number of limbs at q once its leading zero limbs are dropped
 (define (significant-limbs (raw q) (raw m))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (if (and (raw>u m (raw 0)) (raw= (load q (raw- m (raw 1))) (raw 0)))
       (significant-limbs q (raw- m (raw 1)))
       m))
@@ -177,7 +177,7 @@
 ;; collection), are divided by 10^9 until zero, the remainders stored after them, then printed
 ;; most significant first, 9 digits each but the first; spare-mem is zeroed again after
 (define (display-bignum (raw out) (raw x))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (let* ((n (load x (raw 1)))
          (q (load spare-mem (raw 0)))
          (chunks (raw+ q (raw<< n (raw 3)))))

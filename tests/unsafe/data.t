@@ -3,7 +3,7 @@
 (define-data table 3)
 
 (define (bump (raw i))
-  (declare unsafe native (result raw))
+  (declare unsafe noalloc (result raw))
   (store table i (raw+ (load table i) (raw 1)))
   (store counter (raw 0) (raw+ (load counter (raw 0)) (raw 1)))
   (load table i))

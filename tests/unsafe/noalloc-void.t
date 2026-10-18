@@ -1,5 +1,5 @@
 (define (show (raw n))
-  (declare unsafe native (result void))
+  (declare unsafe noalloc (result void))
   (put-int (stdout) n)
   (put-string (stdout) " "))
 
