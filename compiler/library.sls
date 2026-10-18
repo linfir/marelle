@@ -74,8 +74,8 @@
                 (when (def? x)
                   (def-env-set! x (if (def-unsafe? x) unsafe-env env))
                   (unless (null? (def-body x))
-                    (def-core-set! x (front-def (def-env x) (map car (def-params x))
-                                                (def-body x))))))
+                    (def-core-set! x (front-def (def-env x) (map car (def-params x)) (def-body x)
+                                                (def-unsafe? x))))))
               items))
 
 
@@ -243,7 +243,7 @@
                                                         (define-data-form? (car (last-pair all)))))))
                  (compile-procedure
                   (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
-                            (front-def env '() body))
+                            (front-def env '() body #f))
                   env '())))
              (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"))
              (emit-globals (length globals))

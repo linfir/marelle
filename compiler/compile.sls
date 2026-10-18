@@ -144,7 +144,7 @@
      ((expand-form env expr)
       => (lambda (x) (compile-value env x)))
 
-     ((special-keyword env expr)
+     ((special-keyword expr)
       => (lambda (keyword) (compile-special env keyword expr)))
 
      ((non-empty-list? expr)
@@ -235,37 +235,12 @@
                       chunks)))))
 
 
-  ;; The derived forms, as if, let and begin, or #f: cond, and, or, let*, and when and unless
-  ;; outside unsafe defines (their body stays in tail position)
+  ;; and and or as values, as if, let and begin, or #f
   (define (expand-form env expr)
-    (case (special-keyword env expr)
-      ((cond) (expand-cond env (parse-cond expr)))
-      ((case) (expand-case env expr))
+    (case (special-keyword expr)
       ;; In a begin, since #f means no expansion
       ((and) `(,(marker 'begin) ,(expand-and (cdr expr))))
       ((or) `(,(marker 'begin) ,(expand-or (cdr expr))))
-      ((let*)
-       (let-values (((bindings body) (parse-let* expr)))
-         (let loop ((bindings bindings))
-           (if (or (null? bindings) (null? (cdr bindings)))
-               `(,(marker 'let) ,bindings ,@body)
-               `(,(marker 'let) (,(car bindings)) ,(loop (cdr bindings)))))))
-      ;; Naive: each variable starts as #<undef> and is assigned its init in order, so assignment
-      ;; conversion boxes the ones a lambda captures; letrec as letrec*
-      ((letrec letrec*)
-       (let-values (((bindings body) (parse-letrec expr)))
-         `(,(marker 'let) ,(map (lambda (b) (list (car b) undef)) bindings)
-           ,@(map (lambda (b) `(,(marker 'set!) ,@b)) bindings)
-           ,@(expand-body (bind-scope env (map car bindings)) body))))
-      ((when unless)
-       (and (not (unsafe-code?))
-            (begin
-              (unless (>= (length expr) 3)
-                (error 'expand "invalid when or unless" expr))
-              (let ((body `(,(marker 'begin) ,@(cddr expr))))
-                (if (eq? (special-keyword env expr) 'when)
-                    `(,(marker 'if) ,(cadr expr) ,body ,undef)
-                    `(,(marker 'if) ,(cadr expr) ,undef ,body))))))
       (else (expand-variadic env expr))))
 
 
@@ -303,71 +278,6 @@
                ((make-vector)
                 (and (= (length args) 1) (list op (car args) 0)))
                (else #f))))))
-
-
-  ;; Each clause is (test expr ...), (test), (test => f), or a last (else expr ...)
-  (define (expand-cond env clauses)
-    (if (null? clauses)
-        undef
-        (let ((test (caar clauses))
-              (body (cdar clauses))
-              (rest (cdr clauses)))
-          (cond
-           ((auxiliary? env test 'else)
-            (unless (and (null? rest) (pair? body))
-              (error 'expand-cond "invalid else clause" (car clauses)))
-            `(,(marker 'begin) ,@body))
-           ((null? body)
-            (let ((t (gensym "cond")))
-              `(,(marker 'let) ((,t ,test))
-                (,(marker 'if) ,t ,t ,(expand-cond env rest)))))
-           ((auxiliary? env (car body) '=>)
-            (unless (= (length body) 2)
-              (error 'expand-cond "invalid => clause" (car clauses)))
-            (let ((t (gensym "cond")))
-              `(,(marker 'let) ((,t ,test))
-                (,(marker 'if) ,t (,(cadr body) ,t) ,(expand-cond env rest)))))
-           (else
-            `(,(marker 'if) ,test (,(marker 'begin) ,@body) ,(expand-cond env rest)))))))
-
-
-  ;; Each clause is ((datum ...) expr ...), ((datum ...) => f), or a last (else expr ...) or
-  ;; (else => f); the key is compared with eq?, so the datums are immediates
-  (define (expand-case env expr)
-    (let-values (((key clauses) (parse-case expr)))
-      (let ((t (gensym "case")))
-        (define (body clause)
-          (if (auxiliary? env (cadr clause) '=>)
-              (begin
-                (unless (= (length clause) 3)
-                  (error 'expand-case "invalid => clause" clause))
-                `(,(caddr clause) ,t))
-              `(,(marker 'begin) ,@(cdr clause))))
-        (define (datum x)
-          (unless (or (immediate? x) (null? x))
-            (error 'expand-case "unsupported case datum" x))
-          (if (null? x) ''() x))
-        `(,(marker 'let) ((,t ,key))
-          ,(let loop ((clauses clauses))
-             (cond
-              ((null? clauses) undef)
-              ((auxiliary? env (caar clauses) 'else)
-               (unless (null? (cdr clauses))
-                 (error 'expand-case "invalid else clause" (car clauses)))
-               (body (car clauses)))
-              (else
-               (unless (list? (caar clauses))
-                 (error 'expand-case "invalid case clause" (car clauses)))
-               `(,(marker 'if)
-                 (,(marker 'or) ,@(map (lambda (d) `(,(marker 'eq?) ,t ,(datum d))) (caar clauses)))
-                 ,(body (car clauses))
-                 ,(loop (cdr clauses))))))))))
-
-
-  ;; else and => are keywords unless bound
-  (define (auxiliary? env x keyword)
-    (and (eq? x keyword)
-         (not (assq keyword env))))
 
 
   ;; The value of the deciding operand
@@ -411,10 +321,8 @@
        (let-values (((var value) (parse-set! expr)))
          (compile-set! env var value)))
 
-      ((define)
-       (error 'compile-value "invalid context for definition" expr))
-
-      ;; The body's value when it is a val, else undef, so the body may have any kind
+      ;; Only in unsafe defines: the body's value when it is a val, else undef, so the body may
+      ;; have any kind
       ((when unless)
        (unless (>= (length expr) 3)
          (error 'compile-value "invalid when or unless" expr))
@@ -719,10 +627,6 @@
       (compile-last env last)))
 
 
-  (define (compile-body env body compile-last)
-    (compile-seq env (expand-body env body) compile-last))
-
-
   ;; The value of a def's last expression x, checked against its result
   (define (compile-result env def x)
     (finish-result def (compile-value env x)))
@@ -760,7 +664,7 @@
         => (lambda (x) (exit env x)))
 
        (else
-        (case (special-keyword env x)
+        (case (special-keyword x)
           ((if)
            (let-values (((test then else) (parse-if x)))
              (let ((label-false (fresh-label)))
@@ -790,7 +694,7 @@
        (let ((b (head-binding env x)))
          (cond
           ((or (not (non-empty-list? x))
-               (special? env x)
+               (special? x)
                (immediate? x)
                (vector-literal? x)
                (low-op-binding? b))
@@ -841,7 +745,7 @@
                       (error 'compile-loop "assigned and captured loop variable" v)))
                   vars)
         (start-block! label)
-        (compile-body (append (map (lambda (v slot)
+        (compile-seq (append (map (lambda (v slot)
                                      (cons v (make-local-binding `(mutable ,slot) #f)))
                                    vars slots)
                               (acons name (make-loop-binding label slots 'here) env))
@@ -904,7 +808,7 @@
                                env)))
       (parameterize ((inlining (cons def (inlining)))
                      (unsafe-code? (def-unsafe? def)))
-        (compile-body callee-env (def-core-body def)
+        (compile-seq callee-env (def-core-body def)
                       (lambda (env x) (compile-last env def x))))))
 
 
@@ -935,14 +839,14 @@
                                       (error 'compile-let "expected a val or a raw" b))
                                     op))
                                 bindings)))
-        (compile-body (append (map (lambda (b op) (bind-local (car b) op vars #f)) bindings ops)
+        (compile-seq (append (map (lambda (b op) (bind-local (car b) op vars #f)) bindings ops)
                               env)
                       body compile-last))))
 
 
   ;; expr, naming it name if it is a lambda
   (define (compile-named env name expr)
-    (if (eq? (special-keyword env expr) 'lambda)
+    (if (eq? (special-keyword expr) 'lambda)
         (let-values (((args body) (parse-lambda expr)))
           (compile-lambda env name args body))
         (compile-value env expr)))
@@ -1020,7 +924,7 @@
                         (body-env (append (map (lambda (x i) (bind-local x `(arg ,(+ i 1)) vars #t))
                                                args (iota (length args)))
                                           inner)))
-                   (compile-body body-env body (lambda (env x) (compile-tail env def x)))))))))
+                   (compile-seq body-env body (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)
       (add-entries! (procedure-entries def blocks))))
 
@@ -1045,7 +949,7 @@
                                                                vars #t)))
                                                params (iota (length params)))
                                           env)))
-                   (compile-body body-env (def-core-body def)
+                   (compile-seq body-env (def-core-body def)
                                  (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)
       (if (def-native? def)
@@ -1084,7 +988,7 @@
 
   ;; Jumps to label when the truth of test equals jump-if
   (define (compile-branch env test jump-if label)
-    (let ((keyword (special-keyword env test)))
+    (let ((keyword (special-keyword test)))
       (cond
        ((memq keyword '(and or))
         (compile-logic-branch env keyword (cdr test) jump-if label))

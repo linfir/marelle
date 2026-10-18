@@ -1,8 +1,9 @@
 (library (parse)
-  (export undef immediate? vector-literal? special? special-keyword marker call? define-form? validate-parameters
+  (export undef immediate? vector-literal? special? special-keyword source-keyword marker
+          define-form? validate-parameters
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
-          parse-if parse-cond parse-case parse-begin parse-set! expand-body
+          parse-if parse-cond parse-case parse-begin parse-set! parse-define
           scan-defs scan-library
           make-global-def global-def-name global-def-index global-def-args global-def-body
           library-def? library-def-name library-def-args library-def-kinds
@@ -51,8 +52,8 @@
     (car (find (lambda (m) (eq? (cdr m) keyword)) markers)))
 
 
-  ;; The special form expr is, by its keyword, or #f
-  (define (special-keyword env expr)
+  ;; In source, the special form expr is, by its keyword, or #f
+  (define (source-keyword env expr)
     (and (non-empty-list? expr)
          (let ((x (car expr)))
            (cond
@@ -64,8 +65,16 @@
             (else #f)))))
 
 
-  (define (special? env expr)
-    (and (special-keyword env expr) #t))
+  ;; After the front pass, the special form expr is, by its marker, or #f
+  (define (special-keyword expr)
+    (and (pair? expr)
+         (cond
+          ((assq (car expr) markers) => cdr)
+          (else #f))))
+
+
+  (define (special? expr)
+    (and (special-keyword expr) #t))
 
 
   ;; Formals are (x ...), (x ... . rest) or rest
@@ -192,14 +201,6 @@
     (values (cadr form) (caddr form)))
 
 
-  ;; An application: neither an immediate nor a special form
-  (define (call? env expr)
-    (and (non-empty-list? expr)
-         (not (immediate? expr))
-         (not (vector-literal? expr))
-         (not (special? env expr))))
-
-
   (define (define-form? form)
     (and (non-empty-list? form)
          (eq? (car form) 'define)))
@@ -223,26 +224,6 @@
             (error 'parse-define "invalid define name" form))
           (validate-parameters args)
           (values name args (cddr form)))))
-
-
-  ;; A body with its leading defines, also inside begins, as a letrec* around the rest;
-  ;; a later define is an error when compiled
-  (define (expand-body env body)
-    (let loop ((forms body)
-               (bindings '()))
-      (case (and (pair? forms) (special-keyword env (car forms)))
-        ((define)
-         (let-values (((name args init) (parse-define (car forms))))
-           (loop (cdr forms)
-                 (cons (list name (if args `(,(marker 'lambda) ,args ,@init) (car init)))
-                       bindings))))
-        ((begin)
-         (loop (append (cdar forms) (cdr forms)) bindings))
-        (else
-         (cond
-          ((null? forms) (error 'expand-body "no expression in body" body))
-          ((null? bindings) forms)
-          (else `((,(marker 'letrec*) ,(reverse bindings) ,@forms))))))))
 
 
   (define-record-type global-def

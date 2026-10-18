@@ -6,7 +6,7 @@
           make-low-op-binding low-op-binding? low-op-binding-name
           make-constant-binding constant-binding? constant-binding-operand
           make-loop-binding loop-binding? loop-binding-label loop-binding-slots loop-binding-state
-          no-vars free-vars walk-let* bind-scope captured-vars boxed? assigned?)
+          no-vars free-vars bind-scope captured-vars boxed? assigned?)
   (import (chezscheme)
           (utils)
           (parse))
@@ -64,7 +64,7 @@
 
 
   (define (walk-body env body acc)
-    (walk-exprs env (expand-body env body) acc))
+    (walk-exprs env body acc))
 
 
   (define (walk-exprs env exprs acc)
@@ -79,8 +79,8 @@
      ((vector-literal? expr)
       acc)
 
-     ((special? env expr)
-      (case (special-keyword env expr)
+     ((special? expr)
+      (case (special-keyword expr)
         ((let)
          (if (named-let? expr)
              (let-values (((name bindings body) (parse-named-let expr)))
@@ -89,18 +89,6 @@
                           (walk-exprs env (map cadr bindings) acc)))
              (let-values (((bindings body) (parse-let expr)))
                (walk-let env bindings body acc))))
-
-        ((let*)
-         (let-values (((bindings body) (parse-let* expr)))
-           (walk-let* env bindings body acc)))
-
-        ;; The variables are bound in the inits too, and each is assigned
-        ((letrec letrec*)
-         (let-values (((bindings body) (parse-letrec expr)))
-           (let ((inner (bind-inside env (map car bindings))))
-             (walk-body inner
-                        body
-                        (walk-exprs inner (map (lambda (b) `(,(marker 'set!) ,@b)) bindings) acc)))))
 
         ((lambda)
          (let-values (((args body) (parse-lambda expr)))
@@ -126,15 +114,6 @@
     (walk-body (bind-inside env (map car bindings))
                body
                (walk-exprs env (map cadr bindings) acc)))
-
-
-  (define (walk-let* env bindings body acc)
-    (if (null? bindings)
-        (walk-body env body acc)
-        (walk-let* (bind-inside env (list (caar bindings)))
-                   (cdr bindings)
-                   body
-                   (walk-expr env (cadar bindings) acc))))
 
 
   (define (add-free-var env var acc set?)
