@@ -823,10 +823,15 @@
                      (lambda (env x) (compile-last env def x))))))
 
 
-  ;; The env entry of the variable name bound to op: a box when it is assigned and captured,
-  ;; its own slot when it is only assigned (op itself when own?)
+  ;; The env entry of the variable name bound to op: its global cell for a top-level variable
+  ;; of main, a box when it is assigned and captured, its own slot when it is only assigned (op
+  ;; itself when own?)
   (define (bind-local name op own?)
     (cond
+     ((top-global-index name)
+      => (lambda (i)
+           (call-def '() (core-def 'global-set!) (list `(quad ,i) op) name compile-result)
+           (cons name (make-global-binding i))))
      ((boxed? name)
       (when (eq? (kind op) 'raw)
         (error 'bind-local "captured raw variable" name))

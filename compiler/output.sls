@@ -58,7 +58,7 @@
      (else #f)))
 
 
-  ;; The global cells, initialized to undef
+  ;; The global cells, initialized to undef, each set by main before it is read
   (define (emit-globals n)
     (print-entry `(data "scheme_globals" ,n ,(immediate-word 'undef)))
     (print-entry `(rodata "scheme_nglobals" (quad ,n)))))

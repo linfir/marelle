@@ -1,7 +1,8 @@
 ;; Closure conversion: each lambda to (closure (capture ...) formals body ...), its captures
 ;; the free locals it keeps in its closure, in first-reference order.
 ;; A lambda of a fix group is static when it captures nothing but the group's static ones: its
-;; name is then a static procedure, captured by no lambda, and so are the names of named lets.
+;; name is then a static procedure, captured by no lambda, and so are the names of named lets
+;; and main's global cells.
 ;; Runs after the analysis, whose free locals it reads; names are unique.
 
 (library (closure)
@@ -30,7 +31,8 @@
 
 
   (define (captures form)
-    (filter (lambda (x) (not (hashtable-ref (statics) x #f))) (free-locals form)))
+    (filter (lambda (x) (not (or (hashtable-ref (statics) x #f) (top-global-index x))))
+            (free-locals form)))
 
 
   (define (convert x)

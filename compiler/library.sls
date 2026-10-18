@@ -100,6 +100,28 @@
       (cons (car core) (convert-closures (cdr core)))))
 
 
+  ;; The core of main, whose body is a letrec*: its variables not bound by a fix get global
+  ;; cells
+  (define (make-main-core env body)
+    (let* ((core (front-def env '() body #f))
+           (vars (map car (cadr (cadr core))))
+           (core (cons '() (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x)))))
+           (fixed (fix-names core)))
+      (for-each (lambda (x)
+                  (unless (memq x fixed)
+                    (hashtable-set! (top-globals) x (hashtable-size (top-globals)))))
+                vars)
+      (analyze-def! '() (cdr core))
+      (cons '() (convert-closures (cdr core)))))
+
+
+  (define (fix-names x)
+    (cond
+     ((not (pair? x)) '())
+     ((eq? (special-keyword x) 'fix) (append (map car (cadr x)) (fix-names (cdr x))))
+     (else (append (fix-names (car x)) (fix-names (cdr x))))))
+
+
   ;; Each def's env: env, or unsafe-env for an unsafe def, then its core when it has a body
   (define (set-envs! items env unsafe-env)
     (for-each (lambda (x)
@@ -148,6 +170,7 @@
                    (inlining '())
                    (var-facts (make-eq-hashtable))
                    (lambda-frees (make-eq-hashtable))
+                   (top-globals (make-eq-hashtable))
                    (pure-defs '()))
       (thunk)))
 
@@ -212,31 +235,31 @@
                        forms)))
 
 
-  ;; The body of main: forms in order, each define a set! of its global, then undef if the
-  ;; program ends with a define
-  (define (main-body forms globals ends-with-define?)
+  ;; The body of main: the forms as a letrec*, each expression bound to an unused variable,
+  ;; as in R6RS, but the last form when result?, which gives the result, else undef
+  (define (main-body forms result?)
     (let loop ((forms forms)
-               (globals globals)
-               (acc '()))
+               (bindings '()))
       (cond
        ((null? forms)
-        (reverse (if ends-with-define? (cons undef acc) acc)))
+        `((,(marker 'letrec*) ,(reverse bindings) ,undef)))
+       ((and result? (null? (cdr forms)))
+        `((,(marker 'letrec*) ,(reverse bindings) ,(car forms))))
        ((define-form? (car forms))
-        (let ((g (car globals)))
+        (let-values (((name args body) (parse-define (car forms))))
+          (when (assq name bindings)
+            (error 'compile-scheme-program "redefinition not allowed" name))
           (loop (cdr forms)
-                (cdr globals)
-                (cons `(,(marker 'set!) ,(global-def-name g)
-                        ,(if (global-def-args g)
-                             `(,(marker 'lambda) ,(global-def-args g) ,@(global-def-body g))
-                             (car (global-def-body g))))
-                      acc))))
+                (cons (list name (if args `(,(marker 'lambda) ,args ,@body) (car body)))
+                      bindings))))
        (else
-        (loop (cdr forms) globals (cons (car forms) acc))))))
+        (loop (cdr forms) (cons (list (gensym "expression") (car forms)) bindings))))))
 
 
   ;; Prints the IR of the program, its top-level forms with begins spliced: a define with a declare
-  ;; and define-data are static, like the library's, other defines are global cells, set in order
-  ;; by main among the expressions; the last form gives the result
+  ;; and define-data are static, like the library's; the others are the letrec* body of main
+  ;; (main-body), whose variables, but the procedures, are global cells; the last form gives the
+  ;; result
   (define (compile-scheme-program interface program)
     (when (null? (splice-begins program))
       (error 'compile-scheme-program "empty program"))
@@ -258,18 +281,14 @@
                        ((static) (filter (lambda (x) (or (declared-define? x) (define-data-form? x)))
                                          all))
                        ((forms) (filter (lambda (x) (not (memq x static))) all))
-                       ((globals) (scan-defs (filter define-form? forms) make-global-def))
                        ((items) (map scanned-item (scan-library static)))
                        ((safe unsafe) (item-bindings items)))
-           (for-each (lambda (g)
-                       (when (find (lambda (x) (eq? (item-name x) (global-def-name g))) items)
-                         (error 'compile-scheme-program "redefinition not allowed" (global-def-name g))))
-                     globals)
-           (let* ((env (append (map (lambda (g)
-                                      (cons (global-def-name g)
-                                            (make-global-binding (global-def-index g))))
-                                    globals)
-                               safe
+           (for-each (lambda (x)
+                       (let-values (((name args body) (parse-define x)))
+                         (when (find (lambda (x) (eq? (item-name x) name)) items)
+                           (error 'compile-scheme-program "redefinition not allowed" name))))
+                     (filter define-form? forms))
+           (let* ((env (append safe
                                (map (lambda (x) (cons (def-name x) (make-def-binding x)))
                                     (filter (lambda (x) (and (def? x) (def-public? x))) library))))
                   (unsafe-env (append env unsafe
@@ -280,14 +299,14 @@
              (parameterize ((core-defs (map (lambda (x) (cons (def-name x) x))
                                             (filter def? library))))
                (compile-defs! items)
-               (let ((body (main-body forms globals (or (define-form? (car (last-pair all)))
-                                                        (define-data-form? (car (last-pair all)))))))
+               (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
+                                                     (define-data-form? (car (last-pair all))))))))
                  (compile-procedure
                   (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
-                            (make-core env '() body #f))
+                            (make-main-core env body))
                   env '())))
              (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"))
-             (emit-globals (length globals))
+             (emit-globals (hashtable-size (top-globals)))
              (print-data items)
              (print-strings)
              (for-each print-entry (reverse (current-entries))))))))))

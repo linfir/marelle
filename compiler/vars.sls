@@ -6,7 +6,8 @@
           make-low-op-binding low-op-binding? low-op-binding-name
           make-constant-binding constant-binding? constant-binding-operand
           make-loop-binding loop-binding? loop-binding-label loop-binding-slots loop-binding-state
-          var-facts lambda-frees analyze-def! free-locals boxed? assigned?)
+          var-facts lambda-frees top-globals top-global-index
+          analyze-def! free-locals boxed? assigned?)
   (import (chezscheme)
           (parse))
 
@@ -50,6 +51,13 @@
   ;; first referenced, a set! counting after its value
   (define var-facts (make-parameter #f))
   (define lambda-frees (make-parameter #f))
+
+  ;; Per compilation: main's top-level variables held in global cells, to their index
+  (define top-globals (make-parameter #f))
+
+
+  (define (top-global-index x)
+    (hashtable-ref (top-globals) x #f))
 
 
   ;; owner: the lambda form binding the local, or the def's token

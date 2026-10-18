@@ -2,5 +2,6 @@
 (define b 1)
 a
 ---
-stdout = "#<undef>"
+stage = "executable"
+stderr_contains = "Error: `b` used before its definition"
 chez = "skip"

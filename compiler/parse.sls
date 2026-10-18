@@ -5,8 +5,7 @@
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-case parse-do parse-begin parse-set! parse-define
           parse-let-values parse-define-values define-values-form? core-ref core-ref-name
-          scan-defs scan-library
-          make-global-def global-def-name global-def-index global-def-args global-def-body
+          scan-library
           library-def? library-def-name library-def-args library-def-kinds
           library-def-result library-def-attrs library-def-body library-def-procedure?
           library-def-unsafe? declared-define? parse-library-define parse-define-data
@@ -298,27 +297,6 @@
             (error 'parse-define "invalid define name" form))
           (validate-parameters args)
           (values name args (cddr form)))))
-
-
-  (define-record-type global-def
-    (fields name index args body))
-
-
-  ;; Map (make name i args body) over the define forms
-  (define (scan-defs forms make)
-    (let loop ((acc '())
-               (names '())
-               (forms forms)
-               (i 0))
-      (if (null? forms)
-          (reverse acc)
-          (let-values (((name args body) (parse-define (car forms))))
-            (when (memq name names)
-              (error 'scan-defs "redefinition not allowed" name))
-            (loop (cons (make name i args body) acc)
-                  (cons name names)
-                  (cdr forms)
-                  (+ i 1))))))
 
 
   ;; A define of the library: kinds are val or raw, result val, raw, void or never,

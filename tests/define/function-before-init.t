@@ -1,7 +1,7 @@
+;; Procedures are bound first, unchecked, as in a body (Chez reports it)
 (define a (f 1))
 (define (f x) x)
 a
 ---
-stage = "executable"
-stderr = "Error: expected procedure: #<undef>\n"
+stdout = "1"
 chez = "skip"
