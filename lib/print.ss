@@ -111,6 +111,7 @@
    ((raw= (as-raw x) (raw 0)) (put-string out "#<null>"))
    ((raw= (load (as-raw x) (raw 0)) (bignum-type)) (display-bignum out (as-raw x)))
    ((raw= (load (as-raw x) (raw 0)) (vector-type)) (display-vector out x))
+   ((raw= (load (as-raw x) (raw 0)) (flexvector-type)) (put-string out "#<flexvector>"))
    ((raw= (load (as-raw x) (raw 0)) (procedure-type))
     (let ((name (load (as-raw x) (raw 3))))
       (if (raw= name (raw 0))

@@ -42,6 +42,11 @@
   (declare unsafe inline (result raw))
   (raw 376)) ; 47 << 3
 
+;; 48 and 49 are kept for strings and symbols (STRINGS.md)
+(define (flexvector-type)
+  (declare unsafe inline (result raw))
+  (raw 400)) ; 50 << 3
+
 (define (fixnum? x)
   (declare unsafe inline)
   (tag=? x (raw 1)))

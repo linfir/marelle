@@ -53,6 +53,7 @@
    ((raw= (load p (raw 0)) (procedure-type)) (raw+ (load p (raw 4)) (raw 5)))
    ((raw= (load p (raw 0)) (bignum-type)) (raw+ (load p (raw 1)) (raw 3)))
    ((raw= (load p (raw 0)) (vector-type)) (raw+ (load p (raw 1)) (raw 2)))
+   ((raw= (load p (raw 0)) (flexvector-type)) (raw 3))
    (else (raw 2)))) ; pair or box
 
 ;; The new address of the object x points to, copied to gc-free if it is in the
@@ -105,6 +106,7 @@
                  ((raw= header (box-type)) (raw 1))
                  ((raw= header (bignum-type)) n) ; only raw words
                  ((raw= header (vector-type)) (raw 2))
+                 ((raw= header (flexvector-type)) (raw 2)) ; the storage
                  (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))
                    (raw- (if frame? (raw- n (load p (raw 2))) n) start))
