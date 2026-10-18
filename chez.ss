@@ -2,7 +2,7 @@
 (let ((dir (path-parent (car (command-line)))))
   (for-each (lambda (file)
               (load (if (string=? dir "") file (string-append dir "/" file))))
-            '("chez-flexvectors.ss" "chez-lists.ss")))
+            '("chez-flexvectors.ss" "chez-lists.ss" "chez-numbers.ss")))
 
 (let loop ((last (void)))
   (let ((x (read)))

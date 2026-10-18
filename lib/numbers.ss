@@ -7,6 +7,47 @@
   (declare unsafe inline public)
   (or (fixnum? x) (bignum? x)))
 
+;; Exact integers only, until rationals
+(define (number? x)
+  (declare public)
+  (integer? x))
+
+(define (exact-integer? x)
+  (declare public)
+  (integer? x))
+
+(define (rational? x)
+  (declare public)
+  (number? x))
+
+(define (real? x)
+  (declare public)
+  (number? x))
+
+(define (complex? x)
+  (declare public)
+  (number? x))
+
+(define (check-number x (raw msg))
+  (declare unsafe inline (result void))
+  (unless (number? x)
+    (scheme-error msg x)))
+
+(define (exact? x)
+  (declare unsafe public)
+  (check-number x "`exact?` expected a number")
+  #t)
+
+(define (inexact? x)
+  (declare unsafe public)
+  (check-number x "`inexact?` expected a number")
+  #f)
+
+(define (exact x)
+  (declare unsafe public)
+  (check-number x "`exact` expected a number")
+  x)
+
 (define (fixnum-value x)
   (declare unsafe inline (result raw))
   (raw>> (as-raw x) (raw 3)))
