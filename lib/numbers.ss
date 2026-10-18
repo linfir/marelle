@@ -113,6 +113,27 @@
   (declare public)
   (= n 0))
 
+(define (positive? n)
+  (declare public)
+  (> n 0))
+
+(define (negative? n)
+  (declare public)
+  (< n 0))
+
+(define (abs n)
+  (declare public)
+  (if (< n 0) (- 0 n) n))
+
+;; A lone x is compared with itself, so it is checked
+(define (max x . xs)
+  (declare public)
+  (fold-left (lambda (a b) (if (< a b) b a)) (if (< x x) x x) xs))
+
+(define (min x . xs)
+  (declare public)
+  (fold-left (lambda (a b) (if (> a b) b a)) (if (< x x) x x) xs))
+
 ;; The modulo has n's sign, the remainder m's
 (define (remainder m n)
   (declare public)
