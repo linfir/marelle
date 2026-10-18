@@ -77,3 +77,30 @@
     (if (frame-fits? g (fixnum-value n))
         (tail-call-frame g)
         (apply-frame g))))
+
+;; Multiple values are [values-type, list], except one value, which is itself
+(define (values x)
+  (declare inline public)
+  x)
+
+(define (variadic-values . xs)
+  (declare unsafe)
+  (if (and (pair? xs) (null? (cdr xs)))
+      (car xs)
+      (let ((p (alloc (raw 2))))
+        (store p (raw 0) (values-type))
+        (store p (raw 1) xs)
+        (as-val p))))
+
+(define (multiple-values? x)
+  (declare unsafe inline)
+  (and (tag=? x (raw 0))
+       (not (raw= (as-raw x) (raw 0)))
+       (raw= (load (as-raw x) (raw 0)) (values-type))))
+
+(define (call-with-values producer consumer)
+  (declare unsafe public)
+  (let ((x (producer)))
+    (if (multiple-values? x)
+        (apply consumer (as-val (load (as-raw x) (raw 1))))
+        (consumer x))))

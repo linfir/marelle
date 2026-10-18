@@ -65,9 +65,13 @@
   ;; The binding of the head of the call expr, or #f
   (define (head-binding env expr)
     (and (non-empty-list? expr)
-         (symbol? (car expr))
-         (let ((entry (assq (car expr) env)))
-           (and entry (cdr entry)))))
+         (cond
+          ((symbol? (car expr))
+           (let ((entry (assq (car expr) env)))
+             (and entry (cdr entry))))
+          ((core-ref-name (car expr))
+           => (lambda (name) (make-def-binding (core-def name))))
+          (else #f))))
 
 
   (define (low-op? env expr name)

@@ -1,13 +1,14 @@
 ;; The front pass: every local variable renamed to a fresh gensym, whose pretty name is the
 ;; original, and every special form headed by its marker, so a plain symbol at the head of a
 ;; form is a call.
-;; The derived forms are expanded: cond, case, let*, letrec (as letrec*), do, the bodies'
-;; defines, and when and unless outside unsafe defines.
+;; The derived forms are expanded: cond, case, let*, letrec (as letrec*), do, let-values,
+;; let*-values, the bodies' defines and define-values, and when and unless outside unsafe
+;; defines.
 ;; The core forms left are if, begin, set!, lambda, let, named let, letrec* (for the letrec
 ;; pass), and, or, eq? (from case), and when and unless in unsafe defines.
 
 (library (front)
-  (export front-def)
+  (export front-def expand-top-define-values)
   (import (chezscheme)
           (utils)
           (parse))
@@ -105,12 +106,21 @@
           ((do)
            (front-expr env (expand-do x)))
 
+          ((let-values)
+           (front-expr env (expand-let-values x)))
+
+          ((let*-values)
+           (front-expr env (expand-let*-values x)))
+
+          ((core)
+           x)
+
           ((when unless)
            (if (unsafe?)
                `(,(marker keyword) ,@(front-exprs env (cdr x)))
                (front-expr env (expand-when keyword x))))
 
-          ((define)
+          ((define define-values)
            (error 'front-expr "invalid context for definition" x))
 
           (else
@@ -128,6 +138,21 @@
            (loop (cdr forms)
                  (cons (list name (if args `(,(marker 'lambda) ,args ,@init) (car init)))
                        bindings))))
+        ;; The values in a list t, then each variable bound to its element
+        ((define-values)
+         (let-values (((formals expr) (parse-define-values (car forms))))
+           (let* ((names (formals-names formals))
+                  (copies (fresh-names names))
+                  (t (gensym "values")))
+             (loop (cdr forms)
+                   (append (reverse (map (lambda (x i)
+                                           (list x `(,(core-ref 'car) ,(core-cdrs i t))))
+                                         names
+                                         (iota (length names))))
+                           (list (list t (call-with-values-form
+                                          expr (rename-formals formals copies)
+                                          (list `(,(core-ref 'list) ,@copies)))))
+                           bindings)))))
         ((begin)
          (loop (append (cdar forms) (cdr forms)) bindings))
         (else
@@ -135,6 +160,53 @@
           ((null? forms) (error 'expand-body "no expression in body" body))
           ((null? bindings) forms)
           (else `((,(marker 'letrec*) ,(reverse bindings) ,@forms))))))))
+
+
+  (define (core-cdrs n x)
+    (if (= n 0) x `(,(core-ref 'cdr) ,(core-cdrs (- n 1) x))))
+
+
+  ;; At the top level: a define of undef per variable, then a call-with-values setting them
+  (define (expand-top-define-values form)
+    (let-values (((formals expr) (parse-define-values form)))
+      (let* ((names (formals-names formals))
+             (copies (fresh-names names)))
+        `(,@(map (lambda (x) `(define ,x ,undef)) names)
+          ,(call-with-values-form expr (rename-formals formals copies)
+                                  `(,@(map (lambda (x c) `(,(marker 'set!) ,x ,c)) names copies)
+                                    ,undef))))))
+
+
+  (define (call-with-values-form expr formals body)
+    `(,(core-ref 'call-with-values) (,(marker 'lambda) () ,expr) (,(marker 'lambda) ,formals ,@body)))
+
+
+  ;; Each init evaluated in the outer env, its consumer taking copies of the formals, then a
+  ;; let binding the variables around the body; one clause binds them directly
+  (define (expand-let-values x)
+    (let-values (((bindings body) (parse-let-values x #f)))
+      (if (and (pair? bindings) (null? (cdr bindings)))
+          (call-with-values-form (cadar bindings) (caar bindings) body)
+          (let* ((names (map (lambda (b) (formals-names (car b))) bindings))
+                 (copies (map fresh-names names)))
+            (let loop ((bindings bindings)
+                       (cs copies))
+              (if (null? bindings)
+                  `(,(marker 'let) ,(map list (apply append names) (apply append copies)) ,@body)
+                  (call-with-values-form (cadar bindings)
+                                         (rename-formals (caar bindings) (car cs))
+                                         (list (loop (cdr bindings) (cdr cs))))))))))
+
+
+  (define (expand-let*-values x)
+    (let-values (((bindings body) (parse-let-values x #t)))
+      (if (null? bindings)
+          `(,(marker 'let) () ,@body)
+          (let loop ((bindings bindings))
+            (call-with-values-form (cadar bindings) (caar bindings)
+                                   (if (null? (cdr bindings))
+                                       body
+                                       (list (loop (cdr bindings)))))))))
 
 
   (define (expand-let* x)

@@ -47,6 +47,10 @@
   (declare unsafe inline (result raw))
   (raw 400)) ; 50 << 3
 
+(define (values-type)
+  (declare unsafe inline (result raw))
+  (raw 408)) ; 51 << 3
+
 (define (fixnum? x)
   (declare unsafe inline)
   (tag=? x (raw 1)))

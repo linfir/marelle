@@ -4,6 +4,7 @@
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-case parse-do parse-begin parse-set! parse-define
+          parse-let-values parse-define-values define-values-form? core-ref core-ref-name
           scan-defs scan-library
           make-global-def global-def-name global-def-index global-def-args global-def-body
           library-def? library-def-name library-def-args library-def-kinds
@@ -45,18 +46,29 @@
 
 
   (define *special-forms*
-    '(if cond case and or let let* letrec letrec* lambda begin set! when unless do define))
+    '(if cond case and or let let* letrec letrec* lambda begin set! when unless do define
+      let-values let*-values define-values))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
-  ;; fix, check-defined and closure have no source form
+  ;; fix, check-defined, closure and core have no source form
   (define markers
     (map (lambda (k) (cons (gensym (symbol->string k)) k))
-         (append '(eq? fix check-defined closure) *special-forms*)))
+         (append '(eq? fix check-defined closure core) *special-forms*)))
 
 
   (define (marker keyword)
     (car (find (lambda (m) (eq? (cdr m) keyword)) markers)))
+
+
+;; (core name), the library def name, even where a program rebinds it
+  (define (core-ref name)
+    `(,(marker 'core) ,name))
+
+
+  ;; The name of the (core name) form x, or #f
+  (define (core-ref-name x)
+    (and (pair? x) (eq? (special-keyword x) 'core) (cadr x)))
 
 
   ;; In source, the special form expr is, by its keyword, or #f
@@ -162,6 +174,41 @@
             (error who "duplicate let variable" (car b)))
           (loop (cdr bs) (cons (car b) seen)))))
     (values (cadr form) (cddr form)))
+
+
+;; (let-values ((formals init) ...) body ...), or let*-values => (values bindings body)
+  (define (parse-let-values form duplicates-ok?)
+    (unless (and (>= (length form) 3)
+                 (list? (cadr form)))
+      (error 'parse-let-values "invalid let-values" form))
+    (let loop ((bs (cadr form))
+               (seen '()))
+      (unless (null? bs)
+        (let ((b (car bs)))
+          (unless (and (list? b) (= (length b) 2))
+            (error 'parse-let-values "invalid let-values binding" b))
+          (validate-parameters (car b))
+          (let ((names (formals-names (car b))))
+            (unless duplicates-ok?
+              (for-each (lambda (x)
+                          (when (memq x seen)
+                            (error 'parse-let-values "duplicate let-values variable" x)))
+                        names))
+            (loop (cdr bs) (append names seen))))))
+    (values (cadr form) (cddr form)))
+
+
+  (define (define-values-form? form)
+    (and (non-empty-list? form)
+         (eq? (car form) 'define-values)))
+
+
+  ;; (define-values formals expr) => (values formals expr)
+  (define (parse-define-values form)
+    (unless (= (length form) 3)
+      (error 'parse-define-values "invalid define-values" form))
+    (validate-parameters (cadr form))
+    (values (cadr form) (caddr form)))
 
 
   ;; (if test then [else]) => (values test then else)

@@ -176,11 +176,15 @@
     (and (non-empty-list? form) (eq? (car form) 'define-data)))
 
 
+  ;; Also expands define-values
   (define (splice-begins forms)
     (apply append (map (lambda (x)
-                         (if (and (non-empty-list? x) (eq? (car x) 'begin))
-                             (splice-begins (cdr x))
-                             (list x)))
+                         (cond
+                          ((and (non-empty-list? x) (eq? (car x) 'begin))
+                           (splice-begins (cdr x)))
+                          ((define-values-form? x)
+                           (expand-top-define-values x))
+                          (else (list x))))
                        forms)))
 
 

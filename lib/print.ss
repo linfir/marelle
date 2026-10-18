@@ -112,6 +112,7 @@
    ((raw= (load (as-raw x) (raw 0)) (bignum-type)) (display-bignum out (as-raw x)))
    ((raw= (load (as-raw x) (raw 0)) (vector-type)) (display-vector out x))
    ((raw= (load (as-raw x) (raw 0)) (flexvector-type)) (put-string out "#<flexvector>"))
+   ((raw= (load (as-raw x) (raw 0)) (values-type)) (display-values out x))
    ((raw= (load (as-raw x) (raw 0)) (procedure-type))
     (let ((name (load (as-raw x) (raw 3))))
       (if (raw= name (raw 0))
@@ -121,6 +122,19 @@
             (put-string out name)
             (put-string out ">")))))
    (else (put-string out "#<unknown ptr>"))))
+
+;; One per line, like Chez's REPL
+(define (display-values (raw out) x)
+  (declare unsafe native (result void))
+  (let next ((l (as-val (load (as-raw x) (raw 1))))
+             (first #t))
+    (if (pair? l)
+        (begin
+          (unless first
+            (put-string out "\n"))
+          (display out (car l))
+          (next (cdr l) #f))
+        undef)))
 
 (define (display-vector (raw out) v)
   (declare unsafe native (result void))
