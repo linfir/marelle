@@ -46,7 +46,8 @@
   (export compile-asm)
   (import (chezscheme)
           (utils)
-          (reg-alloc))
+          (reg-alloc)
+          (peephole))
 
 
   (define arg-regs '(rdi rsi rdx rcx r8 r9))
@@ -540,7 +541,7 @@
                   (emit-asm! ctx `(label ,(label-name ctx (cadr block))))
                   (for-each (lambda (instr) (instr->asm! ctx instr)) (cddr block)))
                 blocks)
-      (reverse (asm-context-code ctx))))
+      (peephole (reverse (asm-context-code ctx)))))
 
 
   (define (top->asm x)
