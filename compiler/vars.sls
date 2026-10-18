@@ -6,9 +6,8 @@
           make-low-op-binding low-op-binding? low-op-binding-name
           make-constant-binding constant-binding? constant-binding-operand
           make-loop-binding loop-binding? loop-binding-label loop-binding-slots loop-binding-state
-          no-vars free-vars bind-scope captured-vars boxed? assigned?)
+          var-facts lambda-frees analyze-def! free-locals boxed? assigned?)
   (import (chezscheme)
-          (utils)
           (parse))
 
 
@@ -21,9 +20,6 @@
   ;; box?: the operand holds a box, for a local both assigned and captured
   (define-record-type local-binding
     (fields operand box?))
-
-
-  (define-record-type bound-binding)
 
 
   (define-record-type def-binding
@@ -50,107 +46,101 @@
     (fields label slots state))
 
 
-  ;; Free variables of a body, not bound to a bound-binding in env:
-  ;; the referenced, the assigned, and the ones used in a lambda
-  (define-record-type var-sets
-    (fields refs sets caps))
+  ;; Per compilation: each local's facts, and each lambda's free locals in the order they are
+  ;; first referenced, a set! counting after its value
+  (define var-facts (make-parameter #f))
+  (define lambda-frees (make-parameter #f))
 
 
-  (define no-vars (make-var-sets '() '() '()))
+  ;; owner: the lambda form binding the local, or the def's token
+  (define-record-type facts
+    (fields owner (mutable assigned?) (mutable captured?)))
 
 
-  (define (free-vars env body)
-    (walk-body env body no-vars))
+  ;; Fills the tables from a def's core parameters' names and body
+  (define (analyze-def! names body)
+    (let ((owners (list (list 'def))))
+      (bind! names (car owners))
+      (analyze-exprs! body owners)))
 
 
-  (define (walk-body env body acc)
-    (walk-exprs env body acc))
+  (define (bind! names owner)
+    (for-each (lambda (x) (hashtable-set! (var-facts) x (make-facts owner #f #f))) names))
 
 
-  (define (walk-exprs env exprs acc)
-    (fold-left (lambda (acc x) (walk-expr env x acc)) acc exprs))
+  ;; owners: the enclosing lambda forms, innermost first, then the def's token
+  (define (analyze-exprs! exprs owners)
+    (for-each (lambda (x) (analyze-expr! x owners)) exprs))
 
 
-  (define (walk-expr env expr acc)
+  (define (analyze-expr! x owners)
     (cond
-     ((symbol? expr)
-      (add-free-var env expr acc #f))
+     ((symbol? x)
+      (reference! x owners))
 
-     ((vector-literal? expr)
-      acc)
+     ((or (immediate? x) (vector-literal? x) (not (pair? x))))
 
-     ((special? expr)
-      (case (special-keyword expr)
-        ((let)
-         (if (named-let? expr)
-             (let-values (((name bindings body) (parse-named-let expr)))
-               (walk-body (bind-inside env (cons name (map car bindings)))
-                          body
-                          (walk-exprs env (map cadr bindings) acc)))
-             (let-values (((bindings body) (parse-let expr)))
-               (walk-let env bindings body acc))))
-
+     (else
+      (case (special-keyword x)
         ((lambda)
-         (let-values (((args body) (parse-lambda expr)))
-           (let ((inner (walk-body (bind-inside env (formals-names args)) body no-vars)))
-             (make-var-sets (union (var-sets-refs inner) (var-sets-refs acc))
-                            (union (var-sets-sets inner) (var-sets-sets acc))
-                            (union (var-sets-refs inner) (var-sets-caps acc))))))
+         (let-values (((formals body) (parse-lambda x)))
+           (bind! (formals-names formals) x)
+           (hashtable-set! (lambda-frees) x '())
+           (analyze-exprs! body (cons x owners))
+           (hashtable-update! (lambda-frees) x reverse #f)))
+
+        ((let)
+         (let-values (((name bindings body) (if (named-let? x)
+                                                (parse-named-let x)
+                                                (let-values (((bindings body) (parse-let x)))
+                                                  (values #f bindings body)))))
+           (analyze-exprs! (map cadr bindings) owners)
+           (bind! (if name (cons name (map car bindings)) (map car bindings)) (car owners))
+           (analyze-exprs! body owners)))
 
         ((set!)
-         (let-values (((var value) (parse-set! expr)))
-           (add-free-var env var (walk-expr env value acc) #t)))
+         (let-values (((var value) (parse-set! x)))
+           (analyze-expr! value owners)
+           (let ((f (reference! var owners)))
+             (when f
+               (facts-assigned?-set! f #t)))))
+
+        ((#f)
+         (analyze-exprs! x owners))
 
         (else
-         (walk-exprs env (cdr expr) acc))))
-
-     ((list? expr)
-      (walk-exprs env expr acc))
-
-     (else acc)))
+         (analyze-exprs! (cdr x) owners))))))
 
 
-  (define (walk-let env bindings body acc)
-    (walk-body (bind-inside env (map car bindings))
-               body
-               (walk-exprs env (map cadr bindings) acc)))
+  ;; A reference to x from the innermost owner: x is free in each lambda up to its own;
+  ;; the facts of x, or #f when it is not a local
+  (define (reference! x owners)
+    (let ((f (hashtable-ref (var-facts) x #f)))
+      (when f
+        (let loop ((owners owners))
+          (unless (eq? (car owners) (facts-owner f))
+            (facts-captured?-set! f #t)
+            (hashtable-update! (lambda-frees) (car owners)
+                               (lambda (frees) (if (memq x frees) frees (cons x frees)))
+                               '())
+            (loop (cdr owners)))))
+      f))
 
 
-  (define (add-free-var env var acc set?)
-    (let ((x (assq var env)))
-      (if (and x (bound-binding? (cdr x)))
-          acc
-          (make-var-sets (adjoin var (var-sets-refs acc))
-                         (if set? (adjoin var (var-sets-sets acc)) (var-sets-sets acc))
-                         (var-sets-caps acc)))))
+  ;; The free locals of a lambda form
+  (define (free-locals form)
+    (or (hashtable-ref (lambda-frees) form #f)
+        (error 'free-locals "lambda not analyzed" form)))
 
 
-  ;; xs added to ys, as if adjoined in the order they were found
-  (define (union xs ys)
-    (fold-right adjoin ys xs))
+  (define (fact var accessor)
+    (let ((f (hashtable-ref (var-facts) var #f)))
+      (and f (accessor f))))
 
 
-  (define (bind-inside env names)
-    (append (map (lambda (x) (cons x (make-bound-binding))) names) env))
+  (define (assigned? var)
+    (fact var facts-assigned?))
 
 
-  ;; In scope, so they shadow special forms, but still free
-  (define (bind-scope env names)
-    (append (map (lambda (x) (cons x #f)) names) env))
-
-
-  (define (captured-vars env args body)
-    (filter (lambda (var)
-              (let ((x (assq var env)))
-                (and x (local-binding? (cdr x)))))
-            (var-sets-refs (free-vars (bind-inside env args) body))))
-
-
-  (define (assigned? var vars)
-    (and (memq var (var-sets-sets vars)) #t))
-
-
-  (define (boxed? var vars)
-    (and (memq var (var-sets-sets vars))
-         (memq var (var-sets-caps vars))
-         #t)))
+  (define (boxed? var)
+    (and (fact var facts-assigned?) (fact var facts-captured?))))

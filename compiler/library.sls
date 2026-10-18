@@ -68,13 +68,20 @@
           def)))
 
 
+  ;; The core of a def, analyzed
+  (define (make-core env names body unsafe?)
+    (let ((core (front-def env names body unsafe?)))
+      (analyze-def! (car core) (cdr core))
+      core))
+
+
   ;; Each def's env: env, or unsafe-env for an unsafe def, then its core when it has a body
   (define (set-envs! items env unsafe-env)
     (for-each (lambda (x)
                 (when (def? x)
                   (def-env-set! x (if (def-unsafe? x) unsafe-env env))
                   (unless (null? (def-body x))
-                    (def-core-set! x (front-def (def-env x) (map car (def-params x)) (def-body x)
+                    (def-core-set! x (make-core (def-env x) (map car (def-params x)) (def-body x)
                                                 (def-unsafe? x))))))
               items))
 
@@ -113,7 +120,9 @@
                    (symbols (make-hashtable string-hash string=?))
                    (current-strings '())
                    (current-entries '())
-                   (inlining '()))
+                   (inlining '())
+                   (var-facts (make-eq-hashtable))
+                   (lambda-frees (make-eq-hashtable)))
       (thunk)))
 
 
@@ -243,7 +252,7 @@
                                                         (define-data-form? (car (last-pair all)))))))
                  (compile-procedure
                   (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
-                            (front-def env '() body #f))
+                            (make-core env '() body #f))
                   env '())))
              (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"))
              (emit-globals (length globals))
