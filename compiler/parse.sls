@@ -3,7 +3,7 @@
           define-form? validate-parameters
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
-          parse-if parse-cond parse-case parse-begin parse-set! parse-define
+          parse-if parse-cond parse-case parse-do parse-begin parse-set! parse-define
           scan-defs scan-library
           make-global-def global-def-name global-def-index global-def-args global-def-body
           library-def? library-def-name library-def-args library-def-kinds
@@ -45,7 +45,7 @@
 
 
   (define *special-forms*
-    '(if cond case and or let let* letrec letrec* lambda begin set! when unless define))
+    '(if cond case and or let let* letrec letrec* lambda begin set! when unless do define))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
@@ -191,6 +191,26 @@
                   (error 'parse-case "invalid case clause" c)))
               (cddr form))
     (values (cadr form) (cddr form)))
+
+
+  ;; (do ((var init [step]) ...) (test expr ...) command ...) => (values specs test exprs commands)
+  (define (parse-do form)
+    (unless (and (>= (length form) 3)
+                 (list? (cadr form))
+                 (non-empty-list? (caddr form)))
+      (error 'parse-do "invalid do" form))
+    (let loop ((specs (cadr form))
+               (seen '()))
+      (unless (null? specs)
+        (let ((s (car specs)))
+          (unless (and (list? s)
+                       (<= 2 (length s) 3)
+                       (symbol? (car s)))
+            (error 'parse-do "invalid do binding" s))
+          (when (memq (car s) seen)
+            (error 'parse-do "duplicate do variable" (car s)))
+          (loop (cdr specs) (cons (car s) seen)))))
+    (values (cadr form) (caaddr form) (cdaddr form) (cdddr form)))
 
 
   ;; (begin expr ...) => (expr ...)

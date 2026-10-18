@@ -1,8 +1,8 @@
 ;; The front pass: every local variable renamed to a fresh gensym, whose pretty name is the
 ;; original, and every special form headed by its marker, so a plain symbol at the head of a
 ;; form is a call.
-;; The derived forms are expanded: cond, case, let*, letrec (as letrec*), the bodies' defines,
-;; and when and unless outside unsafe defines.
+;; The derived forms are expanded: cond, case, let*, letrec (as letrec*), do, the bodies'
+;; defines, and when and unless outside unsafe defines.
 ;; The core forms left are if, begin, set!, lambda, let, named let, letrec* (for the letrec
 ;; pass), and, or, eq? (from case), and when and unless in unsafe defines.
 
@@ -102,6 +102,9 @@
           ((case)
            (front-expr env (expand-case env x)))
 
+          ((do)
+           (front-expr env (expand-do x)))
+
           ((when unless)
            (if (unsafe?)
                `(,(marker keyword) ,@(front-exprs env (cdr x)))
@@ -140,6 +143,19 @@
         (if (or (null? bindings) (null? (cdr bindings)))
             `(,(marker 'let) ,bindings ,@body)
             `(,(marker 'let) (,(car bindings)) ,(loop (cdr bindings)))))))
+
+
+  ;; A named let loop; a variable without a step keeps its value, and the value is undef when
+  ;; the test has no expression
+  (define (expand-do x)
+    (let-values (((specs test exprs commands) (parse-do x)))
+      (let ((loop (gensym "do")))
+        `(,(marker 'let) ,loop ,(map (lambda (s) (list (car s) (cadr s))) specs)
+          (,(marker 'if) ,test
+           ,(if (null? exprs) undef `(,(marker 'begin) ,@exprs))
+           (,(marker 'begin)
+            ,@commands
+            (,loop ,@(map (lambda (s) (if (null? (cddr s)) (car s) (caddr s))) specs))))))))
 
 
   ;; Their tails stay in tail position
