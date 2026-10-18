@@ -277,7 +277,7 @@
 
 
   ;; Each clause is ((datum ...) expr ...), ((datum ...) => f), or a last (else expr ...) or
-  ;; (else => f); the key is compared with eq?, so the datums are immediates or symbols
+  ;; (else => f); the key is compared with eq? to immediates and symbols, with eqv? to bignums
   (define (expand-case env expr)
     (let-values (((key clauses) (parse-case expr)))
       (let ((t (gensym "case")))
@@ -288,11 +288,12 @@
                   (error 'expand-case "invalid => clause" clause))
                 `(,(caddr clause) ,t))
               `(,(marker 'begin) ,@(cdr clause))))
-        (define (datum x)
+        (define (test x)
           (cond
-           ((null? x) ''())
-           ((symbol? x) (make-quoted-symbol x))
-           ((immediate? x) x)
+           ((null? x) `(,(marker 'eq?) ,t ''()))
+           ((symbol? x) `(,(marker 'eq?) ,t ,(make-quoted-symbol x)))
+           ((immediate? x) `(,(marker 'eq?) ,t ,x))
+           ((and (integer? x) (exact? x)) `(,(core-ref 'eqv?) ,t ,x))
            (else (error 'expand-case "unsupported case datum" x))))
         `(,(marker 'let) ((,t ,key))
           ,(let loop ((clauses clauses))
@@ -306,7 +307,7 @@
                (unless (list? (caar clauses))
                  (error 'expand-case "invalid case clause" (car clauses)))
                `(,(marker 'if)
-                 (,(marker 'or) ,@(map (lambda (d) `(,(marker 'eq?) ,t ,(datum d))) (caar clauses)))
+                 (,(marker 'or) ,@(map test (caar clauses)))
                  ,(body (car clauses))
                  ,(loop (cdr clauses))))))))))
 
