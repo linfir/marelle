@@ -6,6 +6,7 @@
           (utils)
           (parse)
           (front)
+          (letrec)
           (vars)
           (defs)
           (compile)
@@ -68,9 +69,10 @@
           def)))
 
 
-  ;; The core of a def, analyzed
+  ;; The core of a def, its letrec* forms fixed, analyzed
   (define (make-core env names body unsafe?)
-    (let ((core (front-def env names body unsafe?)))
+    (let* ((core (front-def env names body unsafe?))
+           (core (cons (car core) (fix-letrec (cdr core)))))
       (analyze-def! (car core) (cdr core))
       core))
 

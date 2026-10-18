@@ -98,6 +98,12 @@
            (bind! (if name (cons name (map car bindings)) (map car bindings)) (car owners))
            (analyze-exprs! body owners)))
 
+        ;; The names are bound in the lambdas too
+        ((fix)
+         (bind! (map car (cadr x)) (car owners))
+         (analyze-exprs! (map cadr (cadr x)) owners)
+         (analyze-exprs! (cddr x) owners))
+
         ((set!)
          (let-values (((var value) (parse-set! x)))
            (analyze-expr! value owners)

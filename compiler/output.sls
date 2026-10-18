@@ -51,6 +51,8 @@
       (tag 2 2))
      ((eq? x 'undef)
       (tag 2 3))
+     ((eq? x 'unbound)
+      (tag 2 5))
      ((char? x)
       (tag 2 (+ 4 (* 32 (char->integer x)))))
      (else #f)))

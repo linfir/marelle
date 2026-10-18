@@ -142,3 +142,11 @@
   (display (stderr) x)
   (put-string (stderr) "\n")
   (exit-process (raw 1)))
+
+;; A letrec variable read before its init
+(define (definition-error (raw name))
+  (declare unsafe native (result never))
+  (put-string (stderr) "Error: `")
+  (put-string (stderr) name)
+  (put-string (stderr) "` used before its definition\n")
+  (exit-process (raw 1)))

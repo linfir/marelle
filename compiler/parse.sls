@@ -1,5 +1,5 @@
 (library (parse)
-  (export undef immediate? vector-literal? special? special-keyword source-keyword marker
+  (export undef unbound immediate? vector-literal? special? special-keyword source-keyword marker
           define-form? validate-parameters
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
@@ -22,6 +22,11 @@
   (define undef (void))
 
 
+  ;; The value of a letrec variable before its init, which no program can make
+  (define-record-type unbound-value)
+  (define unbound (make-unbound-value))
+
+
   (define (immediate? x)
     (or (and (integer? x)
              (exact? x)
@@ -29,7 +34,8 @@
         (boolean? x)
         (char? x)
         (equal? x ''())
-        (eq? x undef)))
+        (eq? x undef)
+        (eq? x unbound)))
 
 
   ;; #(...) or '#(...)
@@ -42,10 +48,11 @@
     '(if cond case and or let let* letrec letrec* lambda begin set! when unless define))
 
 
-  ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them
+  ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
+  ;; fix and check-defined have no source form
   (define markers
     (map (lambda (k) (cons (gensym (symbol->string k)) k))
-         (cons 'eq? *special-forms*)))
+         (append '(eq? fix check-defined) *special-forms*)))
 
 
   (define (marker keyword)

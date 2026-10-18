@@ -111,7 +111,7 @@
 
 
   (define (immediate-operand x)
-    (immediate (if (eq? x undef) 'undef x)))
+    (immediate (cond ((eq? x undef) 'undef) ((eq? x unbound) 'unbound) (else x))))
 
 
   ;; Emits the code of expr and returns its operand, one of:
@@ -319,6 +319,12 @@
       ((set!)
        (let-values (((var value) (parse-set! expr)))
          (compile-set! env var value)))
+
+      ((fix)
+       (compile-fix env expr compile-value))
+
+      ((check-defined)
+       (compile-check-defined env expr))
 
       ;; Only in unsafe defines: the body's value when it is a val, else undef, so the body may
       ;; have any kind
@@ -680,6 +686,9 @@
           ((begin)
            (compile-seq env (parse-begin x) exit))
 
+          ((fix)
+           (compile-fix env x exit))
+
           (else
            (leaf env x)))))))
 
@@ -867,32 +876,99 @@
   ;; Lifts the lambda into its own function, and returns its procedure object, or a closure
   ;; filled with the captures
   (define (compile-lambda env name form)
-    (let*-values (((args body) (parse-lambda form))
-                  ((captures) (filter (lambda (entry) (and entry (local-binding? (cdr entry))))
-                                      (map (lambda (var) (assq var env)) (free-locals form))))
-                  ((def) (make-def (or name 'lambda) (mangle (fresh-name (or name 'lambda)))
-                                   (formals->params args) 'val
-                                   #f #f #f #t (unsafe-code?) (length captures) (not name) #f body
-                                   #f (cons (formals-names args) body))))
-      (for-each (lambda (c)
-                  (when (eq? (kind (local-binding-operand (cdr c))) 'raw)
-                    (error 'compile-lambda "captured raw variable" (car c))))
-                captures)
-      (add-def-symbols! def)
+    (let* ((captures (lambda-captures env form))
+           (def (lambda-def name form captures)))
       (compile-procedure def env captures)
       (if (null? captures)
           `(as-val ,(def-proc def))
           (let ((c (call-def env (core-def 'alloc-closure) (list (def-proc def)) name
                              compile-result)))
-            (for-each (lambda (capture i)
-                        (let* ((b (cdr capture))
-                               (op (local-binding-operand b)))
-                          (call-def env (core-def 'closure-set!)
-                                    (list c `(quad ,i)
-                                          (if (mutable? op) (emit-op! 'mov 'val (cdr op)) op))
-                                    name compile-result)))
-                      captures (iota (length captures)))
+            (fill-captures env c captures name)
             (emit-op! 'mov 'val (list `(as-val ,c)))))))
+
+
+  ;; The entries of env a lambda form captures: its free locals bound to a local-binding
+  (define (lambda-captures env form)
+    (filter (lambda (entry) (and entry (local-binding? (cdr entry))))
+            (map (lambda (var) (assq var env)) (free-locals form))))
+
+
+  ;; The def of a lambda form, with its symbols
+  (define (lambda-def name form captures)
+    (let-values (((args body) (parse-lambda form)))
+      (let ((def (make-def (or name 'lambda) (mangle (fresh-name (or name 'lambda)))
+                           (formals->params args) 'val
+                           #f #f #f #t (unsafe-code?) (length captures) (not name) #f body
+                           #f (cons (formals-names args) body))))
+        (for-each (lambda (c)
+                    (when (eq? (kind (local-binding-operand (cdr c))) 'raw)
+                      (error 'compile-lambda "captured raw variable" (car c))))
+                  captures)
+        (add-def-symbols! def)
+        def)))
+
+
+  ;; Stores the captures in the closure c, a raw from alloc-closure
+  (define (fill-captures env c captures name)
+    (for-each (lambda (capture i)
+                (let ((op (local-binding-operand (cdr capture))))
+                  (call-def env (core-def 'closure-set!)
+                            (list c `(quad ,i) (if (mutable? op) (emit-op! 'mov 'val (cdr op)) op))
+                            name compile-result)))
+              captures (iota (length captures))))
+
+
+  ;; (fix ((name lambda) ...) body ...), from the letrec pass: unassigned names bound to
+  ;; lambdas, which may refer to each other. When they capture nothing else, the names are
+  ;; static procedures, called directly. Else each is a closure (or a static procedure object
+  ;; when it captures nothing); they are all allocated, their captures set to undef so a
+  ;; collection finds no garbage, then filled.
+  (define (compile-fix env x compile-last)
+    (let ((names (map car (cadr x)))
+          (forms (map cadr (cadr x)))
+          (body (cddr x)))
+      (if (for-all (lambda (form) (null? (lambda-captures env form))) forms)
+          (let* ((defs (map (lambda (name form) (lambda-def name form '())) names forms))
+                 (inner (append (map (lambda (name def) (cons name (make-def-binding def)))
+                                     names defs)
+                                env)))
+            (for-each (lambda (def) (compile-procedure def inner '())) defs)
+            (compile-seq inner body compile-last))
+          (let* ((tmps (map (lambda (name) (fresh-tmp 'val)) names))
+                 (inner (append (map (lambda (name tmp) (cons name (make-local-binding tmp #f)))
+                                     names tmps)
+                                env))
+                 (captures (map (lambda (form) (lambda-captures inner form)) forms))
+                 (defs (map lambda-def names forms captures)))
+            (for-each (lambda (def c) (compile-procedure def inner c)) defs captures)
+            (for-each (lambda (def c tmp)
+                        (if (null? c)
+                            (emit! `(mov ,tmp (as-val ,(def-proc def))))
+                            (let ((closure (call-def env (core-def 'alloc-closure)
+                                                     (list (def-proc def)) (def-name def)
+                                                     compile-result)))
+                              (for-each (lambda (i)
+                                          (call-def env (core-def 'closure-set!)
+                                                    (list closure `(quad ,i) (immediate 'undef))
+                                                    (def-name def) compile-result))
+                                        (iota (length c)))
+                              (emit! `(mov ,tmp (as-val ,closure))))))
+                      defs captures tmps)
+            (for-each (lambda (def c tmp) (fill-captures inner `(as-raw ,tmp) c (def-name def)))
+                      defs captures tmps)
+            (compile-seq inner body compile-last)))))
+
+
+  ;; A read of a letrec variable that may come before its init
+  (define (compile-check-defined env x)
+    (let ((op (compile-variable env (cadr x)))
+          (label-ok (fresh-label)))
+      (emit! `(cmp ,op ,(immediate 'unbound)))
+      (emit! `(jne ,label-ok))
+      (call-def env (core-def 'definition-error) (list (intern-string! (symbol->string (cadr x))))
+                x compile-result)
+      (start-block! label-ok)
+      op))
 
 
   ;; Compiles the procedure def (a lambda, a procedure define or main) in env, the enclosing

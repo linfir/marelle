@@ -1,10 +1,10 @@
 ;; The front pass: every local variable renamed to a fresh gensym, whose pretty name is the
 ;; original, and every special form headed by its marker, so a plain symbol at the head of a
 ;; form is a call.
-;; The derived forms are expanded: cond, case, let*, letrec, letrec*, the bodies' defines,
+;; The derived forms are expanded: cond, case, let*, letrec (as letrec*), the bodies' defines,
 ;; and when and unless outside unsafe defines.
-;; The core forms left are if, begin, set!, lambda, let, named let, and, or, eq? (from case),
-;; and when and unless in unsafe defines.
+;; The core forms left are if, begin, set!, lambda, let, named let, letrec* (for the letrec
+;; pass), and, or, eq? (from case), and when and unless in unsafe defines.
 
 (library (front)
   (export front-def)
@@ -93,9 +93,8 @@
              (let* ((vars (map car bindings))
                     (fresh (fresh-names vars))
                     (inner (bind env vars fresh)))
-               (expand-letrec fresh
-                              (front-exprs inner (map cadr bindings))
-                              (front-body inner body)))))
+               `(,(marker 'letrec*) ,(map list fresh (front-exprs inner (map cadr bindings)))
+                 ,@(front-body inner body)))))
 
           ((cond)
            (front-expr env (expand-cond env (parse-cond x))))
@@ -133,14 +132,6 @@
           ((null? forms) (error 'expand-body "no expression in body" body))
           ((null? bindings) forms)
           (else `((,(marker 'letrec*) ,(reverse bindings) ,@forms))))))))
-
-
-  ;; Naive: each variable starts as #<undef> and is assigned its init in order, so assignment
-  ;; conversion boxes the ones a lambda captures; letrec as letrec*
-  (define (expand-letrec vars inits body)
-    `(,(marker 'let) ,(map (lambda (v) (list v undef)) vars)
-      ,@(map (lambda (v init) `(,(marker 'set!) ,v ,init)) vars inits)
-      ,@body))
 
 
   (define (expand-let* x)

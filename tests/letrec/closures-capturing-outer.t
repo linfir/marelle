@@ -1,0 +1,7 @@
+(define (f n)
+  (define (ev? k) (if (= k n) #t (od? (+ k 1))))
+  (define (od? k) (if (= k n) #f (ev? (+ k 1))))
+  (ev? 0))
+(f 10)
+---
+stdout = "#t"
