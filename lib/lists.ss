@@ -243,6 +243,46 @@
    ((eq? x (caar l)) (car l))
    (else (assq x (cdr l)))))
 
+(define (member x l)
+  (declare public)
+  (cond
+   ((null? l) #f)
+   ((equal? x (car l)) l)
+   (else (member x (cdr l)))))
+
+(define (member-with x l compare)
+  (cond
+   ((null? l) #f)
+   ((compare x (car l)) l)
+   (else (member-with x (cdr l) compare))))
+
+(define (variadic-member x l . compare)
+  (declare unsafe)
+  (cond
+   ((null? compare) (member x l))
+   ((null? (cdr compare)) (member-with x l (car compare)))
+   (else (scheme-error "`member` expected 2 or 3 arguments" compare))))
+
+(define (assoc x l)
+  (declare public)
+  (cond
+   ((null? l) #f)
+   ((equal? x (caar l)) (car l))
+   (else (assoc x (cdr l)))))
+
+(define (assoc-with x l compare)
+  (cond
+   ((null? l) #f)
+   ((compare x (caar l)) (car l))
+   (else (assoc-with x (cdr l) compare))))
+
+(define (variadic-assoc x l . compare)
+  (declare unsafe)
+  (cond
+   ((null? compare) (assoc x l))
+   ((null? (cdr compare)) (assoc-with x l (car compare)))
+   (else (scheme-error "`assoc` expected 2 or 3 arguments" compare))))
+
 (define (equal? x y)
   (declare public)
   (cond
