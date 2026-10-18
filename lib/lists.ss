@@ -228,3 +228,32 @@
 (define (fold-right f acc l)
   (declare public)
   (fold-left (lambda (acc x) (f x acc)) acc (reverse l)))
+
+(define (memq x l)
+  (declare public)
+  (cond
+   ((null? l) #f)
+   ((eq? x (car l)) l)
+   (else (memq x (cdr l)))))
+
+(define (assq x l)
+  (declare public)
+  (cond
+   ((null? l) #f)
+   ((eq? x (caar l)) (car l))
+   (else (assq x (cdr l)))))
+
+(define (equal? x y)
+  (declare public)
+  (cond
+   ((eqv? x y) #t)
+   ((pair? x) (and (pair? y) (equal? (car x) (car y)) (equal? (cdr x) (cdr y))))
+   ((string? x) (and (string? y) (string=? x y)))
+   ((vector? x)
+    (and (vector? y)
+         (= (vector-length x) (vector-length y))
+         (let loop ((i 0))
+           (or (= i (vector-length x))
+               (and (equal? (vector-ref x i) (vector-ref y i))
+                    (loop (+ i 1)))))))
+   (else #f)))
