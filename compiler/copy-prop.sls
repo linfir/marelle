@@ -49,6 +49,20 @@
 ;; copies in a block goes in one walk, the block walked last first; one
 ;; across blocks may leave a copy, which would need another liveness pass
 ;; (as long as the rest of the pass on a large function).
+;;
+;; Coalescing
+;; ----------
+;; The copies left mostly merge two paths: the two branches of a value if
+;; copy their values to one tmp, a named let copies the new values of its
+;; variables to them before jumping back. Both sides of such a move (mov d s),
+;; two tmps or two raws, become one variable unless they interfere: one is
+;; live after a def of the other, but s after the move itself, where both
+;; hold the same value. The move is then a copy of a variable to itself, and
+;; goes. The same walk records, for each variable of a move, the variables
+;; live after its defs; merged variables merge these sets, and the moves are
+;; tried in block order. Reg-alloc could not do it: a variable's interval has
+;; no holes, so the source of the second branch's copy lies inside the
+;; interval of the destination.
 
 (library (copy-prop)
   (export propagate-copies)
@@ -216,30 +230,101 @@
     (and (eq? (car instr) 'mov) (equal? (cadr instr) (caddr instr))))
 
 
+  ;; A copy between two variables of the same kind, which coalescing may merge
+  (define (move? instr)
+    (and (eq? (car instr) 'mov)
+         (var? (cadr instr))
+         (var? (caddr instr))
+         (eq? (caadr instr) (caaddr instr))))
+
+
   ;; The blocks without the copies to a tmp or a raw dead after them and the copies of a
-  ;; variable to itself
+  ;; variable to itself, and for each variable of a move, the set live after its defs
+  ;; but the source of a move to it
   (define (remove-dead-copies blocks)
-    (let ((ins (block-liveness blocks)))
-      (map (lambda (b next)
-             (let loop ((instrs (reverse (cddr b)))
-                        (live (live-at-end b next ins))
-                        (acc '()))
-               (if (null? instrs)
-                   `(block ,(cadr b) ,@acc)
-                   (let* ((instr (car instrs))
-                          (live (if (memq (car instr) jumps-ops)
-                                    (logor live (vector-ref ins (cadr instr)))
-                                    live)))
-                     (if (or (self-copy? instr)
-                             (and (eq? (car instr) 'mov)
-                                  (var? (cadr instr))
-                                  (not (logbit? (var-index (cadr instr)) live))))
-                         (loop (cdr instrs) live acc)
-                         (loop (cdr instrs)
-                               (logor (set-minus live (indexes->set (instr-defs instr)))
-                                      (indexes->set (instr-uses instr)))
-                               (cons instr acc)))))))
-           blocks (append (cdr blocks) '(#f)))))
+    (let ((ins (block-liveness blocks))
+          (moved (fold-left (lambda (set instr)
+                              (if (move? instr)
+                                  (logor set (indexes->set (append (instr-defs instr) (instr-uses instr))))
+                                  set))
+                            0 (apply append (map cddr blocks))))
+          (live-at-defs (make-eqv-hashtable)))
+      (define (record-defs! instr live)
+        (for-each (lambda (i)
+                    (when (logbit? i moved)
+                      (let ((source (if (move? instr) (indexes->set (instr-uses instr)) 0)))
+                        (hashtable-update! live-at-defs i
+                                           (lambda (s) (logor s (set-minus live (logor source (ash 1 i)))))
+                                           0))))
+                  (instr-defs instr)))
+      (values
+       (map (lambda (b next)
+              (let loop ((instrs (reverse (cddr b)))
+                         (live (live-at-end b next ins))
+                         (acc '()))
+                (if (null? instrs)
+                    `(block ,(cadr b) ,@acc)
+                    (let* ((instr (car instrs))
+                           (live (if (memq (car instr) jumps-ops)
+                                     (logor live (vector-ref ins (cadr instr)))
+                                     live)))
+                      (if (or (self-copy? instr)
+                              (and (eq? (car instr) 'mov)
+                                   (var? (cadr instr))
+                                   (not (logbit? (var-index (cadr instr)) live))))
+                          (loop (cdr instrs) live acc)
+                          (begin
+                            (record-defs! instr live)
+                            (loop (cdr instrs)
+                                  (logor (set-minus live (indexes->set (instr-defs instr)))
+                                         (indexes->set (instr-uses instr)))
+                                  (cons instr acc))))))))
+            blocks (append (cdr blocks) '(#f)))
+       live-at-defs)))
+
+
+  ;; The blocks with the two sides of each move renamed to one variable when they do
+  ;; not interfere, and the moves that leaves from a variable to itself removed
+  (define (coalesce blocks live-at-defs)
+    (let ((parents (make-eqv-hashtable))
+          (members (make-eqv-hashtable))
+          (merged #f))
+      (define (find i)
+        (let ((p (hashtable-ref parents i i)))
+          (if (= p i) i (find p))))
+      (define (live-at-defs-of i)
+        (hashtable-ref live-at-defs i 0))
+      (define (members-of i)
+        (hashtable-ref members i (ash 1 i)))
+      (for-each (lambda (b)
+                  (for-each (lambda (instr)
+                              (when (move? instr)
+                                (let ((a (find (var-index (cadr instr))))
+                                      (b (find (var-index (caddr instr)))))
+                                  (when (and (not (= a b))
+                                             (zero? (logand (live-at-defs-of a) (members-of b)))
+                                             (zero? (logand (live-at-defs-of b) (members-of a))))
+                                    (let ((root (min a b))
+                                          (other (max a b)))
+                                      (hashtable-set! parents other root)
+                                      (hashtable-set! members root (logor (members-of a) (members-of b)))
+                                      (hashtable-set! live-at-defs root
+                                                      (logor (live-at-defs-of a) (live-at-defs-of b)))
+                                      (set! merged #t))))))
+                            (cddr b)))
+                blocks)
+      (if (not merged)
+          blocks
+          (let ()
+            (define (rename x)
+              (cond
+               ((var? x) (index-var (find (var-index x))))
+               ((pair? x) (map rename x))
+               (else x)))
+            (map (lambda (b)
+                   `(block ,(cadr b) ,@(filter (lambda (instr) (not (self-copy? instr)))
+                                               (map rename (cddr b)))))
+                 blocks)))))
 
 
   ;; The blocks of a function, lowered, with the reads of copied variables rewritten
@@ -251,4 +336,5 @@
                        blocks
                        (rewrite-blocks blocks starts copies
                                        (block-availability blocks starts copies)))))
-      (remove-dead-copies blocks))))
+      (let-values (((blocks live-at-defs) (remove-dead-copies blocks)))
+        (coalesce blocks live-at-defs)))))
