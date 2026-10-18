@@ -2,10 +2,11 @@
 ;; Waddell, Sarkar and Dybvig, "Fixing Letrec", and Ghuloum and Dybvig, "Fixing Letrec
 ;; (reloaded)". In order, each binding is
 ;; - lambda: an unassigned variable bound to a lambda, in one fix around the rest;
-;; - simple: a constant or an unassigned local bound in a let, when nothing evaluated before
-;;   it may read it;
+;; - simple: a constant, an unassigned local or a call to an effect-free primitive on simple
+;;   operands, bound in a let, when nothing evaluated before it may read it; a call may fail,
+;;   so only before every complex init;
 ;; - complex: a cell, starting unbound, assigned its init in order; a read that may come before
-;;   the init is checked (check-defined);
+;;   the init, or a set! before it, is checked (check-defined);
 ;; - unreferenced: dropped, or its init evaluated for effect when complex.
 ;; A named let whose name is used other than called in exit position, outside lambdas, is
 ;; ((letrec* ((name (lambda vars body ...))) name) init ...).
@@ -22,11 +23,15 @@
   (define refs (make-parameter #f))
   (define sets (make-parameter #f))
 
+  ;; Per def: true of the global names of the effect-free primitives
+  (define pure? (make-parameter #f))
+
 
   ;; The body of a def, with its letrec* forms fixed
-  (define (fix-letrec body)
+  (define (fix-letrec body pure)
     (parameterize ((refs (make-eq-hashtable))
-                   (sets (make-eq-hashtable)))
+                   (sets (make-eq-hashtable))
+                   (pure? pure))
       (count-exprs! body)
       (map fix-expr body)))
 
@@ -148,14 +153,23 @@
 
   ;; Locals are the gensyms of the front pass; a global may change in any call
   (define (simple-init? x simple-vars group)
-    (or (immediate? x)
-        (and (integer? x) (exact? x))
-        (string? x)
-        (vector-literal? x)
-        (and (symbol? x)
-             (gensym? x)
-             (not (assigned? x))
-             (or (not (memq x group)) (memq x simple-vars)))))
+    (cond
+     ((or (immediate? x) (and (integer? x) (exact? x)) (string? x) (vector-literal? x))
+      #t)
+     ((symbol? x)
+      (and (gensym? x)
+           (not (assigned? x))
+           (or (not (memq x group)) (memq x simple-vars))))
+     (else
+      (and (list? x)
+           (symbol? (car x))
+           (not (gensym? (car x)))
+           ((pure?) (car x))
+           (for-all (lambda (y) (simple-init? y simple-vars group)) (cdr x))))))
+
+
+  (define (call? x)
+    (and (pair? x) (not (immediate? x)) (not (vector-literal? x))))
 
 
   ;; The variables of vars that x mentions, a set! target included
@@ -167,15 +181,19 @@
        (else (loop (cdr x) (loop (car x) acc))))))
 
 
-  ;; x with each read of a variable of vars checked
+  ;; x with each read and set! of a variable of vars checked
   (define (check-reads x vars)
     (cond
      ((symbol? x)
       (if (memq x vars) `(,(marker 'check-defined) ,x) x))
      ((or (immediate? x) (vector-literal? x) (not (pair? x)))
       x)
+     ;; (check-defined x value): the value, then the check
      ((eq? (special-keyword x) 'set!)
-      `(,(car x) ,(cadr x) ,(check-reads (caddr x) vars)))
+      (let ((value (check-reads (caddr x) vars)))
+        `(,(car x) ,(cadr x) ,(if (memq (cadr x) vars)
+                                  `(,(marker 'check-defined) ,(cadr x) ,value)
+                                  value))))
      (else
       (cons (check-reads (car x) vars) (check-reads (cdr x) vars)))))
 
@@ -198,9 +216,11 @@
                 (loop (cdr xs) (cdr inits) simple
                       (if (referenced? x) (cons (list x init) lambdas) lambdas)
                       complex seq observed))
+               ;; An unreferenced call is kept for effect
                ((and (simple-init? init (map car simple) vars)
                      (not (memq x observed))
-                     (not (exists (lambda (v) (memq v observed)) lambda-vars)))
+                     (not (exists (lambda (v) (memq v observed)) lambda-vars))
+                     (or (not (call? init)) (and (null? seq) (referenced? x))))
                 (loop (cdr xs) (cdr inits)
                       (if (referenced? x) (cons (list x init) simple) simple)
                       lambdas complex seq observed))

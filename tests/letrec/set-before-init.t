@@ -1,4 +1,3 @@
-;; A set! before the init is not checked, since R7RS only says it is an error (Chez reports it)
 (define (f)
   (define (set-x!) (set! x 5))
   (define y (set-x!))
@@ -6,5 +5,6 @@
   x)
 (f)
 ---
-stdout = "6"
+stage = "executable"
+stderr_contains = "Error: `x` assigned before its definition"
 chez = "skip"

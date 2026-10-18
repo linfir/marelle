@@ -928,21 +928,21 @@
 
 
   ;; (fix ((name closure) ...) body ...), from the letrec pass: unassigned names bound to
-  ;; lambdas, which may refer to each other. When they capture nothing, the names are static
-  ;; procedures, called directly. Else each is a closure (or a static procedure object
-  ;; when it captures nothing); they are all allocated, their captures set to undef so a
-  ;; collection finds no garbage, then filled.
+  ;; lambdas, which may refer to each other. The names of those capturing nothing are static
+  ;; procedures, called directly. The others are closures: all allocated, their captures set
+  ;; to undef so a collection finds no garbage, then filled.
   (define (compile-fix env x compile-last)
-    (let ((names (map car (cadr x)))
-          (forms (map cadr (cadr x)))
-          (body (cddr x)))
-      (if (for-all (lambda (form) (null? (cadr form))) forms)
-          (let* ((defs (map (lambda (name form) (lambda-def name form '())) names forms))
-                 (inner (append (map (lambda (name def) (cons name (make-def-binding def)))
-                                     names defs)
-                                env)))
-            (for-each (lambda (def) (compile-procedure def inner '())) defs)
-            (compile-seq inner body compile-last))
+    (let* ((static (filter (lambda (b) (null? (cadadr b))) (cadr x)))
+           (defs (map (lambda (b) (lambda-def (car b) (cadr b) '())) static))
+           (env (append (map (lambda (b def) (cons (car b) (make-def-binding def))) static defs)
+                        env))
+           (closures (filter (lambda (b) (pair? (cadadr b))) (cadr x)))
+           (names (map car closures))
+           (forms (map cadr closures))
+           (body (cddr x)))
+      (for-each (lambda (def) (compile-procedure def env '())) defs)
+      (if (null? closures)
+          (compile-seq env body compile-last)
           (let* ((tmps (map (lambda (name) (fresh-tmp 'val)) names))
                  (inner (append (map (lambda (name tmp) (cons name (make-local-binding tmp #f)))
                                      names tmps)
@@ -951,33 +951,35 @@
                  (defs (map lambda-def names forms captures)))
             (for-each (lambda (def c) (compile-procedure def inner c)) defs captures)
             (for-each (lambda (def c tmp)
-                        (if (null? c)
-                            (emit! `(mov ,tmp (as-val ,(def-proc def))))
-                            (let ((closure (call-def env (core-def 'alloc-closure)
-                                                     (list (def-proc def)) (def-name def)
-                                                     compile-result)))
-                              (for-each (lambda (i)
-                                          (call-def env (core-def 'closure-set!)
-                                                    (list closure `(quad ,i) (immediate 'undef))
-                                                    (def-name def) compile-result))
-                                        (iota (length c)))
-                              (emit! `(mov ,tmp (as-val ,closure))))))
+                        (let ((closure (call-def env (core-def 'alloc-closure)
+                                                 (list (def-proc def)) (def-name def)
+                                                 compile-result)))
+                          (for-each (lambda (i)
+                                      (call-def env (core-def 'closure-set!)
+                                                (list closure `(quad ,i) (immediate 'undef))
+                                                (def-name def) compile-result))
+                                    (iota (length c)))
+                          (emit! `(mov ,tmp (as-val ,closure)))))
                       defs captures tmps)
             (for-each (lambda (def c tmp) (fill-captures inner `(as-raw ,tmp) c (def-name def)))
                       defs captures tmps)
             (compile-seq inner body compile-last)))))
 
 
-  ;; A read of a letrec variable that may come before its init
+  ;; A read of a letrec variable that may come before its init; with a value, from a set! of
+  ;; it, the value, then the check
   (define (compile-check-defined env x)
-    (let ((op (compile-variable env (cadr x)))
-          (label-ok (fresh-label)))
+    (let* ((value (and (pair? (cddr x)) (compile-checked env (caddr x) 'val x)))
+           (op (compile-variable env (cadr x)))
+           (label-ok (fresh-label)))
       (emit! `(cmp ,op ,(immediate 'unbound)))
       (emit! `(jne ,label-ok))
-      (call-def env (core-def 'definition-error) (list (intern-string! (symbol->string (cadr x))))
+      (call-def env (core-def 'definition-error)
+                (list (intern-string! (symbol->string (cadr x)))
+                      (intern-string! (if value "assigned" "used")))
                 x compile-result)
       (start-block! label-ok)
-      op))
+      (or value op)))
 
 
   ;; Compiles the procedure def (a lambda, a procedure define or main) in env, the enclosing

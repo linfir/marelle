@@ -1,7 +1,7 @@
 ;; Closure conversion: each lambda to (closure (capture ...) formals body ...), its captures
 ;; the free locals it keeps in its closure, in first-reference order.
-;; A fix group is static when its lambdas capture nothing but the group: its names are then
-;; static procedures, captured by no lambda, and so are the names of named lets.
+;; A lambda of a fix group is static when it captures nothing but the group's static ones: its
+;; name is then a static procedure, captured by no lambda, and so are the names of named lets.
 ;; Runs after the analysis, whose free locals it reads; names are unique.
 
 (library (closure)
@@ -50,15 +50,18 @@
              (let-values (((bindings body) (parse-let x)))
                `(,(car x) ,(convert-bindings bindings) ,@(map convert body)))))
 
-        ;; Static when no lambda captures anything with the names static
+        ;; All static at first, then each capturing something is not, until none is left
         ((fix)
-         (let* ((names (map car (cadr x)))
-                (forms (map cadr (cadr x)))
-                (static (begin
-                          (static! names)
-                          (for-all (lambda (form) (null? (captures form))) forms))))
-           (unless static
-             (for-each (lambda (name) (hashtable-delete! (statics) name)) names))
+         (let ((names (map car (cadr x)))
+               (forms (map cadr (cadr x))))
+           (static! names)
+           (let loop ()
+             (let ((b (find (lambda (b)
+                              (and (hashtable-ref (statics) (car b) #f) (pair? (captures (cadr b)))))
+                            (cadr x))))
+               (when b
+                 (hashtable-delete! (statics) (car b))
+                 (loop))))
            `(,(car x) ,(map (lambda (name form) (list name (convert-lambda form (captures form))))
                             names forms)
              ,@(map convert (cddr x)))))

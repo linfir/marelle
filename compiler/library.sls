@@ -70,10 +70,32 @@
           def)))
 
 
+  ;; The library defs a letrec init may call and stay simple
+  (define pure-names
+    '(car cdr cons + - * = < > <= >= eq? eqv? not null? pair? boolean? integer? procedure?
+      char? vector? zero?))
+
+
+  ;; Per compilation: the library's defs of pure-names
+  (define pure-defs (make-parameter '()))
+
+
+  (define (set-pure-defs! library)
+    (pure-defs (filter (lambda (x) (and (def? x) (memq (def-name x) pure-names))) library)))
+
+
+  (define (pure-def-name? env x)
+    (let ((entry (assq x env)))
+      (and entry
+           (def-binding? (cdr entry))
+           (memq (def-binding-def (cdr entry)) (pure-defs))
+           #t)))
+
+
   ;; The core of a def, its letrec* forms fixed, analyzed, its closures converted
   (define (make-core env names body unsafe?)
     (let* ((core (front-def env names body unsafe?))
-           (core (cons (car core) (fix-letrec (cdr core)))))
+           (core (cons (car core) (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x))))))
       (analyze-def! (car core) (cdr core))
       (cons (car core) (convert-closures (cdr core)))))
 
@@ -125,7 +147,8 @@
                    (current-entries '())
                    (inlining '())
                    (var-facts (make-eq-hashtable))
-                   (lambda-frees (make-eq-hashtable)))
+                   (lambda-frees (make-eq-hashtable))
+                   (pure-defs '()))
       (thunk)))
 
 
@@ -137,6 +160,7 @@
      0
      (lambda ()
        (let ((items (map scanned-item (scan-library forms))))
+         (set-pure-defs! items)
          (let-values (((safe unsafe) (item-bindings items)))
            (set-envs! items safe (append safe unsafe unsafe-bindings)))
          (parameterize ((core-defs (map (lambda (x) (cons (item-name x) x)) (filter def? items))))
@@ -222,6 +246,7 @@
        (let ((library (map interface-item
                            (filter (lambda (x) (memq (car x) '(def data))) interface))))
          (add-symbol! "main_proc" 'main)
+         (set-pure-defs! library)
          (for-each (lambda (x)
                      (if (def? x)
                          (add-def-symbols! x)
