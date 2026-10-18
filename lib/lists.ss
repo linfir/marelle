@@ -14,6 +14,118 @@
     (scheme-error "`cdr` expected a pair" x))
   (as-val (load (untag x) (raw 1))))
 
+(define (caar x)
+  (declare inline public)
+  (car (car x)))
+
+(define (cadr x)
+  (declare inline public)
+  (car (cdr x)))
+
+(define (cdar x)
+  (declare inline public)
+  (cdr (car x)))
+
+(define (cddr x)
+  (declare inline public)
+  (cdr (cdr x)))
+
+(define (caaar x)
+  (declare inline public)
+  (car (car (car x))))
+
+(define (caadr x)
+  (declare inline public)
+  (car (car (cdr x))))
+
+(define (cadar x)
+  (declare inline public)
+  (car (cdr (car x))))
+
+(define (caddr x)
+  (declare inline public)
+  (car (cdr (cdr x))))
+
+(define (cdaar x)
+  (declare inline public)
+  (cdr (car (car x))))
+
+(define (cdadr x)
+  (declare inline public)
+  (cdr (car (cdr x))))
+
+(define (cddar x)
+  (declare inline public)
+  (cdr (cdr (car x))))
+
+(define (cdddr x)
+  (declare inline public)
+  (cdr (cdr (cdr x))))
+
+(define (caaaar x)
+  (declare inline public)
+  (car (car (car (car x)))))
+
+(define (caaadr x)
+  (declare inline public)
+  (car (car (car (cdr x)))))
+
+(define (caadar x)
+  (declare inline public)
+  (car (car (cdr (car x)))))
+
+(define (caaddr x)
+  (declare inline public)
+  (car (car (cdr (cdr x)))))
+
+(define (cadaar x)
+  (declare inline public)
+  (car (cdr (car (car x)))))
+
+(define (cadadr x)
+  (declare inline public)
+  (car (cdr (car (cdr x)))))
+
+(define (caddar x)
+  (declare inline public)
+  (car (cdr (cdr (car x)))))
+
+(define (cadddr x)
+  (declare inline public)
+  (car (cdr (cdr (cdr x)))))
+
+(define (cdaaar x)
+  (declare inline public)
+  (cdr (car (car (car x)))))
+
+(define (cdaadr x)
+  (declare inline public)
+  (cdr (car (car (cdr x)))))
+
+(define (cdadar x)
+  (declare inline public)
+  (cdr (car (cdr (car x)))))
+
+(define (cdaddr x)
+  (declare inline public)
+  (cdr (car (cdr (cdr x)))))
+
+(define (cddaar x)
+  (declare inline public)
+  (cdr (cdr (car (car x)))))
+
+(define (cddadr x)
+  (declare inline public)
+  (cdr (cdr (car (cdr x)))))
+
+(define (cdddar x)
+  (declare inline public)
+  (cdr (cdr (cdr (car x)))))
+
+(define (cddddr x)
+  (declare inline public)
+  (cdr (cdr (cdr (cdr x)))))
+
 (define (cons a d)
   (declare unsafe inline public)
   (let ((p (alloc (raw 2))))
@@ -97,7 +209,7 @@
      ((null? (cdr fast)) #t)
      ((not (pair? (cdr fast))) #f)
      (else (let ((slow (cdr slow))
-                 (fast (cdr (cdr fast))))
+                 (fast (cddr fast)))
              (and (not (eq? slow fast))
                   (loop slow fast)))))))
 
