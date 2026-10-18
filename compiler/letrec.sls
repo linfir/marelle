@@ -7,6 +7,8 @@
 ;; - complex: a cell, starting unbound, assigned its init in order; a read that may come before
 ;;   the init is checked (check-defined);
 ;; - unreferenced: dropped, or its init evaluated for effect when complex.
+;; A named let whose name is used other than called in exit position, outside lambdas, is
+;; ((letrec* ((name (lambda vars body ...))) name) init ...).
 ;; Names are unique, so a variable is known by its symbol alone.
 
 (library (letrec)
@@ -77,9 +79,12 @@
          `(,(car x) ,(cadr x) ,@(map fix-expr (cddr x))))
         ((let)
          (let-values (((name bindings body) (parse-any-let x)))
-           `(,(car x) ,@(if name (list name) '())
-             ,(map (lambda (b) (list (car b) (fix-expr (cadr b)))) bindings)
-             ,@(map fix-expr body))))
+           (if (and name (not (loop-body? name body)))
+               (fix-expr `(,(marker 'letrec*) ((,name (,(marker 'lambda) ,(map car bindings) ,@body)))
+                           (,name ,@(map cadr bindings))))
+               `(,(car x) ,@(if name (list name) '())
+                 ,(map (lambda (b) (list (car b) (fix-expr (cadr b)))) bindings)
+                 ,@(map fix-expr body)))))
         ((letrec*)
          (fix-letrec* (map car (cadr x)) (map (lambda (b) (fix-expr (cadr b))) (cadr x))
                       (map fix-expr (cddr x))))
@@ -90,6 +95,43 @@
          (map fix-expr x))
         (else
          (cons (car x) (map fix-expr (cdr x))))))))
+
+
+  ;; The named let name is only called in exit position of body, as compile-exit compiles it
+  ;; to a jump: through if, let, named let, letrec*, fix, begin, and the last operand of and
+  ;; and or
+  (define (loop-body? name body)
+    (let-values (((init last) (split-last body)))
+      (and (not (mentioned? name init))
+           (loop-exit? name last))))
+
+
+  (define (loop-exit? name x)
+    (cond
+     ((or (not (pair? x)) (immediate? x) (vector-literal? x))
+      (not (eq? x name)))
+     (else
+      (case (special-keyword x)
+        ((if)
+         (and (not (mentioned? name (cadr x)))
+              (for-all (lambda (y) (loop-exit? name y)) (cddr x))))
+        ((let)
+         (let-values (((n bindings body) (parse-any-let x)))
+           (and (not (mentioned? name (map cadr bindings)))
+                (loop-body? name body))))
+        ((letrec* fix)
+         (and (not (mentioned? name (map cadr (cadr x))))
+              (loop-body? name (cddr x))))
+        ((begin and or)
+         (or (null? (cdr x)) (loop-body? name (cdr x))))
+        ((#f)
+         (not (mentioned? name (if (eq? (car x) name) (cdr x) x))))
+        (else
+         (not (mentioned? name x)))))))
+
+
+  (define (mentioned? x y)
+    (pair? (mentions y (list x))))
 
 
   (define (assigned? x)
