@@ -95,7 +95,7 @@
               (loop (cdr x) (filter (lambda (k) (not (equal? (car k) dst))) known) (cons instr acc)))
              ((eq? op 'cmp)
               (loop (cdr x) known (cons instr acc)))
-             ((and (memq op '(mov movzx lea add sub imul and or sal sar shr))
+             ((and (memq op '(mov movzx lea add sub imul and or xor sal sar shr))
                    (register dst)
                    (not (eq? (register dst) 'rbp)))
               (loop (cdr x) (forget (register dst)) (cons instr acc)))

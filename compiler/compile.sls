@@ -262,8 +262,9 @@
       (else (expand-variadic env expr))))
 
 
-  ;; The calls of the library's +, *, -, comparisons and make-vector whose number of operands
-  ;; the inline def does not take, in terms of it; the others go to their variadic twin
+  ;; The calls of the library's +, *, -, comparisons, bitwise operations and make-vector whose
+  ;; number of operands the inline def does not take, in terms of it; the others go to their
+  ;; variadic twin
   (define (expand-variadic env expr)
     (let ((b (head-binding env expr)))
       (and (def-binding? b)
@@ -273,8 +274,11 @@
              (define (fold-operands)
                (fold-left (lambda (acc x) (list op acc x)) (car args) (cdr args)))
              (case (def-name (def-binding-def b))
-               ((+ *)
-                (let ((unit (if (eq? (def-name (def-binding-def b)) '+) 0 1)))
+               ((+ * bitwise-and bitwise-ior bitwise-xor)
+                (let ((unit (case (def-name (def-binding-def b))
+                              ((*) 1)
+                              ((bitwise-and) -1)
+                              (else 0))))
                   (case (length args)
                     ((0) unit)
                     ((1) (list op unit (car args)))

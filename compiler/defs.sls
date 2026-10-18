@@ -23,6 +23,7 @@
   (define binary-ops
     '((bit-and . and)
       (bit-or . or)
+      (bit-xor . xor)
       (raw+ . add)
       (raw- . sub)
       (raw* . mul)

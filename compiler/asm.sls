@@ -467,7 +467,7 @@
          (emit-asm! ctx `(cmp ,a ,b))))
 
       ;; In the destination register when it has one, else in rax
-      ((add sub mul and or)
+      ((add sub mul and or xor)
        (let ((op (if (eq? (car instr) 'mul) 'imul (car instr)))
              (dst (cadr instr))
              (a (caddr instr))
