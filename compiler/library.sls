@@ -147,10 +147,12 @@
         '()))
 
 
-  (define (print-strings)
+  (define (print-constants)
     (for-each (lambda (s)
                 (print-entry `(string ,(cdr s) ,(car s))))
-              (reverse (current-strings))))
+              (reverse (current-strings)))
+    (for-each (lambda (n) (print-entry (cddr n)))
+              (reverse (current-numbers))))
 
 
   ;; The cells of the literals, 0 until the init function fills them, and their count
@@ -175,6 +177,7 @@
     (parameterize ((names (make-counter first-name))
                    (symbols (make-hashtable string-hash string=?))
                    (current-strings '())
+                   (current-numbers '())
                    (current-literals '())
                    (literals-symbol literals)
                    (startup-defs '())
@@ -208,7 +211,7 @@
                                  ,@(map data-symbol (filter data? items))))
            (print-data items)
            (print-literals "scheme_library_literals" "scheme_library_nliterals")
-           (print-strings)
+           (print-constants)
            (for-each print-entry entries)
            (print-entry '(stubs)))
          `((names ,((names)))
@@ -332,5 +335,5 @@
              (emit-globals (hashtable-size (top-globals)))
              (print-data items)
              (print-literals "scheme_literals" "scheme_nliterals")
-             (print-strings)
+             (print-constants)
              (for-each print-entry (reverse (current-entries))))))))))

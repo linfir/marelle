@@ -130,7 +130,7 @@
       (immediate-operand expr))
 
      ((and (integer? expr) (exact? expr))
-      (compile-big-integer env expr))
+      `(as-val ,(intern-number! expr)))
 
      ((number? expr)
       (error 'compile-value "unsupported number" expr))
@@ -229,28 +229,6 @@
                             v compile-result))
                 (vector->list v) (iota (vector-length v)))
       t))
-
-
-  ;; The base of the chunks of a bignum literal: each chunk is a fixnum
-  (define chunk-base (expt 2 30))
-
-
-  ;; An integer beyond the fixnums, rebuilt by the library's + and * from chunk-base chunks,
-  ;; most significant first, each with n's sign: (+ (* (+ (* c2 base) c1) base) c0)
-  (define (compile-big-integer env n)
-    (let loop ((m (abs n))
-               (chunks '()))
-      (if (= m 0)
-          (fold-left (lambda (acc c)
-                       (let ((product (call-def env (core-def '*)
-                                                (list acc (immediate-operand chunk-base))
-                                                n compile-result)))
-                         (call-def env (core-def '+) (list product (immediate-operand c))
-                                   n compile-result)))
-                     (immediate-operand (car chunks)) (cdr chunks))
-          (loop (quotient m chunk-base)
-                (cons (if (< n 0) (- (remainder m chunk-base)) (remainder m chunk-base))
-                      chunks)))))
 
 
   ;; and and or as values, as if, let and begin, or #f

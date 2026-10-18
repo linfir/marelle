@@ -7,9 +7,9 @@
           make-data data? data-name data-symbol data-nwords data-extern?
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
           procedure-type binary-ops tests low-ops unsafe-bindings
-          names symbols current-strings current-literals literals-symbol startup-defs current-entries
+          names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
           core-defs inlining unsafe-code?
-          fresh-name add-symbol! add-def-symbols! intern-string! intern-literal! add-entries! core-def)
+          fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
   (import (chezscheme)
           (utils)
           (vars)
@@ -18,6 +18,10 @@
 
   ;; Header of procedure objects, procedure-type in lib/objects.ss
   (define procedure-type (* 42 8))
+
+
+  ;; bignum-type in lib/objects.ss
+  (define bignum-type (* 46 8))
 
 
   (define binary-ops
@@ -98,14 +102,15 @@
 
 
   ;; Per compilation: the fresh name counter, the symbols (symbol => name), the interned strings
-  ;; ((string . name), newest first), the string and symbol literals ((datum . cell index),
-  ;; newest first)
+  ;; ((string . name), newest first), the static numbers ((n name . entry), newest first), the
+  ;; string and symbol literals ((datum . cell index), newest first)
   ;; and the data of their cells, the defs main calls first, the entries of the compiled functions
   ;; (newest first), the library defs the compiler calls (name => def), and the inline defs being
   ;; expanded
   (define names (make-parameter #f))
   (define symbols (make-parameter #f))
   (define current-strings (make-parameter '()))
+  (define current-numbers (make-parameter '()))
   (define current-literals (make-parameter '()))
   (define literals-symbol (make-parameter #f))
   (define startup-defs (make-parameter '()))
@@ -127,12 +132,12 @@
 
 
   ;; Mangling is not injective, so two names giving the same symbol are an error;
-  ;; interned strings are strN
+  ;; interned strings are strN, static numbers numN
   (define (add-symbol! sym name)
     (when (or (hashtable-ref (symbols) sym #f)
               (member sym reserved-symbols)
               (and (> (string-length sym) 3)
-                   (string=? (substring sym 0 3) "str")
+                   (member (substring sym 0 3) '("str" "num"))
                    (for-all char-numeric? (string->list (substring sym 3 (string-length sym))))))
       (error 'add-symbol! "symbol clash" name sym))
     (hashtable-set! (symbols) sym name))
@@ -152,6 +157,25 @@
      (else
       (let ((name (format "str~a" (+ 1 (length (current-strings))))))
         (current-strings (acons x name (current-strings)))
+        name))))
+
+
+  ;; The static bignum n, [bignum-type, nlimbs, sign, limb ...] in read-only data
+  (define (intern-number! n)
+    (cond
+     ((assv n (current-numbers)) => cadr)
+     (else
+      (let ((name (format "num~a" (+ 1 (length (current-numbers)))))
+            (limbs (let loop ((m (abs n)))
+                     (if (= m 0)
+                         '()
+                         (cons (bitwise-and m (- (expt 2 64) 1))
+                               (loop (bitwise-arithmetic-shift-right m 64)))))))
+        (current-numbers
+         (cons (cons* n name `(rodata ,name (quad ,bignum-type) (quad ,(length limbs))
+                                      (quad ,(if (< n 0) 1 0))
+                                      ,@(map (lambda (l) `(quad ,l)) limbs)))
+               (current-numbers)))
         name))))
 
 
