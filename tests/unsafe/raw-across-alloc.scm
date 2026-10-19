@@ -1,0 +1,6 @@
+(define (f x)
+  (declare unsafe)
+  (let ((r (raw+ (fixnum-value x) (raw 1))))
+    (cons 1 2)
+    (make-fixnum r)))
+(f 1)

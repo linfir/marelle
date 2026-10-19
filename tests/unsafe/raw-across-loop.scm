@@ -1,0 +1,10 @@
+(define (f x)
+  (declare unsafe)
+  (let ((r (raw+ (fixnum-value x) (raw 1))))
+    (let loop ((i 0))
+      (if (< i 3)
+          (begin
+            (cons 1 2)
+            (loop (+ i 1)))
+          (make-fixnum r)))))
+(f 1)
