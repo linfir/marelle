@@ -1,0 +1,20 @@
+;; Symbolic derivation: allocation, map and closures
+(define (deriv a)
+  (cond ((not (pair? a))
+         (if (eq? a 'x) 1 0))
+        ((eq? (car a) '+)
+         (cons '+ (map deriv (cdr a))))
+        ((eq? (car a) '-)
+         (cons '- (map deriv (cdr a))))
+        ((eq? (car a) '*)
+         (list '* a (cons '+ (map (lambda (a) (list '/ (deriv a) a)) (cdr a)))))
+        ((eq? (car a) '/)
+         (list '-
+               (list '/ (deriv (cadr a)) (caddr a))
+               (list '/ (cadr a) (list '* (caddr a) (caddr a) (deriv (caddr a))))))
+        (else #f)))
+(define expr (list '+ (list '* 3 'x 'x) (list '* 'a 'x 'x) (list '* 'b 'x) 5))
+(let loop ((i 0) (r #f))
+  (if (= i 400000)
+      r
+      (loop (+ i 1) (deriv expr))))

@@ -26,6 +26,8 @@ make                      # compile the compiler and the runtime library
 ./run.py program.scm      # compile, link and run a file
 ./run.py --dump closure -e '(car (list 1))'  # the IR after a pass, without running
 make test                 # the test suite, tests/
+./bench.py                # the best of 5 runs of each program of bench/
+./stats.py                # instructions, calls and frame words of the library and tests
 ```
 
 The value of the last form is printed.
@@ -36,6 +38,7 @@ The value of the last form is printed.
 - `lib/`: the runtime library, compiled once into `build/lib.o`
 - `run`, `compile`: compiler entry points; `run.py` drives the whole pipeline
 - `tests/`: one `.t` file per test, the program then its expected outcome
+- `bench/`: benchmark programs, timed by `bench.py`
 
 ## License
 

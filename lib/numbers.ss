@@ -271,13 +271,6 @@
   (declare public)
   (* x x))
 
-(define (fibo n)
-  (declare public)
-  (cond
-   ((= n 0) 0)
-   ((= n 1) 1)
-   (else (+ (fibo (- n 1)) (fibo (- n 2))))))
-
 ;; Any number of operands: the calls the inline defs do not take, unless folded by the
 ;; compiler, and the procedure values of +, *, - and the comparisons
 (define (variadic-+ . xs)

@@ -1,0 +1,13 @@
+;; Strings: substring, string-append, string=?, conversions to and from lists
+(define (make-base n)
+  (let loop ((i 0) (chars '()))
+    (if (= i n)
+        (list->string chars)
+        (loop (+ i 1) (cons (integer->char (+ 97 (modulo i 26))) chars)))))
+(define (rotate s)
+  (string-append (substring s 1 (string-length s)) (substring s 0 1)))
+(define base (make-base 1000))
+(let loop ((i 0) (s base) (same 0))
+  (if (= i 40000)
+      (list same (length (string->list s)))
+      (loop (+ i 1) (rotate s) (if (string=? s base) (+ same 1) same))))
