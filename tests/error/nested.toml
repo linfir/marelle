@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in f: negative with irritant -2\n"

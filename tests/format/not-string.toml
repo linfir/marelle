@@ -1,3 +1,2 @@
 stage = "executable"
-stderr_contains = "`format` expected a string"
-chez = "skip"
+stderr = "Exception in format: expected a string with irritant 1\n"

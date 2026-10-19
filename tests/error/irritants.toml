@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in f: bad with irritants (1 \"s\" #\\a)\n"

@@ -2,25 +2,25 @@
 
 ;; Writes the format string fmt with the arguments args to the port
 (define (format-to port fmt args)
-  (declare unsafe)
-  (check-string fmt "`format` expected a string")
+  (unless (string? fmt)
+    (error 'format "expected a string" fmt))
   (let ((n (string-length fmt)))
     (let char-next ((i 0)
                     (args args))
       (cond
        ((= i n)
         (unless (null? args)
-          (scheme-error "`format` too many arguments for control string" fmt)))
+          (error 'format "too many arguments for control string" fmt)))
        ((not (eq? (string-ref fmt i) #\~))
         (write-char (string-ref fmt i) port)
         (char-next (+ i 1) args))
-       ((= (+ i 1) n) (scheme-error "`format` incomplete format directive" fmt))
+       ((= (+ i 1) n) (error 'format "incomplete format directive" fmt))
        ((eq? (string-ref fmt (+ i 1)) #\%)
         (write-char #\newline port)
         (char-next (+ i 2) args))
        ((not (memv (string-ref fmt (+ i 1)) '(#\a #\s #\x)))
-        (scheme-error "`format` unrecognized directive" (string-ref fmt (+ i 1))))
-       ((null? args) (scheme-error "`format` too few arguments for control string" fmt))
+        (error 'format "unrecognized directive" (string-ref fmt (+ i 1))))
+       ((null? args) (error 'format "too few arguments for control string" fmt))
        (else
         (let ((c (string-ref fmt (+ i 1)))
               (x (car args)))
@@ -32,7 +32,7 @@
 
 ;; A string, or the output to #t (the current output port) or a port, of the format string
 (define (format dest . args)
-  (declare unsafe public)
+  (declare public)
   (cond
    ((string? dest)
     (let ((port (open-output-string)))
@@ -41,12 +41,12 @@
    ((and (not dest) (pair? args)) (apply format args))
    ((and (eq? dest #t) (pair? args)) (format-to (current-output-port) (car args) (cdr args)))
    ((and (port? dest) (pair? args)) (format-to dest (car args) (cdr args)))
-   (else (scheme-error "`format` expected a string" dest))))
+   (else (error 'format "expected a string" dest))))
 
 (define (printf fmt . args)
-  (declare unsafe public)
+  (declare public)
   (format-to (current-output-port) fmt args))
 
 (define (fprintf port fmt . args)
-  (declare unsafe public)
+  (declare public)
   (format-to port fmt args))

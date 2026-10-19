@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception: x1\n"

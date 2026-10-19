@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "invalid message argument"
