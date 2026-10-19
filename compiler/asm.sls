@@ -713,7 +713,11 @@
                 (cond
                  ((memv b '(34 92)) (printf "\\~a" (integer->char b)))
                  ((<= 32 b 126) (write-char (integer->char b)))
-                 (else (printf "\\~3,'0o" b))))
+                 ;; Always 3 digits, so the escape ends there
+                 (else
+                  (write-char #\\)
+                  (for-each (lambda (d) (write-char (integer->char (+ 48 d))))
+                            (list (quotient b 64) (modulo (quotient b 8) 8) (modulo b 8))))))
               (bytevector->u8-list (string->utf8 s)))
     (write-char #\"))
 
