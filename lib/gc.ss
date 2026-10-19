@@ -152,6 +152,7 @@
                    (load (address "scheme_library_nliterals") (raw 0)))
     (forward-words symbol-table (raw 1))
     (forward-words current-ports (raw 3))
+    (forward-words output-ports (raw 1))
     (let scan-next ((p to))
       (if (raw<u p (load gc-free (raw 0)))
           (scan-next (raw+ p (raw<< (scan p) (raw 3))))

@@ -18,13 +18,23 @@
 (define-data stdout-buffer 1026)
 (define-data stderr-buffer 1026)
 
-;; The current input, output and error ports, roots of the collector
+;; The current input, output and error ports, and the list of the open descriptor output ports
+;; but the console ones, flushed at exit: roots of the collector
 (define-data current-ports 3)
+(define-data output-ports 1)
 
 ;; Bytevectors, private for now: [bytevector-type, nbytes, bytes...], all raw
 (define (bytevector-words (raw n))
   (declare unsafe inline (result raw))
   (raw+ (raw 2) (raw>>u (raw+ n (raw 7)) (raw 3))))
+
+;; A bytevector of the fixnum n bytes, zero
+(define (alloc-bytevector n)
+  (declare unsafe inline)
+  (let ((p (alloc (bytevector-words (fixnum-value n)))))
+    (store p (raw 0) bytevector-type)
+    (store p (raw 1) (fixnum-value n))
+    (as-val p)))
 
 (define (port-flags (raw p))
   (declare unsafe inline (result raw))
@@ -75,7 +85,8 @@
   (init-port! stderr output-flag (raw 2) stderr-buffer)
   (store current-ports (raw 0) stdin)
   (store current-ports (raw 1) stdout)
-  (store current-ports (raw 2) stderr))
+  (store current-ports (raw 2) stderr)
+  (store output-ports (raw 0) '()))
 
 (define (port? x)
   (declare unsafe inline public)
@@ -384,3 +395,130 @@
 (define (variadic-char-ready? . port)
   (declare unsafe)
   (char-ready? (optional-port port (raw 0) "`char-ready?` expected an optional port")))
+
+;; Files
+
+;; The longest file name, its 0 included
+(define-constant path-max (raw 4096))
+(define-data path-buffer 512)
+
+;; The file name s as a C string in path-buffer, or 0 if it is too long or holds a NUL
+(define (file-name s)
+  (declare unsafe noalloc (result raw))
+  (let char-next ((i (raw 0))
+                  (j (raw 0)))
+    (cond
+     ((raw= i (string-nchars s))
+      (store8 path-buffer j (raw 0))
+      path-buffer)
+     ((or (raw= (string-code s i) (raw 0)) (raw>u j (raw- path-max (raw 5)))) (raw 0))
+     (else
+      (char-next (raw+ i (raw 1)) (raw+ j (store-utf8! (raw+ path-buffer j) (string-code s i))))))))
+
+;; A descriptor port of the direction flag for the file name, opened with the open(2) flags
+(define (open-file name (raw open-flags) (raw flag) (raw msg))
+  (declare unsafe inline)
+  (unless (string? name)
+    (scheme-error msg name))
+  (let ((path (file-name name)))
+    (let ((fd (if (raw= path (raw 0)) (raw -1) (syscall 2 path open-flags (raw 438))))) ; 0666
+      (when (raw< fd (raw 0))
+        (scheme-error msg name))
+      (make-fd-port (make-fixnum fd) flag))))
+
+(define (make-fd-port fd (raw flag))
+  (declare unsafe inline)
+  (let* ((buffer (alloc-bytevector (make-fixnum port-buffer-size)))
+         (p (alloc (raw 6))))
+    (store p (raw 0) port-type)
+    (store p (raw 1) flag)
+    (store p (raw 2) (fixnum-value fd))
+    (store p (raw 5) buffer)
+    (as-val p)))
+
+(define (open-input-file name)
+  (declare unsafe public)
+  (open-file name (raw 0) input-flag "`open-input-file` could not open the file")) ; O_RDONLY
+
+(define (open-output-file name)
+  (declare unsafe public)
+  (let ((port (open-file name (raw 577) output-flag ; O_WRONLY | O_CREAT | O_TRUNC
+                         "`open-output-file` could not open the file")))
+    (store output-ports (raw 0) (cons port (as-val (load output-ports (raw 0)))))
+    port))
+
+;; Flushes an output port; a console port keeps its descriptor, for the runtime's messages
+(define (close-port! port)
+  (declare unsafe)
+  (when (port-flag? port output-flag)
+    (flush-port (as-raw port))
+    (store output-ports (raw 0) (remq port (as-val (load output-ports (raw 0))))))
+  (when (raw>u (port-fd (as-raw port)) (raw 2))
+    (syscall 3 (port-fd (as-raw port))))
+  (store (as-raw port) (raw 1) (bit-or (port-flags (as-raw port)) closed-flag))
+  undef)
+
+(define (close-port port)
+  (declare unsafe public)
+  (unless (port? port)
+    (scheme-error "`close-port` expected a port" port))
+  (unless (port-flag? port closed-flag)
+    (close-port! port))
+  undef)
+
+(define (close-input-port port)
+  (declare unsafe public)
+  (unless (input-port? port)
+    (scheme-error "`close-input-port` expected an input port" port))
+  (close-port port))
+
+(define (close-output-port port)
+  (declare unsafe public)
+  (unless (output-port? port)
+    (scheme-error "`close-output-port` expected an output port" port))
+  (close-port port))
+
+(define (input-port-open? port)
+  (declare unsafe public)
+  (unless (port? port)
+    (scheme-error "`input-port-open?` expected a port" port))
+  (and (port-flag? port input-flag) (not (port-flag? port closed-flag))))
+
+(define (output-port-open? port)
+  (declare unsafe public)
+  (unless (port? port)
+    (scheme-error "`output-port-open?` expected a port" port))
+  (and (port-flag? port output-flag) (not (port-flag? port closed-flag))))
+
+;; proc's value, after closing the port
+(define (call-with-port port proc)
+  (declare unsafe public)
+  (unless (port? port)
+    (scheme-error "`call-with-port` expected a port" port))
+  (let ((result (proc port)))
+    (close-port port)
+    result))
+
+(define (call-with-input-file name proc)
+  (declare public)
+  (call-with-port (open-input-file name) proc))
+
+(define (call-with-output-file name proc)
+  (declare public)
+  (call-with-port (open-output-file name) proc))
+
+(define (with-input-from-file name thunk)
+  (declare public)
+  (let* ((port (open-input-file name))
+         (result (parameterize ((current-input-port port))
+                   (thunk))))
+    (close-port port)
+    result))
+
+(define (with-output-to-file name thunk)
+  (declare public)
+  (let* ((port (open-output-file name))
+         (result (parameterize ((current-output-port port))
+                   (thunk))))
+    (close-port port)
+    result))

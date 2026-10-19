@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "`close-input-port` expected an input port"

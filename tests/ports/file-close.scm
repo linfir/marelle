@@ -1,0 +1,7 @@
+(define out (open-output-file "out.txt"))
+(let* ((a (output-port-open? out))
+       (b (begin (close-output-port out) (output-port-open? out)))
+       (in (open-input-file "out.txt"))
+       (c (input-port-open? in))
+       (d (begin (close-port in) (close-port in) (input-port-open? in))))
+  (list a b c d (input-port? in) (output-port? out) (input-port-open? out) (output-port-open? in)))

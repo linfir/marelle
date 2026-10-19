@@ -20,9 +20,9 @@
     (put-string out "-"))
   (put-digits out (if (raw< n (raw 0)) (raw- (raw 0) n) n) (raw 10) (raw 1)))
 
-;; Writes the UTF-8 encoding of the code point n
-(define (put-utf8 (raw out) (raw n))
-  (declare unsafe noalloc (result void))
+;; Stores the UTF-8 encoding of the code point n at p; returns its length
+(define (store-utf8! (raw p) (raw n))
+  (declare unsafe noalloc (result raw))
   (let ((nbytes (cond
                  ((raw<u n (raw 128)) (raw 1))
                  ((raw<u n (raw 2048)) (raw 2))
@@ -33,13 +33,18 @@
       (if (raw= i (raw 0))
           (begin
             ;; The lead byte: 0, else 0xFF00 >> nbytes is 0xC0, 0xE0 or 0xF0
-            (store8 digits i (if (raw= nbytes (raw 1))
-                                 m
-                                 (bit-or m (bit-and (raw>> (raw 65280) nbytes) (raw 255)))))
-            (write-bytes out digits nbytes))
+            (store8 p i (if (raw= nbytes (raw 1))
+                            m
+                            (bit-or m (bit-and (raw>> (raw 65280) nbytes) (raw 255)))))
+            nbytes)
           (begin
-            (store8 digits i (bit-or (bit-and m (raw 63)) (raw 128)))
+            (store8 p i (bit-or (bit-and m (raw 63)) (raw 128)))
             (byte-next (raw>> m (raw 6)) (raw- i (raw 1))))))))
+
+;; Writes the UTF-8 encoding of the code point n
+(define (put-utf8 (raw out) (raw n))
+  (declare unsafe noalloc (result void))
+  (write-bytes out digits (store-utf8! digits n)))
 
 ;; Prints x to the port out, like write when write? is 1, else like display: strings and
 ;; characters bare

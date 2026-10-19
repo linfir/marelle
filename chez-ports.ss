@@ -15,3 +15,9 @@
   (case-lambda
    ((k) (read-string k (current-input-port)))
    ((k port) (if (eqv? k 0) "" (get-string-n port k)))))
+
+(define (input-port-open? port)
+  (and (input-port? port) (not (port-closed? port))))
+
+(define (output-port-open? port)
+  (and (output-port? port) (not (port-closed? port))))

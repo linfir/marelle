@@ -54,13 +54,20 @@
   (declare unsafe noalloc (result void))
   (write-bytes out s (c-string-length s)))
 
-;; Prints the statistics on stderr when SCHEME_GC_STATS is set, flushes the console, then exits
+;; Prints the statistics on stderr when SCHEME_GC_STATS is set, flushes the output ports, then
+;; exits
 (define (exit-process (raw status))
   (declare unsafe noalloc (result never))
   (unless (raw= (load gc-stats (raw 0)) (raw 0))
     (print-gc-stats))
   (flush-port stdout)
   (flush-port stderr)
+  (let port-next ((l (as-val (load output-ports (raw 0)))))
+    (if (pair? l)
+        (begin
+          (flush-port (as-raw (car l)))
+          (port-next (cdr l)))
+        undef))
   (syscall 231 status)) ; exit_group
 
 ;; Prints msg and exits, when the program cannot go on

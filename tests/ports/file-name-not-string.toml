@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "`open-output-file` could not open the file: name"
