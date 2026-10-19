@@ -1,6 +1,5 @@
 (library (vars)
-  (export make-global-binding global-binding? global-binding-index
-          make-local-binding local-binding? local-binding-operand local-binding-box?
+  (export make-local-binding local-binding? local-binding-operand local-binding-box?
           make-def-binding def-binding? def-binding-def
           make-data-binding data-binding? data-binding-data
           make-low-op-binding low-op-binding? low-op-binding-name
@@ -10,11 +9,6 @@
           analyze-def! free-locals boxed? assigned?)
   (import (chezscheme)
           (parse))
-
-
-  ;; A program define: its cell in scheme_globals
-  (define-record-type global-binding
-    (fields index))
 
 
   ;; operand: the local's operand, or (mutable slot) when it is assigned;

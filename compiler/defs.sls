@@ -8,7 +8,7 @@
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
           procedure-type binary-ops tests low-ops unsafe-bindings
           names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
-          core-defs inlining unsafe-code?
+          core-defs inlining unsafe-code? variadic-twin
           fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
   (import (chezscheme)
           (utils)
@@ -84,6 +84,7 @@
 
   (define-record-type data
     (fields name symbol nwords extern?))
+
 
 
   (define (def-emitted? def) (or (def-public? def) (not (def-inline? def))))
@@ -206,4 +207,21 @@
   (define (core-def name)
     (cond
      ((assq name (core-defs)) => cdr)
-     (else (error 'core-def "missing library def" name)))))
+     (else (error 'core-def "missing library def" name))))
+
+
+  ;; The library procedure variadic-D taking any number of arguments, for the library def D,
+  ;; whose own calls take a fixed number
+  (define (variadic-twin def)
+    (let ((name (def-name def)))
+      (and (eq? (cond ((assq name (core-defs)) => cdr) (else #f)) def)
+           (cond
+            ((assq (string->symbol (format "variadic-~a" name)) (core-defs)) => cdr)
+            (else #f)))))
+
+
+  ;; Printed by name, in the resolved forms of errors and dumps
+  (record-writer (record-type-descriptor def)
+                 (lambda (r p wr) (display (def-name r) p)))
+  (record-writer (record-type-descriptor data)
+                 (lambda (r p wr) (display (data-name r) p))))

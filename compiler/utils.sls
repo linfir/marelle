@@ -84,7 +84,7 @@
             (loop (cons x acc))))))
 
 
-  (define dump-passes '(front letrec closure compile copy-prop reg-alloc asm peephole))
+  (define dump-passes '(front letrec closure resolve compile copy-prop reg-alloc asm peephole))
 
 
   ;; The pass whose output dump! prints, else #f

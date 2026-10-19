@@ -69,19 +69,14 @@
           ((symbol? (car expr))
            (let ((entry (assq (car expr) env)))
              (and entry (cdr entry))))
-          ((core-ref-name (car expr))
-           => (lambda (name) (make-def-binding (core-def name))))
+          ((def? (car expr))
+           (make-def-binding (car expr)))
           (else #f))))
 
 
-  (define (low-op? env expr name)
-    (let ((b (head-binding env expr)))
-      (and (low-op-binding? b) (eq? (low-op-binding-name b) name))))
-
-
-  (define (test-form env expr)
-    (let ((b (head-binding env expr)))
-      (and (low-op-binding? b) (assq (low-op-binding-name b) tests))))
+  ;; The entry of tests of the low test expr, or #f
+  (define (test-form expr)
+    (and (eq? (special-keyword expr) 'low) (assq (cadr expr) tests)))
 
 
   ;; The def a call expr calls with the right number of arguments, or #f; another number goes
@@ -103,16 +98,6 @@
     (if (def-rest? def)
         (>= n (def-required def))
         (= n (length (def-params def)))))
-
-
-  ;; The library procedure variadic-D taking any number of arguments, for the library def D,
-  ;; whose own calls take a fixed number
-  (define (variadic-twin def)
-    (let ((name (def-name def)))
-      (and (eq? (cond ((assq name (core-defs)) => cdr) (else #f)) def)
-           (cond
-            ((assq (string->symbol (format "variadic-~a" name)) (core-defs)) => cdr)
-            (else #f)))))
 
 
   (define (immediate-operand x)
@@ -147,6 +132,13 @@
      ((symbol? expr)
       (compile-variable env expr))
 
+     ((def? expr)
+      (def-value expr (def-name expr)))
+
+     ;; A data name gives the raw address of its first word
+     ((data? expr)
+      (data-symbol expr))
+
      ((vector-literal? expr)
       (compile-vector-literal env (if (vector? expr) expr (cadr expr))))
 
@@ -178,18 +170,9 @@
           (if (local-binding-box? b)
               (call-def env (core-def 'box-ref) (list v) x compile-result)
               v)))
-       ((global-binding? b)
-        (call-def env (core-def 'global-ref) (list `(quad ,(global-binding-index b))) x
-                  compile-result))
+       ;; A static procedure of a fix
        ((def-binding? b)
         (def-value (def-binding-def b) x))
-       ;; A data name gives the raw address of its first word
-       ((data-binding? b)
-        (data-symbol (data-binding-data b)))
-       ((constant-binding? b)
-        (constant-binding-operand b))
-       ((low-op-binding? b)
-        (error 'compile-value "low operation used as a value" x))
        (else
         (loop-error b x)))))
 
@@ -237,55 +220,7 @@
       ;; In a begin, since #f means no expansion
       ((and) `(,(marker 'begin) ,(expand-and (cdr expr))))
       ((or) `(,(marker 'begin) ,(expand-or (cdr expr))))
-      (else (expand-variadic env expr))))
-
-
-  ;; The calls of the library's +, *, -, comparisons, bitwise operations and make-vector whose
-  ;; number of operands the inline def does not take, in terms of it; the others go to their
-  ;; variadic twin
-  (define (expand-variadic env expr)
-    (let ((b (head-binding env expr)))
-      (and (def-binding? b)
-           (variadic-twin (def-binding-def b))
-           (let ((op (car expr))
-                 (args (cdr expr)))
-             (define (fold-operands)
-               (fold-left (lambda (acc x) (list op acc x)) (car args) (cdr args)))
-             (case (def-name (def-binding-def b))
-               ((+ * bitwise-and bitwise-ior bitwise-xor)
-                (let ((unit (case (def-name (def-binding-def b))
-                              ((*) 1)
-                              ((bitwise-and) -1)
-                              (else 0))))
-                  (case (length args)
-                    ((0) unit)
-                    ((1) (list op unit (car args)))
-                    ((2) #f)
-                    (else (fold-operands)))))
-               ((-)
-                (case (length args)
-                  ((1) (list op 0 (car args)))
-                  ((0 2) #f)
-                  (else (fold-operands))))
-               ;; Each operand once, compared with the next
-               ((= < > <= >=)
-                (and (> (length args) 2)
-                     (let ((tmps (map (lambda (x) (gensym "operand")) args)))
-                       `(,(marker 'let) ,(map list tmps args)
-                         ,(expand-and (map (lambda (x y) (list op x y))
-                                           (list-head tmps (- (length tmps) 1))
-                                           (cdr tmps)))))))
-               ((make-vector)
-                (and (= (length args) 1) (list op (car args) 0)))
-               (else #f))))))
-
-
-  ;; The value of the deciding operand
-  (define (expand-and exprs)
-    (cond
-     ((null? exprs) #t)
-     ((null? (cdr exprs)) (car exprs))
-     (else `(,(marker 'if) ,(car exprs) ,(expand-and (cdr exprs)) #f))))
+      (else #f)))
 
 
   (define (expand-or exprs)
@@ -326,6 +261,12 @@
       ((check-defined)
        (compile-check-defined env expr))
 
+      ((const)
+       (cadr expr))
+
+      ((low)
+       (compile-low-op env (cadr expr) (cdr expr)))
+
       ;; Only in unsafe defines: the body's value when it is a val, else undef, so the body may
       ;; have any kind
       ((when unless)
@@ -354,8 +295,6 @@
   (define (compile-call env expr)
     (let ((b (head-binding env expr)))
       (cond
-       ((low-op-binding? b)
-        (compile-low-op env (low-op-binding-name b) expr))
        ((loop-binding? b)
         (loop-error b expr))
        ((called-def env expr)
@@ -416,10 +355,11 @@
           (emit-call! 'call (def-result def) (list (def-code def) f)))))
 
 
+  ;; expr is (op arg ...)
   (define (compile-low-op env op expr)
     (cond
      ((assq op tests)
-      (compile-if env expr #t #f))
+      (compile-if env (cons (marker 'low) expr) #t #f))
 
      ((assq op binary-ops)
       => (lambda (entry)
@@ -713,8 +653,7 @@
           ((or (not (non-empty-list? x))
                (special? x)
                (immediate? x)
-               (vector-literal? x)
-               (low-op-binding? b))
+               (vector-literal? x))
            (compile-return env def x))
 
           ((called-def env x)
@@ -818,24 +757,17 @@
     (when (memq def (inlining))
       (error 'compile-inline "recursive inline def" (def-name def)))
     (let* ((names (def-core-names def))
-           (env (def-env def))
-           (callee-env (append (map (lambda (name op) (bind-local name op #f)) names ops)
-                               env)))
+           (callee-env (map (lambda (name op) (bind-local name op #f)) names ops)))
       (parameterize ((inlining (cons def (inlining)))
                      (unsafe-code? (def-unsafe? def)))
         (compile-seq callee-env (def-core-body def)
                      (lambda (env x) (compile-last env def x))))))
 
 
-  ;; The env entry of the variable name bound to op: its global cell for a top-level variable
-  ;; of main, a box when it is assigned and captured, its own slot when it is only assigned (op
-  ;; itself when own?)
+  ;; The env entry of the variable name bound to op: a box when it is assigned and captured,
+  ;; its own slot when it is only assigned (op itself when own?)
   (define (bind-local name op own?)
     (cond
-     ((top-global-index name)
-      => (lambda (i)
-           (call-def '() (core-def 'global-set!) (list `(quad ,i) op) name compile-result)
-           (cons name (make-global-binding i))))
      ((boxed? name)
       (when (eq? (kind op) 'raw)
         (error 'bind-local "captured raw variable" name))
@@ -879,9 +811,6 @@
         (let ((slot (cadr (local-binding-operand b))))
           (check-kind src (kind slot) var)
           (emit! `(mov ,slot ,src))))
-       ((global-binding? b)
-        (call-def env (core-def 'global-set!) (list `(quad ,(global-binding-index b)) src) var
-                  compile-result))
        (else
         (error 'compile-set! "set! of a library procedure or primitive" var)))
       (immediate 'undef)))
@@ -975,11 +904,11 @@
             (compile-seq inner body compile-last)))))
 
 
-  ;; A read of a letrec variable that may come before its init; with a value, from a set! of
-  ;; it, the value, then the check
+  ;; (check-defined x read [value]): a read of a letrec variable x that may come before its
+  ;; init; with a value, from a set! of it, the value, then the check
   (define (compile-check-defined env x)
-    (let* ((value (and (pair? (cddr x)) (compile-checked env (caddr x) 'val x)))
-           (op (compile-variable env (cadr x)))
+    (let* ((value (and (pair? (cdddr x)) (compile-checked env (cadddr x) 'val x)))
+           (op (compile-value env (caddr x)))
            (label-ok (fresh-label)))
       (emit! `(cmp ,op ,(immediate 'unbound)))
       (emit! `(jne ,label-ok))
@@ -1057,7 +986,6 @@
   ;; A def with typed parameters, compiled in its env
   (define (compile-low-def def)
     (let* ((params (map cons (def-core-names def) (def-params-kinds def)))
-           (env (def-env def))
            (blocks
             (with-function
              (lambda ()
@@ -1071,8 +999,7 @@
                                                   (bind-local (car p)
                                                               (if (eq? (cdr p) 'raw) `(as-raw ,arg) arg)
                                                               #t)))
-                                              params (iota (length params)))
-                                         env)))
+                                              params (iota (length params))))))
                    (compile-seq body-env (def-core-body def)
                                 (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)
@@ -1126,9 +1053,9 @@
        ((not-call? env test)
         (compile-branch env (cadr test) (not jump-if) label))
 
-       ((test-form env test)
+       ((test-form test)
         => (lambda (entry)
-             (let ((ops (compile-operands env test '(raw raw))))
+             (let ((ops (compile-exprs env (cddr test) '(raw raw) (cdr test))))
                (emit! `(cmp ,@ops))
                (emit! `(,(if jump-if (cadr entry) (caddr entry)) ,label)))))
 

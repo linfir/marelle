@@ -9,6 +9,7 @@
           (letrec)
           (vars)
           (closure)
+          (resolve)
           (defs)
           (compile)
           (output))
@@ -108,7 +109,8 @@
                          (cons (car core)
                                (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x)))))))
       (analyze-def! (car core) (cdr core))
-      (dumped 'closure (list name) (cons (car core) (convert-closures (cdr core))))))
+      (let ((core (dumped 'closure (list name) (cons (car core) (convert-closures (cdr core))))))
+        (dumped 'resolve (list name) (cons (car core) (resolve-body env (cdr core)))))))
 
 
   ;; The core of main, whose body is a letrec*: its variables not bound by a fix get global
@@ -124,7 +126,8 @@
                     (hashtable-set! (top-globals) x (hashtable-size (top-globals)))))
                 vars)
       (analyze-def! '() (cdr core))
-      (dumped 'closure '(main) (cons '() (convert-closures (cdr core))))))
+      (let ((core (dumped 'closure '(main) (cons '() (convert-closures (cdr core))))))
+        (dumped 'resolve '(main) (cons '() (resolve-body env (cdr core)))))))
 
 
   (define (fix-names x)
@@ -150,7 +153,7 @@
     (for-each (lambda (x)
                 (when (and (def? x) (def-emitted? x) (not (def-extern? x)))
                   (if (def-procedure? x)
-                      (compile-procedure x (def-env x) '())
+                      (compile-procedure x '() '())
                       (compile-low-def x))))
               items))
 
@@ -198,6 +201,7 @@
                    (startup-defs '())
                    (current-entries '())
                    (inlining '())
+                   (core-defs '())
                    (var-facts (make-eq-hashtable))
                    (lambda-frees (make-eq-hashtable))
                    (top-globals (make-eq-hashtable))
@@ -216,11 +220,11 @@
              (init (literal-init-def "scheme_library_init" #f)))
          (add-def-symbols! init)
          (set-pure-defs! items)
+         (core-defs (map (lambda (x) (cons (item-name x) x)) (filter def? items)))
          (let-values (((safe unsafe) (item-bindings items)))
            (set-envs! items safe (append safe unsafe unsafe-bindings)))
-         (parameterize ((core-defs (map (lambda (x) (cons (item-name x) x)) (filter def? items))))
-           (compile-defs! items)
-           (compile-literal-init init))
+         (compile-defs! items)
+         (compile-literal-init init)
          (let ((entries (reverse (current-entries))))
            (print-entry `(export ,@(apply append (map entry-symbols entries))
                                  ,@(map data-symbol (filter data? items))))
@@ -319,6 +323,7 @@
          (add-def-symbols! library-init)
          (add-def-symbols! init)
          (set-pure-defs! library)
+         (core-defs (map (lambda (x) (cons (def-name x) x)) (filter def? library)))
          (for-each (lambda (x)
                      (cond
                       ((def? x) (add-def-symbols! x))
@@ -345,17 +350,15 @@
                                            library)
                                       unsafe-bindings)))
              (set-envs! items env unsafe-env)
-             (parameterize ((core-defs (map (lambda (x) (cons (def-name x) x))
-                                            (filter def? library))))
-               (compile-defs! items)
-               (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
-                                                     (static-form? (car (last-pair all))))))))
-                 (parameterize ((startup-defs (list library-init init)))
-                   (compile-procedure
-                    (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
-                              (make-main-core env body))
-                    env '())))
-               (compile-literal-init init))
+             (compile-defs! items)
+             (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
+                                                   (static-form? (car (last-pair all))))))))
+               (parameterize ((startup-defs (list library-init init)))
+                 (compile-procedure
+                  (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
+                            (make-main-core env body))
+                  '() '())))
+             (compile-literal-init init)
              (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"
                                    "scheme_literals" "scheme_nliterals"))
              (emit-globals (hashtable-size (top-globals)))

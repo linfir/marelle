@@ -5,7 +5,7 @@
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-case parse-do parse-begin parse-set! parse-define
-          parse-let-values parse-define-values define-values-form? core-ref core-ref-name
+          parse-let-values parse-define-values define-values-form? core-ref expand-and
           scan-library
           library-def? library-def-name library-def-args library-def-kinds
           library-def-result library-def-attrs library-def-body library-def-procedure?
@@ -67,10 +67,10 @@
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
-  ;; fix, check-defined, closure and core have no source form
+  ;; fix, check-defined, closure, core, const and low have no source form
   (define markers
     (map (lambda (k) (cons (gensym (symbol->string k)) k))
-         (append '(eq? fix check-defined closure core) *special-forms*)))
+         (append '(eq? fix check-defined closure core const low) *special-forms*)))
 
 
   (define (marker keyword)
@@ -82,9 +82,12 @@
     `(,(marker 'core) ,name))
 
 
-  ;; The name of the (core name) form x, or #f
-  (define (core-ref-name x)
-    (and (pair? x) (eq? (special-keyword x) 'core) (cadr x)))
+  ;; The value of the deciding operand
+  (define (expand-and exprs)
+    (cond
+     ((null? exprs) #t)
+     ((null? (cdr exprs)) (car exprs))
+     (else `(,(marker 'if) ,(car exprs) ,(expand-and (cdr exprs)) #f))))
 
 
   ;; In source, the special form expr is, by its keyword, or #f
