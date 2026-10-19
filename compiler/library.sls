@@ -11,6 +11,7 @@
           (closure)
           (resolve)
           (assign)
+          (core-check)
           (defs)
           (compile)
           (output))
@@ -104,7 +105,7 @@
 
 
   ;; The core of a def, its letrec* forms fixed, analyzed, its closures converted, its names
-  ;; resolved, its assignments converted
+  ;; resolved, its assignments converted, checked
   (define (make-core name env names body unsafe?)
     (let* ((core (dumped 'front (list name) (front-def env names body unsafe?)))
            (core (dumped 'letrec (list name)
@@ -112,9 +113,16 @@
                                (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x)))))))
       (analyze-def! (car core) (cdr core))
       (let ((core (dumped 'closure (list name) (cons (car core) (convert-closures (cdr core))))))
-        (dumped 'assign (list name)
-                (convert-assignments
-                 (dumped 'resolve (list name) (cons (car core) (resolve-body env (cdr core)))))))))
+        (checked name
+                 (dumped 'assign (list name)
+                         (convert-assignments
+                          (dumped 'resolve (list name)
+                                  (cons (car core) (resolve-body env (cdr core))))))))))
+
+
+  (define (checked name core)
+    (check-core name core)
+    core)
 
 
   ;; The core of main, whose body is a letrec*: its variables not bound by a fix get global
@@ -131,9 +139,10 @@
                 vars)
       (analyze-def! '() (cdr core))
       (let ((core (dumped 'closure '(main) (cons '() (convert-closures (cdr core))))))
-        (dumped 'assign '(main)
-                (convert-assignments
-                 (dumped 'resolve '(main) (cons '() (resolve-body env (cdr core)))))))))
+        (checked 'main
+                 (dumped 'assign '(main)
+                         (convert-assignments
+                          (dumped 'resolve '(main) (cons '() (resolve-body env (cdr core))))))))))
 
 
   (define (fix-names x)
