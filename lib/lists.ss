@@ -420,21 +420,25 @@
             (cdr head))))))
 
 (define (variadic-map f l . ls)
-  (if (null? (cdr ls))
-      (map2 f l (car ls))
-      (map-lists f (cons l ls))))
+  (cond
+   ((null? ls) (map f l))
+   ((null? (cdr ls)) (map2 f l (car ls)))
+   (else (map-lists f (cons l ls)))))
 
 (define (variadic-for-each f l . ls)
-  (if (null? (cdr ls))
-      (let loop ((a l) (b (car ls)))
-        (when (and (pair? a) (pair? b))
-          (f (car a) (car b))
-          (loop (cdr a) (cdr b))))
-      (let loop ((ls (cons l ls)))
-        (let ((xs (cars ls)))
-          (when xs
-            (apply f xs)
-            (loop (cdrs ls)))))))
+  (cond
+   ((null? ls) (for-each f l))
+   ((null? (cdr ls))
+    (let loop ((a l) (b (car ls)))
+      (when (and (pair? a) (pair? b))
+        (f (car a) (car b))
+        (loop (cdr a) (cdr b)))))
+   (else
+    (let loop ((ls (cons l ls)))
+      (let ((xs (cars ls)))
+        (when xs
+          (apply f xs)
+          (loop (cdrs ls))))))))
 
 (define (variadic-for-all ok? l . ls)
   (let loop ((ls (cons l ls)) (last #t))

@@ -315,9 +315,10 @@
 
 (define (variadic-make-eq-hashtable . k)
   (declare unsafe)
-  (unless (and (pair? k) (null? (cdr k)) (table-size? (car k)))
-    (scheme-error "`make-eq-hashtable` expected an optional nonnegative fixnum" k))
-  (make-table 0 (table-slots (car k)) #f #f))
+  (cond
+   ((null? k) (make-eq-hashtable))
+   ((and (null? (cdr k)) (table-size? (car k))) (make-table 0 (table-slots (car k)) #f #f))
+   (else (scheme-error "`make-eq-hashtable` expected an optional nonnegative fixnum" k))))
 
 (define (make-eqv-hashtable)
   (declare public)
@@ -325,9 +326,10 @@
 
 (define (variadic-make-eqv-hashtable . k)
   (declare unsafe)
-  (unless (and (pair? k) (null? (cdr k)) (table-size? (car k)))
-    (scheme-error "`make-eqv-hashtable` expected an optional nonnegative fixnum" k))
-  (make-table 1 (table-slots (car k)) #f #f))
+  (cond
+   ((null? k) (make-eqv-hashtable))
+   ((and (null? (cdr k)) (table-size? (car k))) (make-table 1 (table-slots (car k)) #f #f))
+   (else (scheme-error "`make-eqv-hashtable` expected an optional nonnegative fixnum" k))))
 
 (define (check-hash-procedures hash equiv)
   (declare unsafe inline (result void))
@@ -344,9 +346,10 @@
 (define (variadic-make-hashtable hash equiv . k)
   (declare unsafe)
   (check-hash-procedures hash equiv)
-  (unless (and (pair? k) (null? (cdr k)) (table-size? (car k)))
-    (scheme-error "`make-hashtable` expected an optional nonnegative fixnum" k))
-  (make-table 2 (table-slots (car k)) hash equiv))
+  (cond
+   ((null? k) (make-table 2 8 hash equiv))
+   ((and (null? (cdr k)) (table-size? (car k))) (make-table 2 (table-slots (car k)) hash equiv))
+   (else (scheme-error "`make-hashtable` expected an optional nonnegative fixnum" k))))
 
 (define (hashtable-size t)
   (declare unsafe public)
