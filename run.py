@@ -49,7 +49,8 @@ def compile_source(source, dump=None):
     return run_stage("compiler", command, input=source, cwd=ROOT).stdout
 
 
-def run_pipeline(source, *, env=None):
+# The executable runs in the temporary directory, so programs may create files there
+def run_pipeline(source, *, env=None, stdin=None):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         assembly = work / "out.s"
@@ -60,11 +61,16 @@ def run_pipeline(source, *, env=None):
 
         run_stage("as", ["as", "-o", obj, assembly])
         run_stage("ld", ["ld", "-o", executable, obj, LIB])
-        return run_stage("executable", [executable], env=os.environ | (env or {}))
+        return run_stage("executable", [executable], input=stdin, cwd=work, env=os.environ | (env or {}))
 
 
-def run_chez(source):
-    return run_stage("chez", ["scheme", "--script", ROOT / "chez.ss"], input=source)
+# chez.ss reads the program from a file, leaving stdin to it
+def run_chez(source, *, stdin=None):
+    with tempfile.TemporaryDirectory() as directory:
+        program = Path(directory) / "program.scm"
+        program.write_text(source)
+        command = ["scheme", "--script", ROOT / "chez.ss", program]
+        return run_stage("chez", command, input=stdin, cwd=directory)
 
 
 def parse_args():

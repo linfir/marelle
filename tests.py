@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parent
 TEST_ROOT = ROOT / "tests"
 STAGES = {"compiler", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
-EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", *OUTPUT_FIELDS}
+INPUT_FIELDS = {"stdin"}
+EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", *OUTPUT_FIELDS, *INPUT_FIELDS}
 SKIP = "skip"
 
 
@@ -54,7 +55,7 @@ def read_case(path):
         if expected.get(field, SKIP) != SKIP:
             raise TestFormatError(f'{field} must be "skip"')
 
-    for field in OUTPUT_FIELDS:
+    for field in OUTPUT_FIELDS | INPUT_FIELDS:
         if field in expected and not isinstance(expected[field], str):
             raise TestFormatError(f"{field} must be a string")
 
@@ -83,7 +84,8 @@ def check_case(path, chez=False, gc_stress=None):
         env = {"SCHEME_GC_STRESS": str(gc_stress)} | env
 
     try:
-        result = run_chez(source) if chez else run_pipeline(source, env=env)
+        stdin = expected.get("stdin", "")
+        result = run_chez(source, stdin=stdin) if chez else run_pipeline(source, env=env, stdin=stdin)
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result
