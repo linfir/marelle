@@ -4,8 +4,14 @@
 (define-constant stdout (raw 1))
 (define-constant stderr (raw 2))
 
+;; The output buffer, its count bytes for the file descriptor output-fd
+(define-constant output-capacity (raw 8192))
+(define-data output-buffer 1024)
+(define-data output-fd 1)
+(define-data output-count 1)
+
 ;; Writes the n bytes at buf to the file descriptor fd, stopping on an error
-(define (write-bytes (raw fd) (raw buf) (raw n))
+(define (write-all (raw fd) (raw buf) (raw n))
   (declare unsafe noalloc (result void))
   (let write-next ((done (raw 0)))
     (if (raw<u done n)
@@ -14,6 +20,31 @@
               undef
               (write-next (raw+ done written))))
         undef)))
+
+(define (flush-output)
+  (declare unsafe noalloc (result void))
+  (write-all (load output-fd (raw 0)) output-buffer (load output-count (raw 0)))
+  (store output-count (raw 0) (raw 0)))
+
+;; Writes the n bytes at buf to fd through the buffer, flushed first when it holds another
+;; descriptor's bytes, so the order of the writes is kept
+(define (write-bytes (raw fd) (raw buf) (raw n))
+  (declare unsafe noalloc (result void))
+  (unless (raw= fd (load output-fd (raw 0)))
+    (flush-output)
+    (store output-fd (raw 0) fd))
+  (when (raw>u n (raw- output-capacity (load output-count (raw 0))))
+    (flush-output))
+  (if (raw<u n output-capacity)
+      (let ((count (load output-count (raw 0))))
+        (let copy-next ((i (raw 0)))
+          (if (raw<u i n)
+              (begin
+                (store8 output-buffer (raw+ count i) (load8 buf i))
+                (copy-next (raw+ i (raw 1))))
+              undef))
+        (store output-count (raw 0) (raw+ count n)))
+      (write-all fd buf n)))
 
 (define (c-string-length (raw s))
   (declare unsafe noalloc (result raw))
@@ -26,11 +57,12 @@
   (declare unsafe noalloc (result void))
   (write-bytes fd s (c-string-length s)))
 
-;; Prints the statistics on stderr when SCHEME_GC_STATS is set, then exits
+;; Prints the statistics on stderr when SCHEME_GC_STATS is set, flushes the output, then exits
 (define (exit-process (raw status))
   (declare unsafe noalloc (result never))
   (unless (raw= (load gc-stats (raw 0)) (raw 0))
     (print-gc-stats))
+  (flush-output)
   (syscall 231 status)) ; exit_group
 
 ;; Prints msg and exits, when the program cannot go on
