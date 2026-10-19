@@ -33,6 +33,10 @@ build/lib.s build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
 test: all
 	time ./tests.py
 
+# The benchmarks, against Chez Scheme
+bench: all
+	./bench.py --chez
+
 test-chez:
 	time ./tests.py --chez
 
@@ -43,4 +47,4 @@ fmt:
 clean:
 	rm -rf build
 
-.PHONY: all chez prebuild test test-chez fmt clean
+.PHONY: all chez prebuild test bench test-chez fmt clean

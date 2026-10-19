@@ -28,6 +28,7 @@ make                      # compile the compiler and the runtime library
 make test                 # the test suite, tests/
 ./bench.py                # the best of 5 runs of each program of bench/
 ./bench.py --offsets 8    # the mean over 8 positions of the library's code
+make bench                # the benchmarks against Chez Scheme
 ./stats.py                # instructions, calls and frame words of the library and tests
 ```
 

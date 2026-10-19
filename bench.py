@@ -2,7 +2,9 @@
 """Times the programs of bench/: each compiled once, then run several times; prints the best
 time of each and its output. With --offsets K, the library's code is also moved by 0, 8, ...,
 8(K - 1) bytes, a link each, and the mean of the best times is printed with their range: where
-a hot loop or jump falls relative to 32-byte boundaries moves a time by up to 15%."""
+a hot loop or jump falls relative to 32-byte boundaries moves a time by up to 15%. With --chez,
+each program is also compiled by Chez Scheme (compile-program, safe), then run; the program
+times its own body, so neither the compilation nor Chez's startup counts."""
 
 import argparse
 import sys
@@ -37,6 +39,34 @@ def library_objects(offsets, work):
     return objects
 
 
+# A program timing its body, the forms of a benchmark, and writing its value
+CHEZ_PROGRAM = """(import (chezscheme))
+(define bench-start (current-time 'time-monotonic))
+(define bench-result
+  (let ()
+{}
+))
+(let ((d (time-difference (current-time 'time-monotonic) bench-start)))
+  (write bench-result)
+  (newline)
+  (format (current-error-port) "~a~%" (+ (time-second d) (/ (time-nanosecond d) 1e9))))
+"""
+
+
+def chez_time(source, work, runs):
+    """The best time of runs runs of source compiled by Chez, and the output."""
+    program = work / "chez.ss"
+    compiled = work / "chez.so"
+    program.write_text(CHEZ_PROGRAM.format(source))
+    run_stage("chez", ["scheme", "-q"], input=f'(compile-program "{program}" "{compiled}")', cwd=work)
+    best = None
+    for _ in range(runs):
+        result = run_stage("chez", ["scheme", "--program", compiled])
+        elapsed = float(result.stderr.split()[-1])
+        best = elapsed if best is None else min(best, elapsed)
+    return best, result.stdout.strip()
+
+
 def best_time(executable, runs):
     """The best wall-clock time of runs runs, and the output."""
     best = None
@@ -53,6 +83,7 @@ def main():
     parser.add_argument("names", nargs="*", help="programs of bench/, without .ss (all by default)")
     parser.add_argument("-n", type=int, default=5, metavar="RUNS", help="runs of each program (5)")
     parser.add_argument("--offsets", type=int, default=1, metavar="K", help="library code offsets (1)")
+    parser.add_argument("--chez", action="store_true", help="also time Chez Scheme")
     args = parser.parse_args()
 
     missing = lib_missing()
@@ -74,16 +105,22 @@ def main():
                     run_stage("ld", ["ld", "-o", executable, obj, lib])
                     seconds, output = best_time(executable, args.n)
                     times.append(seconds)
+                if args.chez:
+                    chez_seconds, chez_output = chez_time(path.read_text(), work, args.n)
             except PipelineFailure as error:
                 sys.stderr.write(f"{path.stem}: {error}\n{error.result.stderr}")
                 exit(1)
+            mean = sum(times) / len(times)
+            line = f"{path.stem:10} {mean:7.3f} s"
+            if len(times) > 1:
+                line += f" ({min(times):.3f}-{max(times):.3f})"
+            if args.chez:
+                line += f"  chez {chez_seconds:6.3f} s  {mean / chez_seconds:4.1f}x"
+                if chez_output != output:
+                    line += "  (outputs differ)"
             if len(output) > 40:
                 output = output[:37] + "..."
-            if len(times) == 1:
-                print(f"{path.stem:10} {times[0]:7.3f} s  {output}")
-            else:
-                mean = sum(times) / len(times)
-                print(f"{path.stem:10} {mean:7.3f} s ({min(times):.3f}-{max(times):.3f})  {output}")
+            print(f"{line}  {output}")
 
 
 if __name__ == "__main__":
