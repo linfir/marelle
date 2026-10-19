@@ -220,6 +220,31 @@
             (limb-next (+ i 1))
             (make-fixnum (raw+ (raw<< (fixnum-value i) (raw 6)) (trailing-zeros m)))))))))
 
+;; Bit k of the bignum x in two's complement; the borrow of |x| - 1 into limb k / 64 is 1 when
+;; the limbs below it are all zero, and the lowest nonzero limb is below the length
+(define (bignum-bit-set? x (raw k))
+  (declare unsafe noalloc)
+  (let* ((p (as-raw x))
+         (i (raw>>u k (raw 6))))
+    (let limb-next ((j (raw 0)))
+      (if (and (raw<u j i) (raw= (limb p (load p (raw 1)) j) (raw 0)))
+          (limb-next (raw+ j (raw 1)))
+          (raw= (bit-and (raw>>u (twos-limb p i (if (raw= j i) (raw 1) (raw 0))) (bit-and k (raw 63)))
+                         (raw 1))
+                (raw 1))))))
+
+(define (logbit? k n)
+  (declare unsafe public)
+  (unless (and (fixnum? k) (>= k 0))
+    (scheme-error "`logbit?` expected a nonnegative fixnum" k))
+  (check-integer n "`logbit?` expected an integer")
+  (if (fixnum? n)
+      (raw= (bit-and (raw>> (fixnum-value n)
+                            (if (raw<u (fixnum-value k) (raw 64)) (fixnum-value k) (raw 63)))
+                     (raw 1))
+            (raw 1))
+      (bignum-bit-set? n (fixnum-value k))))
+
 ;; Chez's names, which the compiler uses
 (define (logand . xs)
   (declare public)

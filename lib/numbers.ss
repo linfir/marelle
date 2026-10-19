@@ -321,19 +321,6 @@
      ((> y 0) (- q 1))
      (else (+ q 1)))))
 
-;; Bit k of n in two's complement
-(define (logbit? k n)
-  (declare unsafe public)
-  (unless (and (fixnum? k) (>= k 0))
-    (scheme-error "`logbit?` expected a nonnegative fixnum" k))
-  (check-integer n "`logbit?` expected an integer")
-  (if (fixnum? n)
-      (raw= (bit-and (raw>> (fixnum-value n)
-                            (if (raw<u (fixnum-value k) (raw 64)) (fixnum-value k) (raw 63)))
-                     (raw 1))
-            (raw 1))
-      (odd? (shift-integer n (- 0 k)))))
-
 (define (digit-char d)
   (integer->char (+ d (if (< d 10) 48 55))))
 
