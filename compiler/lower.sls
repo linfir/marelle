@@ -58,12 +58,12 @@
       (else (void))))
 
 
-  (define (operand a)
+  (define (atom->operand a)
     (cond
      ((symbol? a)
       (or (hashtable-ref (vars) a #f) (error 'lower "unbound variable" a)))
      ((pair? a)
-      (cons (car a) (map operand (cdr a))))
+      (cons (car a) (map atom->operand (cdr a))))
      (else a)))
 
 
@@ -96,11 +96,11 @@
       ((if)
        (lower-if (cadr t) (caddr t) (cadddr t)))
       ((throw)
-       (lower-throw (cadr t) (map operand (cddr t))))
+       (lower-throw (cadr t) (map atom->operand (cddr t))))
       ((call)
-       (lower-call (cadr t) (caddr t) (operand (cadddr t))))
+       (lower-call (cadr t) (caddr t) (atom->operand (cadddr t))))
       ((selfcall)
-       (emit! `(selfcall ,@(map operand (cdr t)))))
+       (emit! `(selfcall ,@(map atom->operand (cdr t)))))
       ((unreachable)
        (emit! '(unreachable)))
       (else
@@ -120,7 +120,7 @@
     (and (zero? (cont-left c)) (not (cont-rec? c)) (not (cont-placed? c))))
 
 
-  (define (place! c)
+  (define (place-cont! c)
     (cont-placed?-set! c #t)
     (when (> (cont-uses c) 1)
       (start-block! (cont-label c)))
@@ -133,7 +133,7 @@
         (move! (cont-tmps c) ops)
         (for-each (lambda (p op) (bind! (car p) op)) (cont-params c) ops))
     (if (placeable? c)
-        (place! c)
+        (place-cont! c)
         (emit! `(jmp ,(cont-label c)))))
 
 
@@ -172,7 +172,7 @@
 
 
   (define (lower-if test k1 k2)
-    (let ((ops (map operand (cdr test)))
+    (let ((ops (map atom->operand (cdr test)))
           (jumps (test-jumps (car test)))
           (c1 (cont-of k1))
           (c2 (cont-of k2)))
@@ -184,15 +184,15 @@
       (cond
        ((eq? c1 c2)
         (if (placeable? c1)
-            (place! c1)
+            (place-cont! c1)
             (emit! `(jmp ,(cont-label c1)))))
        ((and (placeable? c1)
              (not (and (placeable? c2) (> (cont-order c2) (cont-order c1)))))
         (emit! `(,(cadr jumps) ,(cont-label c2)))
-        (place! c1))
+        (place-cont! c1))
        ((placeable? c2)
         (emit! `(,(car jumps) ,(cont-label c1)))
-        (place! c2))
+        (place-cont! c2))
        ;; As if c1 followed
        (else
         (emit! `(,(cadr jumps) ,(cont-label c2)))
@@ -216,7 +216,7 @@
           (emit! `(call ,(car (cont-tmps c)) ,target ,f))
           (use! c)
           (if (placeable? c)
-              (place! c)
+              (place-cont! c)
               (emit! `(jmp ,(cont-label c)))))
          (else
           (let ((dst (fresh-tmp (cdar (cont-params c)))))
@@ -227,24 +227,24 @@
   (define (lower-prim x op)
     (case (car op)
       ((stackcall)
-       (let ((ops (map operand (cddr op))))
+       (let ((ops (map atom->operand (cddr op))))
          (if x
              (bind! x (emit-op! 'stackcall (cadr op) ops))
              (emit! `(stackcall void ,@ops)))))
       ((literal)
        (bind! x (literal-ref (cadr op))))
       ((move)
-       (let ((a (operand (cadr op))))
+       (let ((a (atom->operand (cadr op))))
          (bind! x (emit-op! 'mov (kind a) (list a)))))
       ((cell-set!)
-       (emit! `(mov ,(operand (cadr op)) ,(operand (caddr op)))))
+       (emit! `(mov ,(atom->operand (cadr op)) ,(atom->operand (caddr op)))))
       ;; as-val copies a raw slot into a tmp, since the GC scans only tmps
       ((as-val)
-       (let ((a (operand (cadr op))))
+       (let ((a (atom->operand (cadr op))))
          (bind! x (if (zero? (raws-in a)) `(as-val ,a) (emit-op! 'mov 'val (list a))))))
       (else
        (let ((o (low-op (car op)))
-             (ops (map operand (cdr op))))
+             (ops (map atom->operand (cdr op))))
          (if (eq? (op-result o) 'void)
              (emit! `(,(op-instr o) ,@ops))
              (bind! x (emit-op! (op-instr o) (op-result o) ops))))))))

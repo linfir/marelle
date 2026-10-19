@@ -27,13 +27,6 @@
     (append (map cons names fresh) env))
 
 
-  (define (rename-formals formals fresh)
-    (cond
-     ((null? formals) '())
-     ((pair? formals) (cons (car fresh) (rename-formals (cdr formals) (cdr fresh))))
-     (else (car fresh))))
-
-
   ;; (names . body): the names of a def's parameters, renamed, and its body, in env
   (define (front-def env names body unsafe)
     (parameterize ((unsafe? unsafe))

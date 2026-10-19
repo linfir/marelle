@@ -18,7 +18,7 @@
 
   (define (convert-closures body)
     (parameterize ((statics (make-eq-hashtable)))
-      (map convert body)))
+      (map closure-convert body)))
 
 
   ;; (closure captures formals body ...) => (values captures formals body)
@@ -35,7 +35,7 @@
             (free-locals form)))
 
 
-  (define (convert x)
+  (define (closure-convert x)
     (cond
      ((or (symbol? x) (immediate? x) (not (pair? x)))
       x)
@@ -48,9 +48,9 @@
          (if (named-let? x)
              (let-values (((name bindings body) (parse-named-let x)))
                (static! (list name))
-               `(,(car x) ,name ,(convert-bindings bindings) ,@(map convert body)))
+               `(,(car x) ,name ,(closure-convert-bindings bindings) ,@(map closure-convert body)))
              (let-values (((bindings body) (parse-let x)))
-               `(,(car x) ,(convert-bindings bindings) ,@(map convert body)))))
+               `(,(car x) ,(closure-convert-bindings bindings) ,@(map closure-convert body)))))
 
         ;; All static at first, then each capturing something is not, until none is left
         ((fix)
@@ -66,19 +66,19 @@
                  (loop))))
            `(,(car x) ,(map (lambda (name form) (list name (convert-lambda form (captures form))))
                             names forms)
-             ,@(map convert (cddr x)))))
+             ,@(map closure-convert (cddr x)))))
 
         ((#f)
-         (map convert x))
+         (map closure-convert x))
 
         (else
-         (cons (car x) (map convert (cdr x))))))))
+         (cons (car x) (map closure-convert (cdr x))))))))
 
 
-  (define (convert-bindings bindings)
-    (map (lambda (b) (list (car b) (convert (cadr b)))) bindings))
+  (define (closure-convert-bindings bindings)
+    (map (lambda (b) (list (car b) (closure-convert (cadr b)))) bindings))
 
 
   (define (convert-lambda x captures)
     (let-values (((formals body) (parse-lambda x)))
-      `(,(marker 'closure) ,captures ,formals ,@(map convert body)))))
+      `(,(marker 'closure) ,captures ,formals ,@(map closure-convert body)))))

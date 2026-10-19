@@ -60,11 +60,11 @@
   ;; Fills the tables from a def's core parameters' names and body
   (define (analyze-def! names body)
     (let ((owners (list (list 'def))))
-      (bind! names (car owners))
+      (set-owner! names (car owners))
       (analyze-exprs! body owners)))
 
 
-  (define (bind! names owner)
+  (define (set-owner! names owner)
     (for-each (lambda (x) (hashtable-set! (var-facts) x (make-facts owner #f #f))) names))
 
 
@@ -84,7 +84,7 @@
       (case (special-keyword x)
         ((lambda)
          (let-values (((formals body) (parse-lambda x)))
-           (bind! (formals-names formals) x)
+           (set-owner! (formals-names formals) x)
            (hashtable-set! (lambda-frees) x '())
            (analyze-exprs! body (cons x owners))
            (hashtable-update! (lambda-frees) x reverse #f)))
@@ -95,12 +95,12 @@
                                                 (let-values (((bindings body) (parse-let x)))
                                                   (values #f bindings body)))))
            (analyze-exprs! (map cadr bindings) owners)
-           (bind! (if name (cons name (map car bindings)) (map car bindings)) (car owners))
+           (set-owner! (if name (cons name (map car bindings)) (map car bindings)) (car owners))
            (analyze-exprs! body owners)))
 
         ;; The names are bound in the lambdas too
         ((fix)
-         (bind! (map car (cadr x)) (car owners))
+         (set-owner! (map car (cadr x)) (car owners))
          (analyze-exprs! (map cadr (cadr x)) owners)
          (analyze-exprs! (cddr x) owners))
 

@@ -128,11 +128,4 @@
                      ,(map (lambda (c i)
                              (list (cdr c) `(,(core-def 'closure-ref) (,(marker 'low) raw ,i))))
                            inner (iota (length inner)))
-                     ,@body))))))))
-
-
-  (define (rename-formals formals names)
-    (cond
-     ((null? formals) '())
-     ((pair? formals) (cons (car names) (rename-formals (cdr formals) (cdr names))))
-     (else (car names)))))
+                     ,@body)))))))))

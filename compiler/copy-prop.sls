@@ -195,20 +195,20 @@
 
 
   ;; x, or the source of the chain of copies available from it
-  (define (resolve copies available x)
+  (define (copy-source copies available x)
     (let ((n (and (operand-var? x)
                   (find (lambda (n) (logbit? n available))
                         (hashtable-ref (copies-by-dst copies) x '())))))
       (if n
-          (resolve copies available (caddr (vector-ref (copies-instrs copies) n)))
+          (copy-source copies available (caddr (vector-ref (copies-instrs copies) n)))
           x)))
 
 
   (define (rewrite-reads copies available instr)
-    (let ((resolve (lambda (x) (resolve copies available x))))
+    (let ((copy-source (lambda (x) (copy-source copies available x))))
       (if (no-dst? instr)
-          (cons (car instr) (map resolve (cdr instr)))
-          (cons* (car instr) (cadr instr) (map resolve (cddr instr))))))
+          (cons (car instr) (map copy-source (cdr instr)))
+          (cons* (car instr) (cadr instr) (map copy-source (cddr instr))))))
 
 
   (define (rewrite-blocks blocks starts copies ins)

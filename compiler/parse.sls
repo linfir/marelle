@@ -2,7 +2,7 @@
   (export undef unbound immediate? exact-rational? quoted-datum? make-literal literal?
           literal-datum special? special-keyword source-keyword marker
           define-form? validate-parameters
-          formals-names formals->params
+          formals-names formals->params rename-formals
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-case parse-do parse-parameterize parse-begin parse-set!
           parse-define parse-let-values parse-define-values define-values-form?
@@ -127,6 +127,14 @@
 
 
   ;; ((x . val) ... (rest . rest)): a rest parameter holds the list of the extra arguments
+  ;; formals with its names replaced by fresh, in order
+  (define (rename-formals formals fresh)
+    (cond
+     ((null? formals) '())
+     ((pair? formals) (cons (car fresh) (rename-formals (cdr formals) (cdr fresh))))
+     (else (car fresh))))
+
+
   (define (formals->params formals)
     (cond
      ((null? formals) '())

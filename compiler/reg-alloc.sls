@@ -108,7 +108,7 @@
 ;; as before; (reg r) is a register.
 
 (library (reg-alloc)
-  (export allocate-registers)
+  (export allocate-registers register?)
   (import (chezscheme)
           (utils)
           (flow))

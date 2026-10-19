@@ -139,7 +139,7 @@
     (pair? (mentions y (list x))))
 
 
-  (define (assigned? x)
+  (define (letrec-assigned? x)
     (hashtable-ref (sets) x #f))
 
 
@@ -158,7 +158,7 @@
       #t)
      ((symbol? x)
       (and (gensym? x)
-           (not (assigned? x))
+           (not (letrec-assigned? x))
            (or (not (memq x group)) (memq x simple-vars))))
      (else
       (and (list? x)
@@ -201,7 +201,7 @@
   (define (fix-letrec* vars inits body)
     (let ((lambda-vars (filter (lambda (x) x)
                                (map (lambda (x init)
-                                      (and (lambda-form? init) (not (assigned? x)) x))
+                                      (and (lambda-form? init) (not (letrec-assigned? x)) x))
                                     vars inits))))
       ;; observed: the variables of the group the complex inits so far mention
       (let loop ((xs vars) (inits inits)

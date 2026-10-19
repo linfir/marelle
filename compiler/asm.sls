@@ -144,10 +144,6 @@
         (emit-asm! ctx `(mov ,(slot ctx x) ,reg))))
 
 
-  (define (register? x)
-    (and (pair? x) (eq? (car x) 'reg)))
-
-
   (define (imm32? n)
     (<= (- (expt 2 31)) n (- (expt 2 31) 1)))
 
