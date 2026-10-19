@@ -1,0 +1,2 @@
+stdout = "(42 (7 7) (7 7))"
+env = { SCHEME_GC_STRESS = "1" }

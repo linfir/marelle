@@ -40,13 +40,9 @@ def counts(asm):
     return (instructions, calls, native, frame_words)
 
 
-def test_source(path):
-    return path.read_text().split("\n---\n")[0]
-
-
 def compile_counts(path):
     try:
-        return counts(compile_source(test_source(path)))
+        return counts(compile_source(path.read_text()))
     except PipelineFailure:
         return None
 
@@ -61,7 +57,7 @@ def main():
         sys.stderr.write(f"stats.py: {missing}\n")
         exit(1)
 
-    tests = sorted((ROOT / "tests").rglob("*.t"))
+    tests = sorted((ROOT / "tests").rglob("*.scm"))
     with ThreadPoolExecutor() as executor:
         results = list(executor.map(compile_counts, tests))
     compiled = [(t, r) for t, r in zip(tests, results) if r is not None]

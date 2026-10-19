@@ -1,6 +1,0 @@
-(+ 1 2)
----
-env = { SCHEME_GC_STATS = "" }
-stdout = "3"
-stderr = ""
-chez = "skip"

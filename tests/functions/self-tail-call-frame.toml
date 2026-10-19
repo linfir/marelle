@@ -1,0 +1,5 @@
+env = { SCHEME_GC_STATS = "1" }
+stderr_contains = "GC: 0 collections"
+stdout = "0"
+chez = "skip"
+gc_stress = "skip"

@@ -1,0 +1,15 @@
+;; Allocates boxes to force collections while one is live
+(define (churn n)
+  (declare unsafe)
+  (if (= n 0)
+      0
+      (begin (make-box n) (churn (- n 1)))))
+
+(define (entry)
+  (declare unsafe)
+  (let ((b (make-box (cons 1 2))))
+    (churn 100000)
+    (box-set! b (cons (box-ref b) 3))
+    (churn 100000)
+    (box-ref b)))
+(entry)

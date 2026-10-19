@@ -1,0 +1,2 @@
+stdout = '(#t s1 #t #t)'
+env = { SCHEME_GC_STRESS = "1000" }

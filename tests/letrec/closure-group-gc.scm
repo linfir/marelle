@@ -1,0 +1,8 @@
+(define (make n)
+  (define (get) n)
+  (define (both) (cons (get) (other)))
+  (define (other) (list n n))
+  both)
+(define (loop k acc)
+  (if (= k 0) acc (loop (- k 1) ((make k)))))
+(loop 1000 '())

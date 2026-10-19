@@ -1,0 +1,5 @@
+(let ((fv (vector->flexvector (vector 1 2 3))))
+  (flexvector-add-back! fv 4)
+  (list (flexvector->vector fv)
+        (flexvector->list fv)
+        (flexvector->list (list->flexvector (list 5 6)))))

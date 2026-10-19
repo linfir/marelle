@@ -1,0 +1,5 @@
+(define (make-acc total)
+  (lambda (x) (set! total (+ total x)) total))
+(let ((acc (make-acc 10)))
+  (acc 5)
+  (acc 27))

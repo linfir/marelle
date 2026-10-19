@@ -1,4 +1,0 @@
-(define (a\x22;\x5c;\x7f;λb) 1)
-a\x22;\x5c;\x7f;λb
----
-stdout = "#<procedure a\"\\\u007fλb>"

@@ -1,0 +1,2 @@
+stdout = "99999"
+gc_stress = "skip"

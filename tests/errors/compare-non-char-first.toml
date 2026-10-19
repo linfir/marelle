@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Error: `char=?` expected a character: #t\n"

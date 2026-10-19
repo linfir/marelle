@@ -1,9 +1,0 @@
-(define (loop n a b c d e f g h)
-  (declare public)
-  (if (= n 0)
-      (cons a (cons b (cons g (cons h (quote ())))))
-      (loop (- n 1) b a c d e f h g)))
-(loop 1000001 1 2 3 4 5 6 7 8)
----
-stdout = "(2 1 8 7)"
-chez = "skip"

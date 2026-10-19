@@ -24,15 +24,9 @@ class TestFormatError(Exception):
 
 
 def read_case(path):
-    lines = path.read_text().splitlines(keepends=True)
-    separators = [i for i, line in enumerate(lines) if line.rstrip("\r\n") == "---"]
-    if len(separators) != 1:
-        raise TestFormatError("expected exactly one line containing ---")
-
-    separator = separators[0]
-    source = "".join(lines[:separator])
+    source = path.read_text()
     try:
-        expected = tomllib.loads("".join(lines[separator + 1 :]))
+        expected = tomllib.loads(path.with_suffix(".toml").read_text())
     except tomllib.TOMLDecodeError as error:
         raise TestFormatError(f"invalid expectation TOML: {error}") from error
 
@@ -170,7 +164,7 @@ def parse_args():
 
 
 def selected_cases(patterns):
-    paths = sorted(TEST_ROOT.rglob("*.t"))
+    paths = sorted(TEST_ROOT.rglob("*.scm"))
     if not patterns:
         return paths
 

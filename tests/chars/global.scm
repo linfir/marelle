@@ -1,0 +1,2 @@
+(define c #\z)
+c

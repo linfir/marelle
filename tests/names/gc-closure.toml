@@ -1,0 +1,2 @@
+stdout = "(#<procedure c> 7)"
+env = { SCHEME_GC_STRESS = "1" }

@@ -1,0 +1,3 @@
+env = { SCHEME_GC_STRESS = "1000" }
+stdout = "500500"
+chez = "skip"

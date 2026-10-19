@@ -1,0 +1,4 @@
+env = { SCHEME_GC_STRESS = "0" }
+stage = "executable"
+stderr = "Invalid SCHEME_GC_STRESS: 0\n"
+chez = "skip"

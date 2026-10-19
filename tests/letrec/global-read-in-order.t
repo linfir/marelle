@@ -1,8 +1,0 @@
-(define n 0)
-(define (f)
-  (define a (begin (set! n 10) 2))
-  (define b n)
-  (+ a b))
-(f)
----
-stdout = "12"

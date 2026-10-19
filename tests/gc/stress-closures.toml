@@ -1,0 +1,2 @@
+env = { SCHEME_GC_STRESS = "1" }
+stdout = "((11 . 20) (12 . 20) (13 . 20))"

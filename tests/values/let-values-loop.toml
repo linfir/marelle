@@ -1,0 +1,4 @@
+env = { SCHEME_GC_STRESS = "1000", SCHEME_GC_STATS = "1" }
+stdout = "1000000"
+stderr_contains = " max live words\n"
+chez = "skip"

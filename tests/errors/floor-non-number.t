@@ -1,4 +1,0 @@
-(floor "x")
----
-stage = "executable"
-stderr = "Error: `floor` expected a number: \"x\"\n"

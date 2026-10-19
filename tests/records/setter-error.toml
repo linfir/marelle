@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "Error: `point-x-set!` expected a record of type point: 5"
+chez = "skip"

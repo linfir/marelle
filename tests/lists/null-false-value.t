@@ -1,3 +1,0 @@
-(null? #f)
----
-stdout = "#f"

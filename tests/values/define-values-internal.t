@@ -1,8 +1,0 @@
-(define (f)
-  (define-values (a b . c) (values 1 2 3 4))
-  (define-values x (values 5))
-  (define-values () (values))
-  (list a b c x))
-(f)
----
-stdout = "(1 2 (3 4) (5))"

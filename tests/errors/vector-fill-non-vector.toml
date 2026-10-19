@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "Error: `vector-fill!` expected a vector: ()\n"

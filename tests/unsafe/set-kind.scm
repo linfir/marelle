@@ -1,0 +1,6 @@
+(define (entry)
+  (declare unsafe)
+  (let ((x 1))
+    (set! x (raw 2))
+    x))
+(entry)

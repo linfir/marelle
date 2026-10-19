@@ -1,0 +1,2 @@
+stdout = '(111000 "1é0" "0é0" "lit")'
+env = { SCHEME_GC_STRESS = "1000" }

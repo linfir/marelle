@@ -1,0 +1,5 @@
+(define big (* 10000000000 10000000000))
+(list (number? 1) (number? big) (number? #\a) (number? "1") (number? '())
+      (exact-integer? -5) (exact-integer? big) (exact-integer? #t)
+      (rational? 7) (real? big) (complex? 0) (rational? 'a)
+      (exact? 3) (exact? big) (inexact? 3) (inexact? big) (exact 4) (exact big))

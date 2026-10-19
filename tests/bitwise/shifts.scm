@@ -1,0 +1,8 @@
+(list (bitwise-arithmetic-shift 1 10) (bitwise-arithmetic-shift 1 60) (bitwise-arithmetic-shift 1 64)
+      (bitwise-arithmetic-shift -1 100) (bitwise-arithmetic-shift 1024 -3) (bitwise-arithmetic-shift -5 -1)
+      (bitwise-arithmetic-shift -1 -100) (bitwise-arithmetic-shift 7 0)
+      (bitwise-arithmetic-shift (bitwise-arithmetic-shift 3 200) -199)
+      (bitwise-arithmetic-shift (- 0 (bitwise-arithmetic-shift 3 200)) -199)
+      (bitwise-arithmetic-shift (- 1 (bitwise-arithmetic-shift 1 130)) -129)
+      (bitwise-arithmetic-shift 1152921504606846975 1) (bitwise-arithmetic-shift -1152921504606846976 -60)
+      (bitwise-arithmetic-shift-left 3 2) (bitwise-arithmetic-shift-right -16 2))

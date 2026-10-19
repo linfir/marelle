@@ -1,9 +1,0 @@
-(let ((n 0))
-  (let ((inc (lambda () (set! n (+ n 1))))
-        (get (lambda () n)))
-    (inc)
-    (inc)
-    (inc)
-    (get)))
----
-stdout = "3"

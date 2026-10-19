@@ -1,0 +1,2 @@
+stage = "compiler"
+stderr_contains = "recursive inline def"

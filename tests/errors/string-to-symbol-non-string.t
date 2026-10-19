@@ -1,4 +1,0 @@
-(string->symbol 'a)
----
-stage = "executable"
-stderr = "Error: `string->symbol` expected a string: a\n"

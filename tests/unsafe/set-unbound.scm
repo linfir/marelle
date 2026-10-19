@@ -1,0 +1,5 @@
+(define (entry)
+  (declare unsafe)
+  (set! x 1)
+  2)
+(entry)

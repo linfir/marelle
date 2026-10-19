@@ -1,0 +1,5 @@
+(define (f)
+  (declare unsafe)
+  (let ((load (lambda (x) x)))
+    (load 5)))
+(f)

@@ -1,6 +1,0 @@
-(+ 1 2)
----
-env = { SCHEME_GC_STATS = "1" }
-stdout = "3"
-stderr_contains = "GC: 0 collections, "
-chez = "skip"

@@ -1,0 +1,2 @@
+stage = "compiler"
+stderr_contains = ":noalloc with another attribute"

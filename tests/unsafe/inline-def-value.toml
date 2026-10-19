@@ -1,0 +1,2 @@
+stage = "compiler"
+stderr_contains = "inline def without a procedure object"

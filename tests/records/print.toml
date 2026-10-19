@@ -1,0 +1,2 @@
+stdout = '(#[point 1 "a"] #[empty])'
+chez = "skip"

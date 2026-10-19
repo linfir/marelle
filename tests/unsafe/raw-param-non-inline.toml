@@ -1,0 +1,2 @@
+stage = "compiler"
+stderr_contains = "raw parameter or result in a non-inline def"

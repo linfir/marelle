@@ -1,0 +1,4 @@
+stdout = "2000000"
+env = { SCHEME_GC_STATS = "1" }
+stderr_contains = "collections"
+gc_stress = "skip"

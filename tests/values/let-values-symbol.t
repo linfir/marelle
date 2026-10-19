@@ -1,3 +1,0 @@
-(let-values ((x (values 1 2)) ((y) 3)) (list x y))
----
-stdout = "((1 2) 3)"

@@ -39,7 +39,7 @@ The value of the last form is printed.
 - `compiler/`: the compiler, as Chez libraries
 - `lib/`: the runtime library, compiled once into `build/lib.o`
 - `run`, `compile`: compiler entry points; `run.py` drives the whole pipeline
-- `tests/`: one `.t` file per test, the program then its expected outcome
+- `tests/`: per test, the program `NAME.scm` and its expected outcome `NAME.toml`
 - `bench/`: benchmark programs, timed by `bench.py`
 
 ## License

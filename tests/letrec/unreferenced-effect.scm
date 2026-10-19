@@ -1,0 +1,5 @@
+(define n 0)
+(define (f)
+  (define unused (set! n 7))
+  n)
+(f)

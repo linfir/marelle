@@ -1,6 +1,0 @@
-1
----
-env = { SCHEME_GC_STRESS = "12x" }
-stage = "executable"
-stderr_contains = "Invalid SCHEME_GC_STRESS: 12x"
-chez = "skip"

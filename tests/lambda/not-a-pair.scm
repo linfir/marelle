@@ -1,0 +1,1 @@
+(pair? (lambda (x) x))

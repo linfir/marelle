@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "Error: `vector-ref` index out of range: 5"
+chez = "skip"

@@ -1,0 +1,2 @@
+stdout = "9900"
+env = { SCHEME_GC_STRESS = "1000" }

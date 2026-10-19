@@ -1,7 +1,0 @@
-(define (parity n)
-  (define (ev? n) (if (= n 0) #t (od? (- n 1))))
-  (define (od? n) (if (= n 0) #f (ev? (- n 1))))
-  (cons (ev? n) (od? n)))
-(parity 7)
----
-stdout = "(#f . #t)"

@@ -1,3 +1,0 @@
-((lambda args args))
----
-stdout = "()"

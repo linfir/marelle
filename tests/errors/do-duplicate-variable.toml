@@ -1,0 +1,3 @@
+stage = "compiler"
+stderr_contains = "duplicate do variable"
+chez = "skip"
