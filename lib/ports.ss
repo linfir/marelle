@@ -1,6 +1,8 @@
 ;; Ports: [port-type, flags, fd, position, end, buffer], all raw but the buffer, last so the
 ;; collector scans only it; a descriptor port's buffer is a bytevector, holding position bytes
-;; for an output port, its unread bytes [position, end) for an input port
+;; for an output port, its unread bytes [position, end) for an input port. A string output
+;; port's is a bytevector of position UTF-8 bytes, doubled when full; a string input port's is
+;; the string, read from char position to end.
 
 (define-constant input-flag (raw 1))
 (define-constant output-flag (raw 2))
@@ -17,6 +19,9 @@
 (define-data stdin-buffer 1026)
 (define-data stdout-buffer 1026)
 (define-data stderr-buffer 1026)
+
+;; A string output port without a buffer, which only counts the bytes written to it
+(define-data counting-port 6)
 
 ;; The current input, output and error ports, and the list of the open descriptor output ports
 ;; but the console ones, flushed at exit: roots of the collector
@@ -85,6 +90,8 @@
   (init-port! stderr output-flag (raw 2) stderr-buffer)
   (store current-ports (raw 0) stdin)
   (store current-ports (raw 1) stdout)
+  (store counting-port (raw 0) port-type)
+  (store counting-port (raw 1) (bit-or output-flag string-flag))
   (store current-ports (raw 2) stderr)
   (store output-ports (raw 0) '()))
 
@@ -172,8 +179,38 @@
 
 ;; Writes x to the open output port, like write when write? is 1, else like display
 (define (port-put! port x (raw write?))
-  (declare unsafe inline (result void))
-  (put-datum (as-raw port) write? x))
+  (declare unsafe inline)
+  (if (port-flag? port string-flag)
+      (string-port-put! port x (raw= write? (raw 1)))
+      (begin
+        (put-datum (as-raw port) write? x)
+        undef)))
+
+;; The bytes of x as written by put-datum
+(define (datum-bytes (raw write?) x)
+  (declare unsafe noalloc (result raw))
+  (set-port-position! counting-port (raw 0))
+  (put-datum counting-port write? x)
+  (port-position counting-port))
+
+;; Measures x, makes room for it, then writes it
+(define (string-port-put! port x write?)
+  (declare unsafe)
+  (reserve! port (make-fixnum (datum-bytes (if write? (raw 1) (raw 0)) x)))
+  (put-datum (as-raw port) (if write? (raw 1) (raw 0)) x)
+  undef)
+
+;; Makes room for n more bytes in the string output port, doubling its buffer
+(define (reserve! port n)
+  (declare unsafe)
+  (let ((need (+ (make-fixnum (port-position (as-raw port))) n))
+        (capacity (make-fixnum (port-capacity (as-raw port)))))
+    (when (> need capacity)
+      (let ((new (alloc-bytevector (max need (* 2 capacity)))))
+        (copy-words (raw+ (as-raw new) (raw 16)) (port-bytes (as-raw port))
+                    (raw>>u (raw+ (port-position (as-raw port)) (raw 7)) (raw 3)))
+        (store (as-raw port) (raw 5) new)))
+    undef))
 
 (define (display x port)
   (declare unsafe public)
@@ -238,7 +275,8 @@
 (define (flush-output-port port)
   (declare unsafe public)
   (check-port port output-flag "`flush-output-port` expected an open output port")
-  (flush-port (as-raw port))
+  (unless (port-flag? port string-flag)
+    (flush-port (as-raw port)))
   undef)
 
 (define (variadic-flush-output-port . port)
@@ -316,9 +354,22 @@
         (code->char (if (raw= n (raw -1)) (raw 65533) n)))
       (eof-object)))
 
+;; The next char of the string input port, or the EOF object, consumed unless peek? is 1
+(define (read-string-char (raw port) (raw peek?))
+  (declare unsafe noalloc)
+  (let ((i (port-position port)))
+    (if (raw= i (port-end port))
+        (eof-object)
+        (begin
+          (when (raw= peek? (raw 0))
+            (set-port-position! port (raw+ i (raw 1))))
+          (code->char (string-code (as-val (load port (raw 5))) i))))))
+
 (define (port-read-char port (raw peek?))
   (declare unsafe inline)
-  (read-fd-char (as-raw port) peek?))
+  (if (port-flag? port string-flag)
+      (read-string-char (as-raw port) peek?)
+      (read-fd-char (as-raw port) peek?)))
 
 (define (read-char port)
   (declare unsafe public)
@@ -377,12 +428,13 @@
 ;; struct pollfd {int fd; short events; short revents;} for char-ready?
 (define-data poll-fd 1)
 
-;; Whether a char may be read without blocking: buffered bytes, or poll(2) says so (also at the
-;; end of the file)
+;; Whether a char may be read without blocking: a string port, buffered bytes, or poll(2) says
+;; so (also at the end of the file)
 (define (port-ready? port)
   (declare unsafe noalloc)
   (let ((p (as-raw port)))
-    (or (raw<u (port-position p) (port-end p))
+    (or (not (raw= (bit-and (port-flags p) string-flag) (raw 0)))
+        (raw<u (port-position p) (port-end p))
         (begin
           (store poll-fd (raw 0) (bit-or (port-fd p) (raw<< (raw 1) (raw 32)))) ; POLLIN
           (raw> (syscall 7 poll-fd (raw 1) (raw 0)) (raw 0))))))
@@ -426,15 +478,20 @@
         (scheme-error msg name))
       (make-fd-port (make-fixnum fd) flag))))
 
-(define (make-fd-port fd (raw flag))
+;; A port of the fixnum flags over the buffer, its fd, position and end 0
+(define (make-port buffer flags)
   (declare unsafe inline)
-  (let* ((buffer (alloc-bytevector (make-fixnum port-buffer-size)))
-         (p (alloc (raw 6))))
+  (let ((p (alloc (raw 6))))
     (store p (raw 0) port-type)
-    (store p (raw 1) flag)
-    (store p (raw 2) (fixnum-value fd))
+    (store p (raw 1) (fixnum-value flags))
     (store p (raw 5) buffer)
     (as-val p)))
+
+(define (make-fd-port fd (raw flag))
+  (declare unsafe inline)
+  (let ((p (make-port (alloc-bytevector (make-fixnum port-buffer-size)) (make-fixnum flag))))
+    (store (as-raw p) (raw 2) (fixnum-value fd))
+    p))
 
 (define (open-input-file name)
   (declare unsafe public)
@@ -447,10 +504,11 @@
     (store output-ports (raw 0) (cons port (as-val (load output-ports (raw 0)))))
     port))
 
-;; Flushes an output port; a console port keeps its descriptor, for the runtime's messages
+;; Flushes a descriptor output port; a console port keeps its descriptor, for the runtime's
+;; messages
 (define (close-port! port)
   (declare unsafe)
-  (when (port-flag? port output-flag)
+  (when (and (port-flag? port output-flag) (not (port-flag? port string-flag)))
     (flush-port (as-raw port))
     (store output-ports (raw 0) (remq port (as-val (load output-ports (raw 0))))))
   (when (raw>u (port-fd (as-raw port)) (raw 2))
@@ -522,3 +580,51 @@
                    (thunk))))
     (close-port port)
     result))
+
+;; String ports
+
+(define (open-input-string s)
+  (declare unsafe public)
+  (check-string s "`open-input-string` expected a string")
+  (let ((p (make-port s (make-fixnum (bit-or input-flag string-flag)))))
+    (set-port-end! (as-raw p) (string-nchars s))
+    p))
+
+(define (open-output-string)
+  (declare unsafe public)
+  (make-port (alloc-bytevector 64) (make-fixnum (bit-or output-flag string-flag))))
+
+;; The chars of the n UTF-8 bytes at p: the bytes but the continuation ones
+(define (utf8-chars (raw p) (raw n))
+  (declare unsafe noalloc (result raw))
+  (let byte-next ((i (raw 0))
+                  (nchars (raw 0)))
+    (cond
+     ((raw= i n) nchars)
+     ((raw= (bit-and (load8 p i) (raw 192)) (raw 128)) (byte-next (raw+ i (raw 1)) nchars))
+     (else (byte-next (raw+ i (raw 1)) (raw+ nchars (raw 1)))))))
+
+;; The chars written so far; the port is not reset (it is in Chez)
+(define (get-output-string port)
+  (declare unsafe public)
+  (unless (and (output-port? port) (port-flag? port string-flag))
+    (scheme-error "`get-output-string` expected a string output port" port))
+  (let* ((n (make-fixnum (port-position (as-raw port))))
+         (nchars (make-fixnum (utf8-chars (port-bytes (as-raw port)) (fixnum-value n))))
+         (s (make-string-object (eq? n nchars) nchars)))
+    (decode-utf8! s (port-bytes (as-raw port)) (fixnum-value n))
+    s))
+
+;; What thunk writes to the current output port, as a string (Chez)
+(define (with-output-to-string thunk)
+  (declare public)
+  (let ((port (open-output-string)))
+    (parameterize ((current-output-port port))
+      (thunk))
+    (get-output-string port)))
+
+;; thunk's value, reading from the string s as the current input port (Chez)
+(define (with-input-from-string s thunk)
+  (declare public)
+  (parameterize ((current-input-port (open-input-string s)))
+    (thunk)))

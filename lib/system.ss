@@ -27,21 +27,28 @@
   (write-all (port-fd port) (port-bytes port) (port-position port))
   (set-port-position! port (raw 0)))
 
-;; Writes the n bytes at buf to the output port through its buffer; a write to stdout or
-;; stderr flushes the other first, so the console keeps the order of the writes
+;; Writes the n bytes at buf to the output port; a descriptor port's go through its buffer, and
+;; a write to stdout or stderr flushes the other first, so the console keeps the order of the
+;; writes; a string port has room for them (reserve!), the counting port only counts them
 (define (write-bytes (raw port) (raw buf) (raw n))
   (declare unsafe noalloc (result void))
-  (when (and (raw= port stdout) (not (raw= (port-position stderr) (raw 0))))
-    (flush-port stderr))
-  (when (and (raw= port stderr) (not (raw= (port-position stdout) (raw 0))))
-    (flush-port stdout))
-  (when (raw>u n (raw- port-buffer-size (port-position port)))
-    (flush-port port))
-  (if (raw<u n port-buffer-size)
+  (if (raw= (bit-and (port-flags port) string-flag) (raw 0))
+      (begin
+        (when (and (raw= port stdout) (not (raw= (port-position stderr) (raw 0))))
+          (flush-port stderr))
+        (when (and (raw= port stderr) (not (raw= (port-position stdout) (raw 0))))
+          (flush-port stdout))
+        (when (raw>u n (raw- port-buffer-size (port-position port)))
+          (flush-port port))
+        (if (raw<u n port-buffer-size)
+            (let ((count (port-position port)))
+              (copy-bytes! (raw+ (port-bytes port) count) buf n)
+              (set-port-position! port (raw+ count n)))
+            (write-all (port-fd port) buf n)))
       (let ((count (port-position port)))
-        (copy-bytes! (raw+ (port-bytes port) count) buf n)
-        (set-port-position! port (raw+ count n)))
-      (write-all (port-fd port) buf n)))
+        (unless (raw= port counting-port)
+          (copy-bytes! (raw+ (port-bytes port) count) buf n))
+        (set-port-position! port (raw+ count n)))))
 
 (define (c-string-length (raw s))
   (declare unsafe noalloc (result raw))

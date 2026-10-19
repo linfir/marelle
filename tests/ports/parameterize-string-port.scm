@@ -1,0 +1,6 @@
+(define p (open-output-string))
+(parameterize ((current-output-port p))
+  (display "inner")
+  (write-string "!"))
+(display "outer ")
+(get-output-string p)

@@ -1,0 +1,10 @@
+;; string=? compares the kinds first
+(define (output x)
+  (let ((p (open-output-string)))
+    (display x p)
+    (get-output-string p)))
+(list (string=? (output "abc") "abc")
+      (string=? (output "é") "é")
+      (string=? (output 'sym) "sym")
+      (string->symbol (output "abc"))
+      (output ""))
