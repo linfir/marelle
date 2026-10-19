@@ -1,15 +1,6 @@
 ;; The environment variables, NAME=VALUE C strings ending with 0
 (define-data environment 1)
 
-(define-constant stdout (raw 1))
-(define-constant stderr (raw 2))
-
-;; The output buffer, its count bytes for the file descriptor output-fd
-(define-constant output-capacity (raw 8192))
-(define-data output-buffer 1024)
-(define-data output-fd 1)
-(define-data output-count 1)
-
 ;; Writes the n bytes at buf to the file descriptor fd, stopping on an error
 (define (write-all (raw fd) (raw buf) (raw n))
   (declare unsafe noalloc (result void))
@@ -21,30 +12,36 @@
               (write-next (raw+ done written))))
         undef)))
 
-(define (flush-output)
-  (declare unsafe noalloc (result void))
-  (write-all (load output-fd (raw 0)) output-buffer (load output-count (raw 0)))
-  (store output-count (raw 0) (raw 0)))
+(define (copy-bytes! (raw dst) (raw src) (raw n))
+  (declare unsafe inline (result void))
+  (let copy-next ((i (raw 0)))
+    (if (raw<u i n)
+        (begin
+          (store8 dst i (load8 src i))
+          (copy-next (raw+ i (raw 1))))
+        undef)))
 
-;; Writes the n bytes at buf to fd through the buffer, flushed first when it holds another
-;; descriptor's bytes, so the order of the writes is kept
-(define (write-bytes (raw fd) (raw buf) (raw n))
+;; Writes the buffered bytes of the descriptor output port
+(define (flush-port (raw port))
   (declare unsafe noalloc (result void))
-  (unless (raw= fd (load output-fd (raw 0)))
-    (flush-output)
-    (store output-fd (raw 0) fd))
-  (when (raw>u n (raw- output-capacity (load output-count (raw 0))))
-    (flush-output))
-  (if (raw<u n output-capacity)
-      (let ((count (load output-count (raw 0))))
-        (let copy-next ((i (raw 0)))
-          (if (raw<u i n)
-              (begin
-                (store8 output-buffer (raw+ count i) (load8 buf i))
-                (copy-next (raw+ i (raw 1))))
-              undef))
-        (store output-count (raw 0) (raw+ count n)))
-      (write-all fd buf n)))
+  (write-all (port-fd port) (port-bytes port) (port-position port))
+  (set-port-position! port (raw 0)))
+
+;; Writes the n bytes at buf to the output port through its buffer; a write to stdout or
+;; stderr flushes the other first, so the console keeps the order of the writes
+(define (write-bytes (raw port) (raw buf) (raw n))
+  (declare unsafe noalloc (result void))
+  (when (and (raw= port stdout) (not (raw= (port-position stderr) (raw 0))))
+    (flush-port stderr))
+  (when (and (raw= port stderr) (not (raw= (port-position stdout) (raw 0))))
+    (flush-port stdout))
+  (when (raw>u n (raw- port-buffer-size (port-position port)))
+    (flush-port port))
+  (if (raw<u n port-buffer-size)
+      (let ((count (port-position port)))
+        (copy-bytes! (raw+ (port-bytes port) count) buf n)
+        (set-port-position! port (raw+ count n)))
+      (write-all (port-fd port) buf n)))
 
 (define (c-string-length (raw s))
   (declare unsafe noalloc (result raw))
@@ -53,16 +50,17 @@
         i
         (length-next (raw+ i (raw 1))))))
 
-(define (put-string (raw fd) (raw s))
+(define (put-string (raw out) (raw s))
   (declare unsafe noalloc (result void))
-  (write-bytes fd s (c-string-length s)))
+  (write-bytes out s (c-string-length s)))
 
-;; Prints the statistics on stderr when SCHEME_GC_STATS is set, flushes the output, then exits
+;; Prints the statistics on stderr when SCHEME_GC_STATS is set, flushes the console, then exits
 (define (exit-process (raw status))
   (declare unsafe noalloc (result never))
   (unless (raw= (load gc-stats (raw 0)) (raw 0))
     (print-gc-stats))
-  (flush-output)
+  (flush-port stdout)
+  (flush-port stderr)
   (syscall 231 status)) ; exit_group
 
 ;; Prints msg and exits, when the program cannot go on
@@ -144,6 +142,7 @@
 ;; Called from _start with the initial stack: argc, the arguments, 0, then the environment
 (define (init-runtime (raw sp))
   (declare unsafe noalloc (result void))
+  (init-console-ports!)
   (store environment (raw 0) (raw+ sp (raw<< (raw+ (load sp (raw 0)) (raw 2)) (raw 3))))
   (store scheme-cap (raw 0) initial-heap-words)
   (store gc-target (raw 0) initial-heap-words)
@@ -162,7 +161,7 @@
 ;; Called from _start with the value of scheme_main
 (define (finish-program v)
   (declare unsafe noalloc (result never))
-  (display stdout v)
+  (put-datum stdout (raw 1) v)
   (exit-process (raw 0)))
 
 ;; Prints "Error: msg: x" and exits
@@ -171,7 +170,7 @@
   (put-string stderr "Error: ")
   (put-string stderr msg)
   (put-string stderr ": ")
-  (display stderr x)
+  (put-datum stderr (raw 1) x)
   (put-string stderr "\n")
   (exit-process (raw 1)))
 

@@ -1,0 +1,2 @@
+stdout = "(#<input port> #<output port>)"
+chez = "skip"

@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "`current-output-port` expected an output port"
+chez = "skip"

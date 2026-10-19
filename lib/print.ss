@@ -3,7 +3,7 @@
 
 ;; Writes the nonnegative n in base radix, at most 16, with uppercase letters,
 ;; zero-padded to width digits (at most 24)
-(define (put-digits (raw fd) (raw n) (raw radix) (raw width))
+(define (put-digits (raw out) (raw n) (raw radix) (raw width))
   (declare unsafe noalloc (result void))
   (let digit-next ((m n)
                    (i (raw 24)))
@@ -11,17 +11,17 @@
           (d (raw% m radix)))
       (store8 digits j (raw+ d (if (raw< d (raw 10)) (raw 48) (raw 55)))) ; 0, A - 10
       (if (and (raw= (raw/ m radix) (raw 0)) (raw>= (raw- (raw 24) j) width))
-          (write-bytes fd (raw+ digits j) (raw- (raw 24) j))
+          (write-bytes out (raw+ digits j) (raw- (raw 24) j))
           (digit-next (raw/ m radix) j)))))
 
-(define (put-int (raw fd) (raw n))
+(define (put-int (raw out) (raw n))
   (declare unsafe noalloc (result void))
   (when (raw< n (raw 0))
-    (put-string fd "-"))
-  (put-digits fd (if (raw< n (raw 0)) (raw- (raw 0) n) n) (raw 10) (raw 1)))
+    (put-string out "-"))
+  (put-digits out (if (raw< n (raw 0)) (raw- (raw 0) n) n) (raw 10) (raw 1)))
 
 ;; Writes the UTF-8 encoding of the code point n
-(define (put-utf8 (raw fd) (raw n))
+(define (put-utf8 (raw out) (raw n))
   (declare unsafe noalloc (result void))
   (let ((nbytes (cond
                  ((raw<u n (raw 128)) (raw 1))
@@ -36,26 +36,28 @@
             (store8 digits i (if (raw= nbytes (raw 1))
                                  m
                                  (bit-or m (bit-and (raw>> (raw 65280) nbytes) (raw 255)))))
-            (write-bytes fd digits nbytes))
+            (write-bytes out digits nbytes))
           (begin
             (store8 digits i (bit-or (bit-and m (raw 63)) (raw 128)))
             (byte-next (raw>> m (raw 6)) (raw- i (raw 1))))))))
 
-;; Prints x to the file descriptor out
-(define (display (raw out) x)
+;; Prints x to the port out, like write when write? is 1, else like display: strings and
+;; characters bare
+(define (put-datum (raw out) (raw write?) x)
   (declare unsafe noalloc (result void))
   (cond
    ((fixnum? x) (put-int out (raw>> (as-raw x) (raw 3))))
-   ((char? x) (display-char out x))
+   ((char? x) (display-char out write? x))
    ((tag=? x (raw 2))
     (put-string out (cond
                      ((eq? x #f) "#f")
                      ((eq? x #t) "#t")
                      ((null? x) "()")
                      ((eq? x undef) "#<undef>")
+                     ((eof-object? x) "#!eof")
                      (else "#<err>"))))
-   ((pair? x) (display-pair out x))
-   ((tag=? x (raw 0)) (display-pointer out x))
+   ((pair? x) (display-pair out write? x))
+   ((tag=? x (raw 0)) (display-pointer out write? x))
    (else (put-string out "#<err>"))))
 
 ;; The name of the character n, or 0
@@ -76,55 +78,61 @@
    (else (raw 0))))
 
 ;; Prints c like Chez's write: a name, hexadecimal for the other control
-;; characters and the line separators U+0085 and U+2028, else UTF-8
-(define (display-char (raw out) c)
+;; characters and the line separators U+0085 and U+2028, else UTF-8; bare UTF-8 for display
+(define (display-char (raw out) (raw write?) c)
   (declare unsafe noalloc (result void))
   (let* ((n (raw>> (as-raw c) (raw 8)))
          (name (char-name n)))
-    (put-string out "#\\")
     (cond
-     ((not (raw= name (raw 0))) (put-string out name))
+     ((raw= write? (raw 0)) (put-utf8 out n))
+     ((not (raw= name (raw 0)))
+      (put-string out "#\\")
+      (put-string out name))
      ((or (raw< n (raw 32)) (raw= n (raw 133)) (raw= n (raw 8232)))
-      (put-string out "x")
+      (put-string out "#\\x")
       (put-digits out n (raw 16) (raw 1)))
-     (else (put-utf8 out n)))))
+     (else
+      (put-string out "#\\")
+      (put-utf8 out n)))))
 
-(define (display-pair (raw out) x)
+(define (display-pair (raw out) (raw write?) x)
   (declare unsafe noalloc (result void))
   (put-string out "(")
-  (display out (car x))
+  (put-datum out write? (car x))
   (let more ((rest (cdr x)))
     (if (pair? rest)
         (begin
           (put-string out " ")
-          (display out (car rest))
+          (put-datum out write? (car rest))
           (more (cdr rest)))
         (begin
           (unless (null? rest)
             (put-string out " . ")
-            (display out rest))
+            (put-datum out write? rest))
           (put-string out ")")))))
 
-(define (display-pointer (raw out) x)
+(define (display-pointer (raw out) (raw write?) x)
   (declare unsafe noalloc (result void))
   (cond
    ((raw= (as-raw x) (raw 0)) (put-string out "#<null>"))
    ((raw= (load (as-raw x) (raw 0)) bignum-type) (display-bignum out (as-raw x)))
    ((raw= (load (as-raw x) (raw 0)) ratnum-type)
-    (display out (as-val (load (as-raw x) (raw 1))))
+    (put-datum out write? (as-val (load (as-raw x) (raw 1))))
     (put-string out "/")
-    (display out (as-val (load (as-raw x) (raw 2)))))
-   ((raw= (load (as-raw x) (raw 0)) vector-type) (display-vector out x))
-   ((raw= (load (as-raw x) (raw 0)) record-type) (display-record out x))
+    (put-datum out write? (as-val (load (as-raw x) (raw 2)))))
+   ((raw= (load (as-raw x) (raw 0)) vector-type) (display-vector out write? x))
+   ((raw= (load (as-raw x) (raw 0)) record-type) (display-record out write? x))
    ((raw= (load (as-raw x) (raw 0)) rtd-type)
     (put-string out "#<record type ")
     (display-symbol out (as-val (load (as-raw x) (raw 1))))
     (put-string out ">"))
-   ((string-header? (load (as-raw x) (raw 0))) (display-string out x))
+   ((string-header? (load (as-raw x) (raw 0))) (display-string out write? x))
    ((symbol-header? (load (as-raw x) (raw 0))) (display-symbol out x))
    ((raw= (load (as-raw x) (raw 0)) flexvector-type) (put-string out "#<flexvector>"))
    ((raw= (load (as-raw x) (raw 0)) hashtable-type) (display-hashtable out x))
-   ((raw= (load (as-raw x) (raw 0)) values-type) (display-values out x))
+   ((raw= (load (as-raw x) (raw 0)) values-type) (display-values out write? x))
+   ((raw= (load (as-raw x) (raw 0)) port-type)
+    (put-string out (if (input-port? x) "#<input port>" "#<output port>")))
    ((raw= (load (as-raw x) (raw 0)) procedure-type)
     (let ((name (load (as-raw x) (raw 3))))
       (if (raw= name (raw 0))
@@ -135,9 +143,23 @@
             (put-string out ">")))))
    (else (put-string out "#<unknown ptr>"))))
 
+;; Quoted when write? is 1, else bare UTF-8
+(define (display-string (raw out) (raw write?) s)
+  (declare unsafe noalloc (result void))
+  (cond
+   ((raw= write? (raw 1)) (put-quoted-string out s))
+   ((ascii-string? s) (write-bytes out (raw+ (as-raw s) (raw 16)) (string-nchars s)))
+   (else
+    (let char-next ((i (raw 0)))
+      (if (raw= i (string-nchars s))
+          undef
+          (begin
+            (put-utf8 out (string-code s i))
+            (char-next (raw+ i (raw 1)))))))))
+
 ;; Like Chez's write: in quotes, with escapes; hexadecimal for the other control characters,
 ;; delete and the line separators U+0085 and U+2028, else UTF-8
-(define (display-string (raw out) s)
+(define (put-quoted-string (raw out) s)
   (declare unsafe noalloc (result void))
   (put-string out "\"")
   (let char-next ((i (raw 0)))
@@ -182,7 +204,7 @@
    (else (raw 0))))
 
 ;; One per line, like Chez's REPL
-(define (display-values (raw out) x)
+(define (display-values (raw out) (raw write?) x)
   (declare unsafe noalloc (result void))
   (let next ((l (as-val (load (as-raw x) (raw 1))))
              (first #t))
@@ -190,11 +212,11 @@
         (begin
           (unless first
             (put-string out "\n"))
-          (display out (car l))
+          (put-datum out write? (car l))
           (next (cdr l) #f))
         undef)))
 
-(define (display-vector (raw out) v)
+(define (display-vector (raw out) (raw write?) v)
   (declare unsafe noalloc (result void))
   (let ((n (load (as-raw v) (raw 1))))
     (put-string out "#(")
@@ -204,12 +226,12 @@
           (begin
             (unless (raw= i (raw 0))
               (put-string out " "))
-            (display out (as-val (load (as-raw v) (raw+ i (raw 2)))))
+            (put-datum out write? (as-val (load (as-raw v) (raw+ i (raw 2)))))
             (elem-next (raw+ i (raw 1))))))
     (put-string out ")")))
 
 ;; Like Chez's, without the gensym of the type's name
-(define (display-record (raw out) r)
+(define (display-record (raw out) (raw write?) r)
   (declare unsafe noalloc (result void))
   (let ((n (load (as-raw r) (raw 1))))
     (put-string out "#[")
@@ -219,7 +241,7 @@
           undef
           (begin
             (put-string out " ")
-            (display out (as-val (load (as-raw r) (raw+ i (raw 3)))))
+            (put-datum out write? (as-val (load (as-raw r) (raw+ i (raw 3)))))
             (field-next (raw+ i (raw 1))))))
     (put-string out "]")))
 

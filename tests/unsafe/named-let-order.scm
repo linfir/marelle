@@ -1,7 +1,7 @@
 ;; The inits are evaluated left to right
 (define (show x)
   (declare unsafe)
-  (display stdout x)
+  (display x)
   x)
 
 (define (entry)

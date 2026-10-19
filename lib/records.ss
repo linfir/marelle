@@ -40,6 +40,6 @@
   (put-string stderr "` expected a record of type ")
   (display-symbol stderr (as-val (load (as-raw type) (raw 1))))
   (put-string stderr ": ")
-  (display stderr x)
+  (put-datum stderr (raw 1) x)
   (put-string stderr "\n")
   (exit-process (raw 1)))

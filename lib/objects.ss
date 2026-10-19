@@ -36,6 +36,8 @@
 (define-constant record-type (raw (ash 57 3)))
 (define-constant hashtable-type (raw (ash 58 3)))
 (define-constant flexvector-type (raw (ash 59 3)))
+(define-constant port-type (raw (ash 60 3)))
+(define-constant bytevector-type (raw (ash 61 3)))
 
 (define (fixnum? x)
   (declare unsafe inline)

@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "`display` expected an optional port"
