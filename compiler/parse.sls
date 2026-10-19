@@ -5,7 +5,7 @@
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-case parse-do parse-begin parse-set! parse-define
-          parse-let-values parse-define-values define-values-form? core-ref expand-and
+          parse-let-values parse-define-values define-values-form? core-ref expand-and fresh-local
           scan-library
           library-def? library-def-name library-def-args library-def-kinds
           library-def-result library-def-attrs library-def-body library-def-procedure?
@@ -67,10 +67,11 @@
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
-  ;; fix, check-defined, closure, core, const and low have no source form
+  ;; fix, check-defined, closure, core, const, low and the cells have no source form
   (define markers
     (map (lambda (k) (cons (gensym (symbol->string k)) k))
-         (append '(eq? fix check-defined closure core const low) *special-forms*)))
+         (append '(eq? fix check-defined closure core const low %cell %cell-ref %cell-set!)
+                 *special-forms*)))
 
 
   (define (marker keyword)
@@ -80,6 +81,11 @@
   ;; (core name), the library def name, even where a program rebinds it
   (define (core-ref name)
     `(,(marker 'core) ,name))
+
+
+  ;; A local with the pretty name of x, which names its closure
+  (define (fresh-local x)
+    (gensym (symbol->string x)))
 
 
   ;; The value of the deciding operand

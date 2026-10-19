@@ -1,5 +1,5 @@
 (library (vars)
-  (export make-local-binding local-binding? local-binding-operand local-binding-box?
+  (export make-local-binding local-binding? local-binding-operand
           make-def-binding def-binding? def-binding-def
           make-data-binding data-binding? data-binding-data
           make-low-op-binding low-op-binding? low-op-binding-name
@@ -11,10 +11,8 @@
           (parse))
 
 
-  ;; operand: the local's operand, or (mutable slot) when it is assigned;
-  ;; box?: the operand holds a box, for a local both assigned and captured
   (define-record-type local-binding
-    (fields operand box?))
+    (fields operand))
 
 
   (define-record-type def-binding

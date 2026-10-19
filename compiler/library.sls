@@ -10,6 +10,7 @@
           (vars)
           (closure)
           (resolve)
+          (assign)
           (defs)
           (compile)
           (output))
@@ -102,7 +103,8 @@
            #t)))
 
 
-  ;; The core of a def, its letrec* forms fixed, analyzed, its closures converted
+  ;; The core of a def, its letrec* forms fixed, analyzed, its closures converted, its names
+  ;; resolved, its assignments converted
   (define (make-core name env names body unsafe?)
     (let* ((core (dumped 'front (list name) (front-def env names body unsafe?)))
            (core (dumped 'letrec (list name)
@@ -110,7 +112,9 @@
                                (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x)))))))
       (analyze-def! (car core) (cdr core))
       (let ((core (dumped 'closure (list name) (cons (car core) (convert-closures (cdr core))))))
-        (dumped 'resolve (list name) (cons (car core) (resolve-body env (cdr core)))))))
+        (dumped 'assign (list name)
+                (convert-assignments
+                 (dumped 'resolve (list name) (cons (car core) (resolve-body env (cdr core)))))))))
 
 
   ;; The core of main, whose body is a letrec*: its variables not bound by a fix get global
@@ -127,7 +131,9 @@
                 vars)
       (analyze-def! '() (cdr core))
       (let ((core (dumped 'closure '(main) (cons '() (convert-closures (cdr core))))))
-        (dumped 'resolve '(main) (cons '() (resolve-body env (cdr core)))))))
+        (dumped 'assign '(main)
+                (convert-assignments
+                 (dumped 'resolve '(main) (cons '() (resolve-body env (cdr core)))))))))
 
 
   (define (fix-names x)
@@ -153,7 +159,7 @@
     (for-each (lambda (x)
                 (when (and (def? x) (def-emitted? x) (not (def-extern? x)))
                   (if (def-procedure? x)
-                      (compile-procedure x '() '())
+                      (compile-procedure x '())
                       (compile-low-def x))))
               items))
 
@@ -357,7 +363,7 @@
                  (compile-procedure
                   (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
                             (make-main-core env body))
-                  '() '())))
+                  '())))
              (compile-literal-init init)
              (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"
                                    "scheme_literals" "scheme_nliterals"))

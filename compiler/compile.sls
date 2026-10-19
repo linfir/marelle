@@ -42,17 +42,12 @@
      ((string? x) 'raw)
      ((memq (car x) '(quad as-raw)) 'raw)
      ((memq (car x) '(raw never void)) (car x))
-     ((eq? (car x) 'mutable) (kind (cadr x)))
      (else 'val)))
 
 
   (define (check-kind x k expr)
     (unless (eq? (kind x) k)
       (error 'check-kind (format "expected a ~a" k) expr)))
-
-
-  (define (mutable? op)
-    (and (pair? op) (eq? (car op) 'mutable)))
 
 
   (define (lookup env x)
@@ -164,12 +159,7 @@
     (let ((b (lookup env x)))
       (cond
        ((local-binding? b)
-        (let* ((op (local-binding-operand b))
-               ;; Copied, so a later set! does not change an operand already computed
-               (v (if (mutable? op) (emit-op! 'mov (kind op) (cdr op)) op)))
-          (if (local-binding-box? b)
-              (call-def env (core-def 'box-ref) (list v) x compile-result)
-              v)))
+        (local-binding-operand b))
        ;; A static procedure of a fix
        ((def-binding? b)
         (def-value (def-binding-def b) x))
@@ -233,7 +223,7 @@
           (,(marker 'if) ,t ,t ,(expand-or (cdr exprs))))))))
 
 
-  ;; if, let, begin, closure, set!, and when and unless in unsafe defines
+  ;; if, let, begin, closure, the cells, and when and unless in unsafe defines
   (define (compile-special env keyword expr)
     (case keyword
       ((if)
@@ -251,9 +241,24 @@
       ((closure)
        (compile-lambda env #f expr))
 
-      ((set!)
-       (let-values (((var value) (parse-set! expr)))
-         (compile-set! env var value)))
+      ;; A cell is a slot, its reads copied, so a later %cell-set! does not change an operand
+      ;; already computed
+      ((%cell)
+       (let ((op (compile-value env (cadr expr))))
+         (unless (memq (kind op) '(val raw))
+           (error 'compile-value "expected a val or a raw" expr))
+         (emit-op! 'mov (kind op) (list op))))
+
+      ((%cell-ref)
+       (let ((c (compile-value env (cadr expr))))
+         (emit-op! 'mov (kind c) (list c))))
+
+      ((%cell-set!)
+       (let* ((c (compile-value env (cadr expr)))
+              (op (compile-value env (caddr expr))))
+         (check-kind op (kind c) (cadr expr))
+         (emit! `(mov ,c ,op))
+         '(void)))
 
       ((fix)
        (compile-fix env expr compile-value))
@@ -695,28 +700,31 @@
                                         slot)))
                                   bindings))
              (label (fresh-label)))
-        (for-each (lambda (v)
-                    (when (boxed? v)
-                      (error 'compile-loop "assigned and captured loop variable" v)))
-                  vars)
         (start-block! label)
-        (compile-seq (append (map (lambda (v slot)
-                                    (cons v (make-local-binding `(mutable ,slot) #f)))
-                                  vars slots)
+        (compile-seq (append (map (lambda (v slot) (cons v (make-local-binding slot))) vars slots)
                              (acons name (make-loop-binding label slots 'here) env))
                      body
                      compile-last))))
 
 
-  ;; Reading a var copies its slot, so the args are computed before any slot is set
+  ;; The args are computed before any slot is set, an operand reading a slot copied first
   (define (compile-loop-call env x loop)
     (let ((slots (loop-binding-slots loop)))
       (unless (= (length (cdr x)) (length slots))
         (error 'compile-loop-call "wrong number of arguments" x))
-      (let ((ops (map-in-order (lambda (arg slot) (compile-checked env arg (kind slot) x))
-                               (cdr x) slots)))
+      (let ((ops (map (lambda (op)
+                        (if (exists (lambda (slot) (reads? op slot)) slots)
+                            (emit-op! 'mov (kind op) (list op))
+                            op))
+                      (map-in-order (lambda (arg slot) (compile-checked env arg (kind slot) x))
+                                    (cdr x) slots))))
         (for-each (lambda (slot op) (emit! `(mov ,slot ,op))) slots ops)
         (emit! `(jmp ,(loop-binding-label loop))))))
+
+
+  (define (reads? op slot)
+    (or (equal? op slot)
+        (and (pair? op) (exists (lambda (x) (reads? x slot)) (cdr op)))))
 
 
   ;; The enclosing named lets, as state (outer or lambda)
@@ -757,28 +765,11 @@
     (when (memq def (inlining))
       (error 'compile-inline "recursive inline def" (def-name def)))
     (let* ((names (def-core-names def))
-           (callee-env (map (lambda (name op) (bind-local name op #f)) names ops)))
+           (callee-env (map (lambda (name op) (cons name (make-local-binding op))) names ops)))
       (parameterize ((inlining (cons def (inlining)))
                      (unsafe-code? (def-unsafe? def)))
         (compile-seq callee-env (def-core-body def)
                      (lambda (env x) (compile-last env def x))))))
-
-
-  ;; The env entry of the variable name bound to op: a box when it is assigned and captured,
-  ;; its own slot when it is only assigned (op itself when own?)
-  (define (bind-local name op own?)
-    (cond
-     ((boxed? name)
-      (when (eq? (kind op) 'raw)
-        (error 'bind-local "captured raw variable" name))
-      (cons name (make-local-binding (call-def '() (core-def 'make-box) (list op) name compile-result)
-                                     #t)))
-     ((not (assigned? name))
-      (cons name (make-local-binding op #f)))
-     (own?
-      (cons name (make-local-binding `(mutable ,op) #f)))
-     (else
-      (cons name (make-local-binding `(mutable ,(emit-op! 'mov (kind op) (list op))) #f)))))
 
 
   (define (compile-let env expr compile-last)
@@ -789,7 +780,8 @@
                                       (error 'compile-let "expected a val or a raw" b))
                                     op))
                                 bindings)))
-        (compile-seq (append (map (lambda (b op) (bind-local (car b) op #f)) bindings ops)
+        (compile-seq (append (map (lambda (b op) (cons (car b) (make-local-binding op)))
+                                  bindings ops)
                              env)
                      body compile-last))))
 
@@ -801,27 +793,12 @@
         (compile-value env expr)))
 
 
-  (define (compile-set! env var expr)
-    (let ((b (lookup env var))
-          (src (compile-named env var expr)))
-      (cond
-       ((and (local-binding? b) (local-binding-box? b))
-        (call-def env (core-def 'box-set!) (list (local-binding-operand b) src) var compile-result))
-       ((and (local-binding? b) (mutable? (local-binding-operand b)))
-        (let ((slot (cadr (local-binding-operand b))))
-          (check-kind src (kind slot) var)
-          (emit! `(mov ,slot ,src))))
-       (else
-        (error 'compile-set! "set! of a library procedure or primitive" var)))
-      (immediate 'undef)))
-
-
   ;; Lifts the closure form into its own function, and returns its procedure object, or a
   ;; closure filled with the captures
   (define (compile-lambda env name form)
     (let* ((captures (lambda-captures env form))
            (def (lambda-def name form captures)))
-      (compile-procedure def env captures)
+      (compile-procedure def env)
       (if (null? captures)
           `(as-val ,(def-proc def))
           (let ((c (call-def env (core-def 'alloc-closure) (list (def-proc def)) name
@@ -858,10 +835,9 @@
   ;; Stores the captures in the closure c, a raw from alloc-closure
   (define (fill-captures env c captures name)
     (for-each (lambda (capture i)
-                (let ((op (local-binding-operand (cdr capture))))
-                  (call-def env (core-def 'closure-set!)
-                            (list c `(quad ,i) (if (mutable? op) (emit-op! 'mov 'val (cdr op)) op))
-                            name compile-result)))
+                (call-def env (core-def 'closure-set!)
+                          (list c `(quad ,i) (local-binding-operand (cdr capture)))
+                          name compile-result))
               captures (iota (length captures))))
 
 
@@ -878,16 +854,16 @@
            (names (map car closures))
            (forms (map cadr closures))
            (body (cddr x)))
-      (for-each (lambda (def) (compile-procedure def env '())) defs)
+      (for-each (lambda (def) (compile-procedure def env)) defs)
       (if (null? closures)
           (compile-seq env body compile-last)
           (let* ((tmps (map (lambda (name) (fresh-tmp 'val)) names))
-                 (inner (append (map (lambda (name tmp) (cons name (make-local-binding tmp #f)))
+                 (inner (append (map (lambda (name tmp) (cons name (make-local-binding tmp)))
                                      names tmps)
                                 env))
                  (captures (map (lambda (form) (lambda-captures inner form)) forms))
                  (defs (map lambda-def names forms captures)))
-            (for-each (lambda (def c) (compile-procedure def inner c)) defs captures)
+            (for-each (lambda (def) (compile-procedure def inner)) defs)
             (for-each (lambda (def c tmp)
                         (let ((closure (call-def env (core-def 'alloc-closure)
                                                  (list (def-proc def)) (def-name def)
@@ -921,8 +897,8 @@
 
 
   ;; Compiles the procedure def (a lambda, a procedure define or main) in env, the enclosing
-  ;; env, with its captures, (name . binding) pairs of env, loaded from the closure
-  (define (compile-procedure def env captures)
+  ;; env, of which it sees the static procedures; its body binds its captures
+  (define (compile-procedure def env)
     (let* ((args (def-core-names def))
            (body (def-core-body def))
            (outer (disable-loops (filter (lambda (b) (not (local-binding? (cdr b)))) env) 'lambda))
@@ -931,18 +907,10 @@
              (lambda ()
                (parameterize ((unsafe-code? (def-unsafe? def))
                               (current-function def))
-                 (let* ((inner (append (map (lambda (c i)
-                                              (cons (car c)
-                                                    (make-local-binding
-                                                     (call-def env (core-def 'closure-ref)
-                                                               (list `(quad ,i)) (car c)
-                                                               compile-result)
-                                                     (local-binding-box? (cdr c)))))
-                                            captures (iota (length captures)))
-                                       outer))
-                        (body-env (append (map (lambda (x i) (bind-local x `(arg ,(+ i 1)) #t))
-                                               args (iota (length args)))
-                                          inner)))
+                 (let ((body-env (append (map (lambda (x i)
+                                                (cons x (make-local-binding `(arg ,(+ i 1)))))
+                                              args (iota (length args)))
+                                         outer)))
                    (when (string=? (def-symbol def) "main")
                      (for-each (lambda (d) (call-def env d '() 'main compile-result))
                                (startup-defs)))
@@ -991,15 +959,12 @@
              (lambda ()
                (parameterize ((unsafe-code? (def-unsafe? def))
                               (current-function def))
-                 (let ((body-env (append (map (lambda (p i)
-                                                (when (boxed? (car p))
-                                                  (error 'compile-low-def
-                                                         "assigned and captured parameter" (car p)))
-                                                (let ((arg `(arg ,(+ i 1))))
-                                                  (bind-local (car p)
-                                                              (if (eq? (cdr p) 'raw) `(as-raw ,arg) arg)
-                                                              #t)))
-                                              params (iota (length params))))))
+                 (let ((body-env (map (lambda (p i)
+                                        (let ((arg `(arg ,(+ i 1))))
+                                          (cons (car p)
+                                                (make-local-binding
+                                                 (if (eq? (cdr p) 'raw) `(as-raw ,arg) arg)))))
+                                      params (iota (length params)))))
                    (compile-seq body-env (def-core-body def)
                                 (lambda (env x) (compile-tail env def x)))))))))
       (check-gc-safety (def-name def) blocks)

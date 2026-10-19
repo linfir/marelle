@@ -95,11 +95,6 @@
               ,@(resolve-body env body))))))
 
 
-  ;; A local with the pretty name of x, which names its closure
-  (define (fresh-local x)
-    (gensym (symbol->string x)))
-
-
   (define (resolve-set! env x)
     (let-values (((var value) (parse-set! x)))
       (cond
