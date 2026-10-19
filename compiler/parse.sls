@@ -4,8 +4,8 @@
           define-form? validate-parameters
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
-          parse-if parse-cond parse-case parse-do parse-begin parse-set! parse-define
-          parse-let-values parse-define-values define-values-form?
+          parse-if parse-cond parse-case parse-do parse-parameterize parse-begin parse-set!
+          parse-define parse-let-values parse-define-values define-values-form?
           parse-define-record-type define-record-type-form? core-ref expand-and fresh-local
           scan-library
           library-def? library-def-name library-def-args library-def-kinds
@@ -59,7 +59,8 @@
 
   (define *special-forms*
     '(if cond case and or let let* letrec letrec* lambda begin set! when unless do define
-         let-values let*-values define-values define-record-type quasiquote case-lambda))
+         let-values let*-values define-values define-record-type quasiquote case-lambda
+         parameterize))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
@@ -313,6 +314,15 @@
             (error 'parse-do "duplicate do variable" (car s)))
           (loop (cdr specs) (cons (car s) seen)))))
     (values (cadr form) (caaddr form) (cdaddr form) (cdddr form)))
+
+
+  ;; (parameterize ((param value) ...) body ...) => (values bindings body)
+  (define (parse-parameterize form)
+    (unless (and (>= (length form) 3)
+                 (list? (cadr form))
+                 (for-all (lambda (b) (and (list? b) (= (length b) 2))) (cadr form)))
+      (error 'parse-parameterize "invalid parameterize" form))
+    (values (cadr form) (cddr form)))
 
 
   ;; (begin expr ...) => (expr ...)

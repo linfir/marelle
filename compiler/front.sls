@@ -2,8 +2,8 @@
 ;; original, and every special form headed by its marker, so a plain symbol at the head of a
 ;; form is a call.
 ;; The derived forms are expanded: cond, case, let*, letrec (as letrec*), do, let-values,
-;; let*-values, the bodies' defines, define-values and define-record-type, and when and
-;; unless outside unsafe defines.
+;; let*-values, parameterize, the bodies' defines, define-values and define-record-type, and
+;; when and unless outside unsafe defines.
 ;; The core forms left are if, begin, set!, lambda, let, named let, letrec* (for the letrec
 ;; pass), and, or, eq? (from case), and when and unless in unsafe defines.
 
@@ -112,6 +112,9 @@
 
           ((case-lambda)
            (front-expr env (expand-case-lambda x)))
+
+          ((parameterize)
+           (front-expr env (expand-parameterize x)))
 
           ((quasiquote)
            (unless (= (length x) 2)
@@ -315,6 +318,23 @@
                 `(,(core-ref 'case-lambda-error) ,args)
                 (let-values (((test body) (clause (car clauses))))
                   `(,(marker 'if) ,test ,body ,(loop (cdr clauses))))))))))
+
+
+  ;; Each parameter set by calling it, the body run, then the old values set back.
+  ;; Nothing exits non-locally, so no dynamic-wind.
+  (define (expand-parameterize x)
+    (let-values (((bindings body) (parse-parameterize x)))
+      (let ((ps (map (lambda (b) (gensym "p")) bindings))
+            (vs (map (lambda (b) (gensym "v")) bindings))
+            (olds (map (lambda (b) (gensym "old")) bindings))
+            (result (gensym "result")))
+        `(,(marker 'let) (,@(map (lambda (p b) (list p (car b))) ps bindings)
+                          ,@(map (lambda (v b) (list v (cadr b))) vs bindings))
+          (,(marker 'let) ,(map (lambda (old p) `(,old (,p))) olds ps)
+           ,@(map list ps vs)
+           (,(marker 'let) ((,result (,(marker 'let) () ,@body)))
+            ,@(map list ps olds)
+            ,result))))))
 
 
   ;; Their tails stay in tail position

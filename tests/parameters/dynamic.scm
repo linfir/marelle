@@ -1,0 +1,6 @@
+(define p (make-parameter 'outer))
+(define (f) (p))
+(list (f)
+      (parameterize ((p 'middle))
+        (list (f) (parameterize ((p 'inner)) (f)) (f)))
+      (f))

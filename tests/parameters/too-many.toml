@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "no `case-lambda` clause takes the arguments"
+chez = "skip"
