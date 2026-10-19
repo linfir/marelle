@@ -65,8 +65,9 @@
    ((raw= (load p (raw 0)) ratnum-type) (raw 3))
    ((raw= (load p (raw 0)) record-type) (raw+ (load p (raw 1)) (raw 3)))
    ((raw= (load p (raw 0)) hashtable-type) (raw 9))
+   ((raw= (load p (raw 0)) symbol-type) (raw 3))
    ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
-   (else (raw 2)))) ; pair, box, values, symbol or record type
+   (else (raw 2)))) ; pair, box, values or record type
 
 ;; The new address of the object x points to, copied to gc-free if it is in the
 ;; current space; a moved object holds forward-type and its new address
@@ -117,7 +118,7 @@
                  ((raw= header procedure-type) (raw 5))
                  ((raw= header box-type) (raw 1))
                  ((raw= header values-type) (raw 1))
-                 ((raw= header symbol-type) (raw 1)) ; the name
+                 ((raw= header symbol-type) (raw 2)) ; the name
                  ((raw= header bignum-type) n) ; only raw words
                  ((raw= header vector-type) (raw 2))
                  ((raw= header flexvector-type) (raw 2)) ; the storage

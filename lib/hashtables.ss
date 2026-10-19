@@ -97,7 +97,7 @@
 (define (key-hash (raw kind) k)
   (declare unsafe noalloc (result raw))
   (cond
-   ((symbol? k) (cached-string-hash (symbol-name k)))
+   ((symbol? k) (symbol-hash-word k))
    ((by-value? kind k) (number-hash k))
    (else (as-raw k))))
 
@@ -462,8 +462,8 @@
           (mix h (equal-hash-word x)))))
    ((not (tag=? x (raw 0))) (as-raw x))
    ((raw= (as-raw x) (raw 0)) (raw 0))
-   ((symbol? x) (cached-string-hash (symbol-name x)))
-   ((string? x) (cached-string-hash x))
+   ((symbol? x) (symbol-hash-word x))
+   ((string? x) (string-hash-word x))
    ((vector? x)
     (let element-next ((i (raw 0))
                        (h (load (as-raw x) (raw 1))))
@@ -481,13 +481,13 @@
 (define (string-hash s)
   (declare unsafe public)
   (check-string s "`string-hash` expected a string")
-  (hash-fixnum (cached-string-hash s)))
+  (hash-fixnum (string-hash-word s)))
 
 (define (symbol-hash s)
   (declare unsafe public)
   (unless (symbol? s)
     (scheme-error "`symbol-hash` expected a symbol" s))
-  (hash-fixnum (cached-string-hash (symbol-name s))))
+  (hash-fixnum (symbol-hash-word s)))
 
 (define (display-hashtable (raw out) t)
   (declare unsafe noalloc (result void))

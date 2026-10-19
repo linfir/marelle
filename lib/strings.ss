@@ -1,4 +1,4 @@
-;; Strings, immutable: [header, nchars, hash, units...], nchars and hash raw words, the units
+;; Strings, immutable: [header, nchars, units...], nchars a raw word, the units
 ;; padded to a whole word; the header is the kind, chosen by content: ASCII, a byte per char,
 ;; when every char is below 128, else UTF-32, 4 bytes per char, so equal strings have the same
 ;; kind; 50 and 51 are kept for later kinds
@@ -34,7 +34,7 @@
 ;; The words of a string of n chars with the header h
 (define (string-words (raw h) (raw n))
   (declare unsafe inline (result raw))
-  (raw+ (raw 3) (if (raw= h ascii-string-type)
+  (raw+ (raw 2) (if (raw= h ascii-string-type)
                     (raw>>u (raw+ n (raw 7)) (raw 3))
                     (raw>>u (raw+ n (raw 1)) (raw 1)))))
 
@@ -50,15 +50,15 @@
 (define (string-code s (raw i))
   (declare unsafe inline (result raw))
   (if (ascii-string? s)
-      (load8 (as-raw s) (raw+ i (raw 24)))
-      (load32 (as-raw s) (raw+ (raw<< i (raw 2)) (raw 24)))))
+      (load8 (as-raw s) (raw+ i (raw 16)))
+      (load32 (as-raw s) (raw+ (raw<< i (raw 2)) (raw 16)))))
 
 ;; Sets char i of the string at p to the code n, which fits its kind
 (define (string-set-code! (raw p) (raw i) (raw n))
   (declare unsafe inline (result void))
   (if (raw= (load p (raw 0)) ascii-string-type)
-      (store8 p (raw+ i (raw 24)) n)
-      (store32 p (raw+ (raw<< i (raw 2)) (raw 24)) n)))
+      (store8 p (raw+ i (raw 16)) n)
+      (store32 p (raw+ (raw<< i (raw 2)) (raw 16)) n)))
 
 ;; Copies the chars [start, end) of the string s to the string d, from char at
 (define (copy-chars! d (raw at) s (raw start) (raw end))
@@ -139,8 +139,8 @@
   (declare unsafe noalloc)
   (and (raw= (load (as-raw a) (raw 0)) (load (as-raw b) (raw 0)))
        (raw= (string-nchars a) (string-nchars b))
-       (words=? (raw+ (as-raw a) (raw 24)) (raw+ (as-raw b) (raw 24))
-                (raw- (string-words (load (as-raw a) (raw 0)) (string-nchars a)) (raw 3)))))
+       (words=? (raw+ (as-raw a) (raw 16)) (raw+ (as-raw b) (raw 16))
+                (raw- (string-words (load (as-raw a) (raw 0)) (string-nchars a)) (raw 2)))))
 
 (define (string=? a b)
   (declare unsafe public)
