@@ -112,8 +112,12 @@
                       (kinds (make-eq-hashtable))
                       (name-counter (make-counter 1))
                       (return-k (gensym "return")))
-         (let ((fun `(fun ,(def-code def) (,(return-k)) ,(make-term))))
-           (dumped 'cps (list-head fun 3) (cdddr fun))
+         (let* ((fun `(fun ,(def-code def) (,(return-k)) ,(make-term)))
+                (fun (begin
+                       (dumped 'cps (list-head fun 3) (cdddr fun))
+                       (check-cps fun)
+                       `(,@(list-head fun 3) ,(expand-frames (cadddr fun))))))
+           (dumped 'frames (list-head fun 3) (cdddr fun))
            (check-cps fun)
            (lower-function! def fun))))))
 
@@ -455,7 +459,7 @@
         (cps-indirect env x #f c)))))
 
 
-  ;; Calls def with the atoms as, giving its value to c
+  ;; Calls def with the atoms as, its parameters, giving its value to c
   (define (call-def def as form c)
     (cond
      ((def-inline? def)
@@ -464,76 +468,35 @@
      ;; A call on the machine stack, so not a safepoint
      ((def-noalloc? def)
       (letprim `(stackcall ,(def-result def) ,(def-code def) ,@as) (def-result def) c))
+     ((def-rest? def)
+      (error 'call-def "def with a rest parameter called with its parameters" (def-name def)))
      (else
-      (direct-frame def form
-                    (lambda (f)
-                      (frame-stores f as
-                                    (lambda ()
-                                      (call-to (def-code def) f (def-result def) c))))))))
+      (app-to #f def as (def-result def) c))))
 
 
-  ;; The non-tail call of target with the frame f, its value, of kind result, given to c
-  (define (call-to target f result c)
+  ;; (app tag callee k atom ...), its value, of kind result, given to c through k
+  (define (app-to tag callee as result c)
     (if (eq? result 'never)
         (begin
           (c '(never))
-          `(call never ,target ,f))
+          `(app ,tag ,callee never ,@as))
         (let* ((k (new-name "k"))
                (r (fresh result))
                (body (c r)))
           `(letcont ((,k (,(param r)) ,body))
-                    (call ,k ,target ,f)))))
+                    (app ,tag ,callee ,k ,@as)))))
 
 
-  (define (call-def-tail def as form)
-    (direct-frame def form
-                  (lambda (f)
-                    (frame-stores f as (lambda () `(call ,(return-k) ,(def-code def) ,f))))))
-
-
-  ;; The frame of a call to def, filled before the call
-  (define (direct-frame def form c)
-    (call-def (core-def 'make-direct-frame) (list (def-code def) `(as-val ,(def-proc def))) form c))
-
-
-  (define (frame-store f i a k)
-    `(letprim #f (store (as-raw ,f) (quad ,(+ i 6)) ,a) ,(k)))
-
-
-  (define (frame-stores f as k)
-    (let loop ((as as) (i 0))
-      (if (null? as)
-          (k)
-          (frame-store f i (car as) (lambda () (loop (cdr as) (+ i 1)))))))
-
-
-  ;; Each argument stored as soon as it is computed, so only the frame is live across the
-  ;; calls they make
-  (define (cps-frame-args env f exprs form k)
-    (let loop ((exprs exprs) (i 0))
-      (if (null? exprs)
-          (k)
-          (cps-checked env (car exprs) 'val form
-                       (lambda (a)
-                         (frame-store f i a (lambda () (loop (cdr exprs) (+ i 1)))))))))
-
-
-  ;; The call (def arg ...) of a def-called? def, a tail call when tail?
+  ;; The call (def arg ...) of a def-called? def, a tail call when tail?: its arguments' code
+  ;; marked, so the frame is allocated before it (expand-frames)
   (define (cps-direct env def x tail? c)
-    (direct-frame
-     def x
-     (lambda (f)
-       (let ((call (lambda ()
-                     (if tail?
-                         `(call ,(return-k) ,(def-code def) ,f)
-                         (call-to (def-code def) f (def-result def) c)))))
-         (if (def-rest? def)
-             (let ((r (def-required def)))
-               (cps-frame-args env f (list-head (cdr x) r) x
-                               (lambda ()
-                                 (cps-rest-list env (list-tail (cdr x) r) x
-                                                (lambda (l) (frame-store f r l call))))))
-             (cps-frame-args env f (cdr x) x call))))))
+    (let ((tag (new-name "a")))
+      `(args ,tag
+             ,(cps-exprs env (cdr x) (map (lambda (y) 'val) (cdr x)) x
+                         (lambda (as)
+                           (if tail?
+                               `(app ,tag ,def ,(return-k) ,@as)
+                               (app-to tag def as (def-result def) c)))))))
 
 
   ;; x is (name arg ...), converted after its entry in the table of ops.sls
@@ -647,56 +610,27 @@
   ;; allocates the frame first
   (define (cps-indirect env x tail? c)
     (let ((n (length (cdr x)))
-          (self (current-function)))
+          (self (current-function))
+          (tag (new-name "a")))
       (cps-checked
        env (car x) 'val x
        (lambda (proc)
+         (define (args tag)
+           (cps-exprs env (cdr x) (map (lambda (y) 'val) (cdr x)) x
+                      (lambda (as)
+                        (if tail?
+                            `(app ,tag ,proc ,(return-k) ,@as)
+                            (app-to tag proc as 'val c)))))
+
          (if (and tail? (not (def-rest? self)) (= n (length (def-params self))))
-             (cps-exprs env (cdr x) (map (lambda (y) 'val) (cdr x)) x
-                        (lambda (as)
-                          (let* ((other (new-name "k"))
-                                 (same (new-name "k"))
-                                 (test (cps-inline (core-def 'same-code?) (list proc (def-code self)) x
-                                                   (test-last same other)))
-                                 (call (frame-call proc n (lambda (f k) (frame-stores f as k)) x #t #f)))
-                            `(letcont ((,other () ,call))
-                                      (letcont ((,same () (selfcall ,proc ,@as)))
-                                               ,test)))))
-             (frame-call proc n (lambda (f k) (cps-frame-args env f (cdr x) x k)) x tail? c))))))
+             (args #f)
+             `(args ,tag ,(args tag)))))))
 
 
   ;; The inline def's last expression as a test
   (define (test-last kt kf)
     (lambda (env def x)
       (cps-test env x kt kf)))
-
-
-  ;; The call of proc with n arguments, (fill f k) storing them in its frame f before the term
-  ;; (k); when the arity is not n, the frame is a placeholder holding them, for apply-frame
-  (define (frame-call proc n fill form tail? c)
-    (call-def
-     (core-def 'make-call-frame) (list proc `(quad ,n)) form
-     (lambda (f)
-       (fill f
-             (lambda ()
-               (let* ((fast (new-name "k"))
-                      (slow (new-name "k"))
-                      (test (cps-inline (core-def 'frame-fits?) (list f `(quad ,n)) form
-                                        (test-last fast slow))))
-                 (if tail?
-                     (let ((slow-term (call-def-tail (core-def 'apply-frame) (list f) form)))
-                       `(letcont ((,slow () ,slow-term))
-                                 (letcont ((,fast () (call ,(return-k) frame ,f)))
-                                          ,test)))
-                     (let* ((join (new-name "j"))
-                            (slow-term (call-def (core-def 'apply-frame) (list f) form
-                                                 (lambda (a) `(throw ,join ,a))))
-                            (r (fresh 'val))
-                            (rest (c r)))
-                       `(letcont ((,join (,r) ,rest))
-                                 (letcont ((,slow () ,slow-term))
-                                          (letcont ((,fast () (call ,join frame ,f)))
-                                                   ,test)))))))))))
 
 
   ;; Every expression but the last for effect, then (last env last)
@@ -789,7 +723,8 @@
                ((def-noalloc? callee)
                 (cps-return env def x))
                ((eq? callee (current-function))
-                (cps-args env callee x (lambda (as) `(selfcall (self) ,@as))))
+                (cps-exprs env (cdr x) (map (lambda (y) 'val) (cdr x)) x
+                           (lambda (as) `(app #f ,callee ,(return-k) ,@as))))
                ((not (def-inline? callee))
                 (cps-direct env callee x #t #f))
                ((and (eq? (def-result def) 'val) (eq? (def-result callee) 'val))
@@ -1141,4 +1076,218 @@
           (let* ((r (and (memq k '(val raw)) (fresh k)))
                  (rest (c (or r '(void)))))
             `(letcont ((,j ,(if r (list (param r)) '()) ,rest))
-                      ,inner))))))
+                      ,inner)))))
+
+
+  ;; Frames, the last step of the conversion: each (app tag callee k atom ...) to the block IR's
+  ;; calls, whose caller allocates the callee's frame and stores the arguments in it. A marked
+  ;; call's frame, (args tag term), is allocated at the mark, before its arguments' code, and
+  ;; each argument stored as soon as the variable holding it is bound, so only the frame is
+  ;; live across the calls the arguments make; an unmarked call's frame is allocated at the app.
+  ;; A tail call of the function itself reuses its frame (selfcall), as may an unmarked tail call
+  ;; of an unknown procedure taking as many arguments, after checking its code.
+
+  ;; A marked call being filled: its frame, the index of the next argument to store, the number
+  ;; stored before the call (a rest def's required ones), and its atoms
+  (define-record-type filling
+    (fields frame next limit atoms))
+
+
+  (define (expand-frames term)
+    (let ((apps (make-eq-hashtable))
+          (positions (make-eq-hashtable))
+          (spans (make-eq-hashtable))
+          (n 0))
+      ;; The marks' apps, and the preorder positions of the bindings and of the marks' terms
+      (define (number! t)
+        (define (position! x)
+          (hashtable-set! positions x n)
+          (set! n (+ n 1)))
+
+        (case (car t)
+          ((letprim)
+           (when (cadr t)
+             (position! (cadr t)))
+           (number! (cadddr t)))
+          ((letcont letcont-rec)
+           (let ((b (car (cadr t))))
+             (for-each position! (map param-var (cadr b)))
+             (number! (caddr b))
+             (number! (caddr t))))
+          ((args)
+           (let ((start n))
+             (number! (caddr t))
+             (hashtable-set! spans (cadr t) (cons start n))))
+          ((app)
+           (when (cadr t)
+             (hashtable-set! apps (cadr t) t)))
+          (else (void))))
+
+      ;; Whether the atom a is computed before the arguments of the call tag: not a variable
+      ;; bound inside its mark
+      (define (ready? tag a)
+        (let ((p (and (symbol? a) (hashtable-ref positions a #f)))
+              (span (hashtable-ref spans tag #f)))
+          (not (and p (<= (car span) p) (< p (cdr span))))))
+
+      ;; pending: the marked calls being filled on this path, (tag . filling)
+      (define (walk t pending)
+        (case (car t)
+          ((letprim)
+           `(letprim ,(cadr t) ,(caddr t)
+                     ,(bound (if (cadr t) (list (cadr t)) '()) pending
+                             (lambda (pending) (walk (cadddr t) pending)))))
+          ((letcont letcont-rec)
+           (let* ((b (car (cadr t)))
+                  (body (bound (map param-var (cadr b)) pending
+                               (lambda (pending) (walk (caddr b) pending)))))
+             `(,(car t) ((,(car b) ,(cadr b) ,body))
+               ,(walk (caddr t) pending))))
+          ((args)
+           (let ((app (hashtable-ref apps (cadr t) #f)))
+             (if app
+                 (let ((callee (caddr app))
+                       (as (cddddr app)))
+                   (allocate-frame callee (length as)
+                                   (lambda (f)
+                                     (store-ready (cadr t) (make-filling f 0 (limit callee as) as) #f
+                                                  (lambda (filling)
+                                                    (walk (caddr t)
+                                                          (acons (cadr t) filling pending)))))))
+                 (walk (caddr t) pending))))
+          ((app)
+           (expand-app t pending))
+          (else t)))
+
+      ;; The variables vars bound: the arguments they hold stored, then (k pending)
+      (define (bound vars pending k)
+        (let loop ((ps pending) (done '()))
+          (if (null? ps)
+              (k (reverse done))
+              (let* ((tag (caar ps))
+                     (f (cdar ps))
+                     (i (filling-next f)))
+                (if (and (< i (filling-limit f)) (memq (list-ref (filling-atoms f) i) vars))
+                    (store-ready tag f #t
+                                 (lambda (f) (loop (cdr ps) (cons (cons tag f) done))))
+                    (loop (cdr ps) (cons (car ps) done)))))))
+
+      ;; Stores the next argument when first?, then each following one computed before the call,
+      ;; then (k filling)
+      (define (store-ready tag f first? k)
+        (let loop ((i (filling-next f)) (first? first?))
+          (if (and (< i (filling-limit f))
+                   (or first? (ready? tag (list-ref (filling-atoms f) i))))
+              (frame-store (filling-frame f) i (list-ref (filling-atoms f) i)
+                           (lambda () (loop (+ i 1) #f)))
+              (k (make-filling (filling-frame f) i (filling-limit f) (filling-atoms f))))))
+
+      (define (expand-app t pending)
+        (let* ((tag (cadr t))
+               (callee (caddr t))
+               (k (cadddr t))
+               (as (cddddr t))
+               (n (length as))
+               (self (current-function))
+               (entry (and tag (assq tag pending))))
+          (cond
+           (entry
+            (fill-rest callee (cdr entry) (lambda () (call-frame callee k (filling-frame (cdr entry)) n))))
+           ((and (eq? callee self) (eq? k (return-k)))
+            (with-rest-list callee as (lambda (as) `(selfcall (self) ,@as))))
+           ((and (not (def? callee)) (eq? k (return-k))
+                 (not (def-rest? self)) (= n (length (def-params self))))
+            (let* ((other (new-name "k"))
+                   (same (new-name "k"))
+                   (test (cps-inline (core-def 'same-code?) (list callee (def-code self)) '()
+                                     (test-last same other)))
+                   (call (allocate-frame callee n
+                                         (lambda (f)
+                                           (fill-rest callee (make-filling f 0 n as)
+                                                      (lambda () (call-frame callee k f n)))))))
+              `(letcont ((,other () ,call))
+                        (letcont ((,same () (selfcall ,callee ,@as)))
+                                 ,test))))
+           (else
+            (allocate-frame callee n
+                            (lambda (f)
+                              (fill-rest callee (make-filling f 0 (limit callee as) as)
+                                         (lambda () (call-frame callee k f n)))))))))
+
+      (number! term)
+      (walk term '())))
+
+
+  ;; The number of arguments stored as they are computed: all but a rest def's extra ones
+  (define (limit callee as)
+    (if (and (def? callee) (def-rest? callee)) (def-required callee) (length as)))
+
+
+  ;; The frame of a call of callee, a def or a procedure value, with n arguments
+  (define (allocate-frame callee n c)
+    (if (def? callee)
+        (direct-frame callee c)
+        (call-def (core-def 'make-call-frame) (list callee `(quad ,n)) '() c)))
+
+
+  (define (direct-frame def c)
+    (call-def (core-def 'make-direct-frame) (list (def-code def) `(as-val ,(def-proc def))) '() c))
+
+
+  ;; The arguments of f not stored yet, then a rest def's extra ones as a fresh list, before (k)
+  (define (fill-rest callee f k)
+    (let ((frame (filling-frame f))
+          (as (filling-atoms f))
+          (limit (filling-limit f)))
+      (let loop ((i (filling-next f)))
+        (cond
+         ((< i limit)
+          (frame-store frame i (list-ref as i) (lambda () (loop (+ i 1)))))
+         ((and (def? callee) (def-rest? callee))
+          (rest-list (list-tail as limit) (lambda (l) (frame-store frame limit l k))))
+         (else
+          (k))))))
+
+
+  ;; The atoms of a call of def, the extra ones packed into its rest parameter's list
+  (define (with-rest-list def as c)
+    (if (def-rest? def)
+        (let ((r (def-required def)))
+          (rest-list (list-tail as r) (lambda (l) (c (append (list-head as r) (list l))))))
+        (c as)))
+
+
+  ;; A fresh list of the atoms as, consed from the last
+  (define (rest-list as c)
+    (let loop ((as (reverse as)) (acc (immediate-operand ''())))
+      (if (null? as)
+          (c acc)
+          (call-def (core-def 'cons) (list (car as) acc) '() (lambda (p) (loop (cdr as) p))))))
+
+
+  (define (frame-store f i a k)
+    `(letprim #f (store (as-raw ,f) (quad ,(+ i 6)) ,a) ,(k)))
+
+
+  ;; The call of callee, with n arguments, through its filled frame f; a procedure value's frame
+  ;; is a placeholder when its arity is not n, which apply-frame turns into its frame
+  (define (call-frame callee k f n)
+    (if (def? callee)
+        `(call ,k ,(def-code callee) ,f)
+        (let* ((fast (new-name "k"))
+               (slow (new-name "k"))
+               (test (cps-inline (core-def 'frame-fits?) (list f `(quad ,n)) '() (test-last fast slow)))
+               (apply-frame (core-def 'apply-frame))
+               (slow-term (direct-frame apply-frame
+                                        (lambda (g)
+                                          (frame-store g 0 f
+                                                       (lambda ()
+                                                         (if (eq? k (return-k))
+                                                             `(call ,k ,(def-code apply-frame) ,g)
+                                                             (let* ((k2 (new-name "k"))
+                                                                    (r (fresh 'val)))
+                                                               `(letcont ((,k2 (,r) (throw ,k ,r)))
+                                                                         (call ,k2 ,(def-code apply-frame) ,g))))))))))
+          `(letcont ((,slow () ,slow-term))
+                    (letcont ((,fast () (call ,k frame ,f)))
+                             ,test))))))

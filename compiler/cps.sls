@@ -11,6 +11,11 @@
 ;;                                            fun's (a tail call), or never
 ;;         | (selfcall proc atom ...)          a self tail call reusing the frame
 ;;         | (unreachable)
+;;         | (app tag callee k atom ...)       a call of callee, a def or an atom, with the
+;;                                            arguments atom ...; k as for call
+;;         | (args tag term)                  the arguments of the app tag computed in term
+;; app and args, the converter's, become frames, stores and calls (expand-frames) before the
+;; lowering.
 ;; param ::= x | (raw x)
 ;; op    ::= (low-op atom ...) | (as-val atom) | (stackcall kind code atom ...)
 ;;         | (literal x) | (move atom) | (cell-set! c atom)
@@ -101,6 +106,12 @@
              (fail "call returning to a continuation of several parameters" t)))
           ((selfcall)
            (for-each (lambda (a) (atom! a vars)) (cdr t)))
+          ((args)
+           (check (caddr t) vars conts))
+          ((app)
+           (for-each (lambda (a) (atom! a vars)) (cons (caddr t) (cddddr t)))
+           (unless (or (eq? (cadddr t) 'never) (<= (cont-arity (cadddr t) conts) 1))
+             (fail "call returning to a continuation of several parameters" t)))
           ((unreachable) (void))
           (else
            (fail "not a term" t))))
