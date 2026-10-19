@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Error: `number->string` expected a radix from 2 to 36: 1\n"

@@ -309,3 +309,78 @@
 
 (define (variadic->= x . xs)
   (compare-all (lambda (a b) (>= a b)) x xs))
+
+;; R6RS: q such that x = qy + m, 0 <= m < |y|; the truncated quotient, moved by one
+;; when the remainder is negative
+(define (div x y)
+  (declare unsafe public)
+  (check-division x y "`div` expected an integer" "`div` expected a nonzero divisor")
+  (let ((q (quotient x y)))
+    (cond
+     ((>= (remainder x y) 0) q)
+     ((> y 0) (- q 1))
+     (else (+ q 1)))))
+
+;; Bit k of n in two's complement
+(define (logbit? k n)
+  (declare unsafe public)
+  (unless (and (fixnum? k) (>= k 0))
+    (scheme-error "`logbit?` expected a nonnegative fixnum" k))
+  (check-integer n "`logbit?` expected an integer")
+  (if (fixnum? n)
+      (raw= (bit-and (raw>> (fixnum-value n)
+                            (if (raw<u (fixnum-value k) (raw 64)) (fixnum-value k) (raw 63)))
+                     (raw 1))
+            (raw 1))
+      (odd? (shift-integer n (- 0 k)))))
+
+(define (digit-char d)
+  (integer->char (+ d (if (< d 10) 48 55))))
+
+;; The digits of the nonnegative fixnum n consed onto acc, zero-padded to width
+(define (fixnum-digits n radix width acc)
+  (if (and (eq? n 0) (<= width 0))
+      acc
+      (fixnum-digits (quotient n radix) radix (- width 1) (cons (digit-char (modulo n radix)) acc))))
+
+;; The largest power of radix that is a fixnum, and its exponent
+(define (radix-chunk radix)
+  (let next ((p radix)
+             (k 1))
+    (if (< (* p radix) 1152921504606846976)
+        (next (* p radix) (+ k 1))
+        (values p k))))
+
+;; Those of the nonnegative integer n, a fixnum chunk at a time
+(define (integer-digits n radix acc)
+  (if (< n 1152921504606846976)
+      (fixnum-digits n radix 1 acc)
+      (let-values (((chunk k) (radix-chunk radix)))
+        (let next ((n n)
+                   (acc acc))
+          (if (< n chunk)
+              (fixnum-digits n radix 1 acc)
+              (next (quotient n chunk) (fixnum-digits (modulo n chunk) radix k acc)))))))
+
+(define (signed-digits n radix acc)
+  (if (< n 0)
+      (cons #\- (integer-digits (- 0 n) radix acc))
+      (integer-digits n radix acc)))
+
+(define (number->string x)
+  (declare public)
+  (variadic-number->string x 10))
+
+;; Radixes 2 to 36, like Chez, uppercase
+(define (variadic-number->string x . radix)
+  (declare unsafe)
+  (check-number x "`number->string` expected a number")
+  (unless (and (pair? radix) (null? (cdr radix)))
+    (scheme-error "`number->string` expected 1 or 2 arguments" radix))
+  (unless (and (fixnum? (car radix)) (>= (car radix) 2) (<= (car radix) 36))
+    (scheme-error "`number->string` expected a radix from 2 to 36" (car radix)))
+  (let ((radix (car radix)))
+    (list->string (signed-digits (number-numerator x) radix
+                                 (if (ratnum? x)
+                                     (cons #\/ (integer-digits (number-denominator x) radix '()))
+                                     '())))))
