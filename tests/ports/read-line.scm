@@ -1,0 +1,8 @@
+(define (lines)
+  (let ((l (read-line)))
+    (if (eof-object? l)
+        '()
+        (cons l (lines)))))
+(let* ((first (read-line (current-input-port)))
+       (rest (lines)))
+  (list first rest (read-line)))

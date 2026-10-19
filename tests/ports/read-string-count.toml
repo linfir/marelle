@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "`read-string` expected a nonnegative fixnum: -1"

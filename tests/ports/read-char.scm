@@ -1,0 +1,6 @@
+(define (chars)
+  (let ((c (read-char)))
+    (if (eof-object? c)
+        '()
+        (cons c (chars)))))
+(chars)

@@ -1,0 +1,2 @@
+stdin = "only\n"
+stdout = '("only" #!eof)'

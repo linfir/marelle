@@ -1,0 +1,2 @@
+(display "name? ")
+(read-line)

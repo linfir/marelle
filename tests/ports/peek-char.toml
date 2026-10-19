@@ -1,0 +1,2 @@
+stdin = "aé"
+stdout = "(#\\a #\\a #\\a #\\é #!eof #!eof #!eof)"

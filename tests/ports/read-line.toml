@@ -1,0 +1,2 @@
+stdin = "one\ntwö\n\nlast"
+stdout = '("one" ("twö" "" "last") #!eof)'

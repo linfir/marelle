@@ -1,0 +1,2 @@
+stdin = "bob\n"
+stdout = 'name? "bob"'

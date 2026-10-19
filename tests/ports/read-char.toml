@@ -1,0 +1,2 @@
+stdin = "hé😀\n"
+stdout = "(#\\h #\\é #\\😀 #\\newline)"

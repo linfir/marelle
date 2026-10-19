@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "`read-line` expected an open input port"
+chez = "skip"

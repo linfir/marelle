@@ -1,0 +1,5 @@
+(let* ((a (read-string 3))
+       (b (read-string 0))
+       (c (read-string 10 (current-input-port)))
+       (d (read-string 2)))
+  (list a b c d))

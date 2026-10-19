@@ -1,0 +1,8 @@
+(let* ((a (peek-char))
+       (b (peek-char (current-input-port)))
+       (c (read-char))
+       (d (read-char (current-input-port)))
+       (e (peek-char))
+       (f (read-char))
+       (g (read-char)))
+  (list a b c d e f g))
