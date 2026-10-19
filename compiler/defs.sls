@@ -6,13 +6,14 @@
           def-core def-core-set! def-core-names def-core-body
           make-data data? data-name data-symbol data-nwords data-extern?
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
-          procedure-type binary-ops tests low-ops unsafe-bindings
+          procedure-type unsafe-bindings
           names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
           core-defs inlining unsafe-code? variadic-twin
           fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
   (import (chezscheme)
           (utils)
           (vars)
+          (ops)
           (output))
 
 
@@ -23,42 +24,6 @@
   ;; bignum-type and ratnum-type in lib/objects.ss
   (define bignum-type (* 46 8))
   (define ratnum-type (* 55 8))
-
-
-  (define binary-ops
-    '((bit-and . and)
-      (bit-or . or)
-      (bit-xor . xor)
-      (raw+ . add)
-      (raw- . sub)
-      (raw* . mul)
-      (raw/ . div)
-      (raw% . rem)
-      (raw*hu . mulhu)
-      (raw<< . sal)
-      (raw>> . sar)
-      (raw>>u . shr)))
-
-
-  ;; (test jump-if-true jump-if-false)
-  (define tests
-    '((raw=  je  jne)
-      (raw<  jl  jge)
-      (raw<= jle jg)
-      (raw>  jg  jle)
-      (raw>= jge jl)
-      (raw<u  jb  jae)
-      (raw<=u jbe ja)
-      (raw>u  ja  jbe)
-      (raw>=u jae jb)))
-
-
-  ;; The low operations unsafe defines may call
-  (define low-ops
-    (append (map car binary-ops)
-            (map car tests)
-            '(raw as-raw as-val syscall load store load8 store8 load32 store32 copy-words fill-words raw/wu
-                  alloc alloc-frame tail-call-frame self address)))
 
 
   ;; What only unsafe defines see, after their other names

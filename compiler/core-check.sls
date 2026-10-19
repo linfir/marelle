@@ -9,7 +9,8 @@
   (import (chezscheme)
           (parse)
           (closure)
-          (defs))
+          (defs)
+          (ops))
 
 
   (define (check-core name core)

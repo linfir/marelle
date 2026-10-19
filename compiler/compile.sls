@@ -27,6 +27,7 @@
           (vars)
           (closure)
           (defs)
+          (ops)
           (gc-check)
           (output)
           (emit)
@@ -45,9 +46,11 @@
      (else 'val)))
 
 
+  ;; k is a kind, or any for a val or a raw
   (define (check-kind x k expr)
-    (unless (eq? (kind x) k)
-      (error 'check-kind (format "expected a ~a" k) expr)))
+    (unless (if (eq? k 'any) (memq (kind x) '(val raw)) (eq? (kind x) k))
+      (error 'check-kind (if (eq? k 'any) "expected a val or a raw" (format "expected a ~a" k))
+             expr)))
 
 
   (define (lookup env x)
@@ -69,9 +72,9 @@
           (else #f))))
 
 
-  ;; The entry of tests of the low test expr, or #f
+  ;; The jumps of the low test expr, (jump-if-true jump-if-false), or #f
   (define (test-form expr)
-    (and (eq? (special-keyword expr) 'low) (assq (cadr expr) tests)))
+    (and (eq? (special-keyword expr) 'low) (low-test (cadr expr))))
 
 
   ;; The def a call expr calls with the right number of arguments, or #f; another number goes
@@ -360,125 +363,67 @@
           (emit-call! 'call (def-result def) (list (def-code def) f)))))
 
 
-  ;; expr is (op arg ...)
-  (define (compile-low-op env op expr)
-    (cond
-     ((assq op tests)
-      (compile-if env (cons (marker 'low) expr) #t #f))
+  ;; expr is (name arg ...), compiled after its entry in the table of ops.sls
+  (define (compile-low-op env name expr)
+    (let ((op (low-op name)))
+      (define (literal? ok?)
+        (and (= (length expr) 2) (ok? (cadr expr))))
 
-     ((assq op binary-ops)
-      => (lambda (entry)
-           (emit-op! (cdr entry) 'raw (compile-operands env expr '(raw raw)))))
+      (cond
+       ((op-test? op)
+        (compile-if env (cons (marker 'low) expr) #t #f))
 
-     (else
-      (case op
-        ((raw)
-         (unless (and (= (length expr) 2)
-                      (integer? (cadr expr))
-                      (exact? (cadr expr))
-                      (<= (- (expt 2 63)) (cadr expr) (- (expt 2 64) 1)))
-           (error 'compile-value "invalid raw literal" expr))
-         `(quad ,(cadr expr)))
+       (else
+        (case name
+          ((raw)
+           (unless (literal? (lambda (n)
+                               (and (integer? n) (exact? n) (<= (- (expt 2 63)) n (- (expt 2 64) 1)))))
+             (error 'compile-value "invalid raw literal" expr))
+           `(quad ,(cadr expr)))
 
-        ;; Casts only wrap the operand,
-        ;; except that as-val copies a raw slot into a tmp, since the GC scans only tmps
-        ((as-raw as-val)
-         (unless (= (length expr) 2)
-           (error 'compile-value "invalid cast" expr))
-         (let ((x (compile-checked env (cadr expr) (if (eq? op 'as-raw) 'val 'raw) expr)))
-           (if (and (eq? op 'as-val)
-                    (not (zero? (raws-in x))))
-               (emit-op! 'mov 'val (list x))
-               (list op x))))
+          ((as-raw as-val)
+           (let ((x (car (compile-operands env expr (op-operands op)))))
+             (if (and (eq? name 'as-val)
+                      (not (zero? (raws-in x))))
+                 (emit-op! 'mov 'val (list x))
+                 (list name x))))
 
-        ;; (syscall n arg ...): a Linux system call, raw arguments and result
-        ;; (a negative errno on failure), not a safepoint
-        ((syscall)
-         (unless (and (<= 2 (length expr) 8)
-                      (integer? (cadr expr))
-                      (exact? (cadr expr))
-                      (>= (cadr expr) 0))
-           (error 'compile-value "invalid syscall" expr))
-         (emit-op! 'syscall 'raw
-                   (cons `(quad ,(cadr expr))
-                         (compile-exprs env (cddr expr) (map (lambda (x) 'raw) (cddr expr)) expr))))
+          ((syscall)
+           (unless (and (<= 2 (length expr) 8)
+                        (integer? (cadr expr))
+                        (exact? (cadr expr))
+                        (>= (cadr expr) 0))
+             (error 'compile-value "invalid syscall" expr))
+           (emit-op! (op-instr op) 'raw
+                     (cons `(quad ,(cadr expr))
+                           (compile-exprs env (cddr expr) (map (lambda (x) 'raw) (cddr expr)) expr))))
 
-        ;; (load address index): the raw word at word index of address
-        ((load)
-         (emit-op! 'load 'raw (compile-operands env expr '(raw raw))))
+          ((alloc)
+           (let ((ops (compile-operands env expr (op-operands op))))
+             (when (and (eq? (caar ops) 'quad) (<= (cadar ops) 0))
+               (error 'compile-value "invalid alloc" expr))
+             (emit-op! (op-instr op) 'raw ops)))
 
-        ;; (store address index x): sets the word at word index of address to x
-        ((store)
-         (unless (= (length expr) 4)
-           (error 'compile-value "invalid store" expr))
-         (let* ((base (compile-checked env (cadr expr) 'raw expr))
-                (index (compile-checked env (caddr expr) 'raw expr))
-                (x (compile-value env (cadddr expr))))
-           (unless (memq (kind x) '(val raw))
-             (error 'compile-value "expected a val or a raw" expr))
-           (emit! `(store ,base ,index ,x))
-           '(void)))
+          ((tail-call-frame)
+           (emit! `(tailcall frame ,@(compile-operands env expr (op-operands op))))
+           '(never))
 
-        ;; (load8 address i): the byte at byte index i of address, zero-extended
-        ((load8)
-         (emit-op! 'load8 'raw (compile-operands env expr '(raw raw))))
+          ((self)
+           (compile-operands env expr (op-operands op))
+           '(self))
 
-        ;; (store8 address i x): sets the byte at byte index i of address to the low byte of x
-        ((store8)
-         (emit! `(store8 ,@(compile-operands env expr '(raw raw raw))))
-         '(void))
+          ((address)
+           (unless (literal? string?)
+             (error 'compile-value "invalid address" expr))
+           (cadr expr))
 
-        ;; (load32 address i): the 32 bits at byte index i of address, zero-extended
-        ((load32)
-         (emit-op! 'load32 'raw (compile-operands env expr '(raw raw))))
-
-        ;; (store32 address i x): sets the 32 bits at byte index i of address to the low 32 bits of x
-        ((store32)
-         (emit! `(store32 ,@(compile-operands env expr '(raw raw raw))))
-         '(void))
-
-        ;; (copy-words dst src n): copies n words from src to dst, which do not overlap
-        ((copy-words)
-         (emit! `(copy ,@(compile-operands env expr '(raw raw raw))))
-         '(void))
-
-        ;; (fill-words address n x): sets n words from address to x
-        ((fill-words)
-         (emit! `(fill ,@(compile-operands env expr '(raw raw raw))))
-         '(void))
-
-        ;; (raw/wu hi lo d): the unsigned quotient of hi * 2^64 + lo by d, for hi < d
-        ((raw/wu)
-         (emit-op! 'divwu 'raw (compile-operands env expr '(raw raw raw))))
-
-        ;; (alloc nwords): the raw address of nwords new zeroed words
-        ((alloc)
-         (let ((ops (compile-operands env expr '(raw))))
-           (when (and (eq? (caar ops) 'quad) (<= (cadar ops) 0))
-             (error 'compile-value "invalid alloc" expr))
-           (emit-op! 'alloc 'raw ops)))
-
-        ;; (alloc-frame nwords proc): a new frame of nwords zeroed words, its header and self
-        ;; set, a val; proc stays a root while it is allocated
-        ((alloc-frame)
-         (emit-op! 'allocframe 'val (compile-operands env expr '(raw val))))
-
-        ;; (tail-call-frame f): enters the frame f, filled, as a tail call
-        ((tail-call-frame)
-         (emit! `(tailcall frame ,@(compile-operands env expr '(val))))
-         '(never))
-
-        ((self)
-         (unless (= (length expr) 1)
-           (error 'compile-value "invalid self" expr))
-         '(self))
-
-        ;; (address "name"): the address of symbol name
-        ((address)
-         (unless (and (= (length expr) 2)
-                      (string? (cadr expr)))
-           (error 'compile-value "invalid address" expr))
-         (cadr expr))))))
+          (else
+           (let ((ops (compile-operands env expr (op-operands op))))
+             (if (eq? (op-result op) 'void)
+                 (begin
+                   (emit! `(,(op-instr op) ,@ops))
+                   '(void))
+                 (emit-op! (op-instr op) (op-result op) ops)))))))))
 
 
   (define (compile-checked env x k form)
@@ -1022,7 +967,7 @@
         => (lambda (entry)
              (let ((ops (compile-exprs env (cddr test) '(raw raw) (cdr test))))
                (emit! `(cmp ,@ops))
-               (emit! `(,(if jump-if (cadr entry) (caddr entry)) ,label)))))
+               (emit! `(,(if jump-if (car entry) (cadr entry)) ,label)))))
 
        ((boolean? test)
         (when (eq? test jump-if)
