@@ -73,7 +73,7 @@
 
   ;; The function of def, which fills the literal cells of the compilation at startup, in order:
   ;; a string's with literal-string of its UTF-8 bytes, a static string, a symbol's with
-  ;; string->symbol of its name's cell, filled before
+  ;; string->symbol of its name's cell, filled before, a pair's or vector's with a new one
   (define (compile-literal-init def)
     (convert-function
      def
@@ -86,16 +86,58 @@
                       (store (lambda (a)
                                `(letprim #f (store ,(literals-symbol) (quad ,(cdar literals)) ,a)
                                          ,(loop (cdr literals))))))
-                 (if (symbol? x)
-                     (letprim `(literal ,(symbol->string x)) 'val
-                              (lambda (name)
-                                (call-def (core-def 'string->symbol) (list name) x store)))
-                     (call-def (core-def 'literal-string)
-                               (list (intern-string! x)
-                                     `(quad ,(bytevector-length (string->utf8 x)))
-                                     `(quad ,(string-length x))
-                                     `(quad ,(if (ascii? x) 1 0)))
-                               x store)))))))))
+                 (cond
+                  ((symbol? x)
+                   (letprim `(literal ,(symbol->string x)) 'val
+                            (lambda (name)
+                              (call-def (core-def 'string->symbol) (list name) x store))))
+                  ((string? x)
+                   (call-def (core-def 'literal-string)
+                             (list (intern-string! x)
+                                   `(quad ,(bytevector-length (string->utf8 x)))
+                                   `(quad ,(string-length x))
+                                   `(quad ,(if (ascii? x) 1 0)))
+                             x store))
+                  (else
+                   (build-datum x store))))))))))
+
+
+  ;; A new pair or vector equal to x, its strings and symbols from their cells; a list is
+  ;; consed from its end
+  (define (build-datum x c)
+    (cond
+     ((pair? x)
+      (let loop ((y x) (elements '()))
+        (if (pair? y)
+            (loop (cdr y) (cons (car y) elements))
+            (build-datum y (lambda (tail) (cons-all x elements tail c))))))
+     ((vector? x)
+      (call-def (core-def 'make-vector)
+                (list (immediate-operand (vector-length x)) (immediate-operand 0))
+                x
+                (lambda (v)
+                  (let loop ((i 0))
+                    (if (= i (vector-length x))
+                        (c v)
+                        (build-datum (vector-ref x i)
+                                     (lambda (a)
+                                       (call-def (core-def 'vector-set!)
+                                                 (list v (immediate-operand i) a) x
+                                                 (lambda (ignored) (loop (+ i 1)))))))))))
+     ((null? x) (c (immediate-operand ''())))
+     ((immediate? x) (c (immediate-operand x)))
+     ((exact-rational? x) (c `(as-val ,(intern-number! x))))
+     (else (letprim `(literal ,x) 'val c))))
+
+
+  ;; The conses of the reversed elements onto tail
+  (define (cons-all x elements tail c)
+    (if (null? elements)
+        (c tail)
+        (build-datum (car elements)
+                     (lambda (a)
+                       (call-def (core-def 'cons) (list a tail) x
+                                 (lambda (p) (cons-all x (cdr elements) p c)))))))
 
 
   (define (ascii? s)
@@ -260,8 +302,8 @@
           (c (intern-string! x))
           (letprim `(literal ,x) 'val c)))
 
-     ((quoted-symbol? x)
-      (letprim `(literal ,(quoted-symbol-name x)) 'val c))
+     ((literal? x)
+      (letprim `(literal ,(literal-datum x)) 'val c))
 
      ((symbol? x)
       (cps-variable env x c))
@@ -272,9 +314,6 @@
      ;; A data name gives the raw address of its first word
      ((data? x)
       (c (data-symbol x)))
-
-     ((vector-literal? x)
-      (cps-vector-literal env (if (vector? x) x (cadr x)) c))
 
      ((expand-form x)
       => (lambda (y) (cps env y c)))
@@ -315,29 +354,6 @@
       (when (def-noalloc? def)
         (error 'compile-value "noalloc def without a procedure object" x))
       `(as-val ,(def-proc def))))
-
-
-  ;; A vector literal, rebuilt at each evaluation like bignums, so it is never static;
-  ;; its elements are numbers, booleans, characters, strings, symbols, () and vectors
-  (define (cps-vector-literal env v c)
-    (call-def (core-def 'make-vector)
-              (list (immediate-operand (vector-length v)) (immediate-operand 0))
-              v
-              (lambda (t)
-                (let loop ((xs (vector->list v)) (i 0))
-                  (if (null? xs)
-                      (c t)
-                      (let ((x (car xs)))
-                        (unless (or (exact-rational? x) (boolean? x) (char? x) (string? x)
-                                    (symbol? x) (null? x) (vector? x))
-                          (error 'compile-value "unsupported literal" x))
-                        (cps env (cond
-                                  ((null? x) ''())
-                                  ((symbol? x) (make-quoted-symbol x))
-                                  (else x))
-                             (lambda (a)
-                               (call-def (core-def 'vector-set!) (list t (immediate-operand i) a) v
-                                         (lambda (ignored) (loop (cdr xs) (+ i 1))))))))))))
 
 
   ;; and and or as values, as if, let and begin, or #f
@@ -713,8 +729,7 @@
        (cond
         ((or (not (non-empty-list? x))
              (special? x)
-             (immediate? x)
-             (vector-literal? x))
+             (immediate? x))
          (cps-return env def x))
 
         ((called-def env x)

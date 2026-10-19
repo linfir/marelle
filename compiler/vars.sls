@@ -78,7 +78,7 @@
      ((symbol? x)
       (reference! x owners))
 
-     ((or (immediate? x) (vector-literal? x) (not (pair? x))))
+     ((or (immediate? x) (not (pair? x))))
 
      (else
       (case (special-keyword x)

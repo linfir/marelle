@@ -37,7 +37,7 @@
 
   (define (convert x)
     (cond
-     ((or (symbol? x) (immediate? x) (vector-literal? x) (not (pair? x)))
+     ((or (symbol? x) (immediate? x) (not (pair? x)))
       x)
      (else
       (case (special-keyword x)

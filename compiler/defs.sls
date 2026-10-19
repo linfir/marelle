@@ -152,14 +152,17 @@
         name))))
 
 
-  ;; The index of the literal cell of the Scheme string or symbol x; a symbol's name gets its
-  ;; cell first, so it is filled first
+  ;; The index of the literal cell of the Scheme string, symbol, pair or vector x; the strings
+  ;; and symbols it contains, a symbol its name, get their cells first, so they are filled first
   (define (intern-literal! x)
     (cond
      ((assoc x (current-literals)) => cdr)
      (else
-      (when (symbol? x)
-        (intern-literal! (symbol->string x)))
+      (let walk ((y (if (symbol? x) (symbol->string x) x)))
+        (cond
+         ((pair? y) (walk (car y)) (walk (cdr y)))
+         ((vector? y) (vector-for-each walk y))
+         ((and (or (string? y) (symbol? y)) (not (eq? y x))) (intern-literal! y))))
       (let ((i (length (current-literals))))
         (current-literals (acons x i (current-literals)))
         i))))

@@ -55,7 +55,7 @@
           (local! x scope)
           (when (hashtable-ref cells x #f)
             (fail "cell read as a value" x)))
-         ((or (immediate? x) (vector-literal? x) (not (pair? x))))
+         ((or (immediate? x) (not (pair? x))))
          (else
           (case (special-keyword x)
             ;; Malformed source forms keep the errors compile.sls gave them

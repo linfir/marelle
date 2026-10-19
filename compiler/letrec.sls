@@ -44,7 +44,7 @@
     (cond
      ((symbol? x)
       (hashtable-update! (refs) x (lambda (n) (+ n 1)) 0))
-     ((or (immediate? x) (vector-literal? x) (not (pair? x))))
+     ((or (immediate? x) (not (pair? x))))
      (else
       (case (special-keyword x)
         ((lambda)
@@ -76,7 +76,7 @@
 
   (define (fix-expr x)
     (cond
-     ((or (symbol? x) (immediate? x) (vector-literal? x) (not (pair? x)))
+     ((or (symbol? x) (immediate? x) (not (pair? x)))
       x)
      (else
       (case (special-keyword x)
@@ -113,7 +113,7 @@
 
   (define (loop-exit? name x)
     (cond
-     ((or (not (pair? x)) (immediate? x) (vector-literal? x))
+     ((or (not (pair? x)) (immediate? x))
       (not (eq? x name)))
      (else
       (case (special-keyword x)
@@ -154,8 +154,7 @@
   ;; Locals are the gensyms of the front pass; a global may change in any call
   (define (simple-init? x simple-vars group)
     (cond
-     ((or (immediate? x) (exact-rational? x) (string? x) (vector-literal? x)
-          (quoted-symbol? x))
+     ((or (immediate? x) (exact-rational? x) (string? x) (literal? x))
       #t)
      ((symbol? x)
       (and (gensym? x)
@@ -170,7 +169,7 @@
 
 
   (define (call? x)
-    (and (pair? x) (not (immediate? x)) (not (vector-literal? x))))
+    (and (pair? x) (not (immediate? x))))
 
 
   ;; The variables of vars that x mentions, a set! target included
@@ -178,7 +177,7 @@
     (let loop ((x x) (acc '()))
       (cond
        ((symbol? x) (if (and (memq x vars) (not (memq x acc))) (cons x acc) acc))
-       ((or (immediate? x) (vector-literal? x) (not (pair? x))) acc)
+       ((or (immediate? x) (not (pair? x))) acc)
        (else (loop (cdr x) (loop (car x) acc))))))
 
 
@@ -187,7 +186,7 @@
     (cond
      ((symbol? x)
       (if (memq x vars) `(,(marker 'check-defined) ,x) x))
-     ((or (immediate? x) (vector-literal? x) (not (pair? x)))
+     ((or (immediate? x) (not (pair? x)))
       x)
      ;; (check-defined x value): the value, then the check
      ((eq? (special-keyword x) 'set!)

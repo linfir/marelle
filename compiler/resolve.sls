@@ -26,7 +26,7 @@
     (cond
      ((symbol? x)
       (resolve-variable env x))
-     ((or (immediate? x) (vector-literal? x) (not (pair? x)))
+     ((or (immediate? x) (not (pair? x)))
       x)
      (else
       (case (special-keyword x)

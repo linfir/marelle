@@ -1,0 +1,1 @@
+stdout = '(a (quasiquote (b (unquote (c 3)))))'

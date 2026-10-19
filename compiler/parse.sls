@@ -1,6 +1,6 @@
 (library (parse)
-  (export undef unbound immediate? exact-rational? vector-literal? quoted-datum? make-quoted-symbol quoted-symbol?
-          quoted-symbol-name special? special-keyword source-keyword marker
+  (export undef unbound immediate? exact-rational? quoted-datum? make-literal literal?
+          literal-datum special? special-keyword source-keyword marker
           define-form? validate-parameters
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
@@ -47,24 +47,19 @@
         (eq? x unbound)))
 
 
-  ;; #(...) or '#(...)
-  (define (vector-literal? x)
-    (or (vector? x)
-        (and (quoted-datum? x) (vector? (cadr x)))))
-
-
   (define (quoted-datum? x)
     (and (list? x) (= (length x) 2) (eq? (car x) 'quote)))
 
 
-  ;; 'name after the front pass, a leaf for the passes after it
-  (define-record-type quoted-symbol
-    (fields name))
+  ;; A symbol, pair or vector datum after the front pass, loaded from its literal cell; a leaf
+  ;; for the passes after it
+  (define-record-type literal
+    (fields datum))
 
 
   (define *special-forms*
     '(if cond case and or let let* letrec letrec* lambda begin set! when unless do define
-         let-values let*-values define-values define-record-type))
+         let-values let*-values define-values define-record-type quasiquote))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
@@ -520,4 +515,9 @@
                         (else (library-constant-name x)))))
             (when (memq name names)
               (error 'scan-library "redefinition not allowed" name))
-            (loop (cdr forms) (cons x acc) (cons name names)))))))
+            (loop (cdr forms) (cons x acc) (cons name names))))))
+
+
+  ;; Printed quoted, in dumps
+  (record-writer (record-type-descriptor literal)
+                 (lambda (r p wr) (display "'" p) (wr (literal-datum r) p))))

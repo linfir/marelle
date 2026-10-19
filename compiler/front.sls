@@ -54,7 +54,9 @@
      ((symbol? x)
       (let ((entry (assq x env)))
         (if (and entry (symbol? (cdr entry))) (cdr entry) x)))
-     ((or (immediate? x) (vector-literal? x) (not (non-empty-list? x)))
+     ((vector? x)
+      (front-quoted x))
+     ((or (immediate? x) (not (non-empty-list? x)))
       x)
      ((quoted-datum? x)
       (front-quoted (cadr x)))
@@ -107,6 +109,11 @@
 
           ((do)
            (front-expr env (expand-do x)))
+
+          ((quasiquote)
+           (unless (= (length x) 2)
+             (error 'front-expr "invalid quasiquote" x))
+           (front-expr env (expand-quasiquote env (cadr x))))
 
           ((let-values)
            (front-expr env (expand-let-values x)))
@@ -193,7 +200,7 @@
         (define (checked who r value)
           `(,(marker 'if) (,(core-ref 'record-of?) ,r ,type)
             ,value
-            (,(core-ref 'record-error) ,(make-quoted-symbol who) ,type ,r)))
+            (,(core-ref 'record-error) ,(make-literal who) ,type ,r)))
         (define (field-bindings field i)
           (let ((get (named name "-" (car field)))
                 (r (gensym "r"))
@@ -208,7 +215,7 @@
         (let ((args (fresh-names (map car fields)))
               (r (gensym "r"))
               (x (gensym "x")))
-          `((,type (,(core-ref 'make-record-type) ,(make-quoted-symbol name)))
+          `((,type (,(core-ref 'make-record-type) ,(make-literal name)))
             (,(named "make-" name)
              (,(marker 'lambda) ,args
               (,(marker 'let) ((,r (,(core-ref 'make-record) ,type ,(length fields))))
@@ -312,12 +319,56 @@
             `(,(marker 'if) ,test (,(marker 'begin) ,@body) ,(expand-cond env rest)))))))
 
 
-  ;; A quoted symbol, or a self-evaluating datum; other quoted data are not supported yet
+  ;; A self-evaluating datum, or a literal
   (define (front-quoted x)
     (cond
-     ((symbol? x) (make-quoted-symbol x))
+     ((null? x) ''())
      ((or (immediate? x) (exact-rational? x) (string? x)) x)
-     (else (error 'front-expr "unsupported quoted datum" x))))
+     (else
+      (let check ((y x))
+        (cond
+         ((pair? y) (check (car y)) (check (cdr y)))
+         ((vector? y) (vector-for-each check y))
+         ((not (or (symbol? y) (null? y) (boolean? y) (char? y) (exact-rational? y) (string? y)))
+          (error 'front-expr "unsupported quoted datum" y))))
+      (make-literal x))))
+
+
+  ;; `x as conses of its constant parts, quoted, and the values of its unquotes, a splice
+  ;; appended; a nested quasiquote adds a level, which each unquote removes
+  (define (expand-quasiquote env x)
+    (define (form? y keyword)
+      (and (list? y) (= (length y) 2) (auxiliary? env (car y) keyword)))
+    (define (unquote? y)
+      (or (form? y 'unquote) (form? y 'unquote-splicing)))
+    (define (constant? y depth)
+      (cond
+       ((unquote? y) (and (> depth 0) (constant? (cadr y) (- depth 1))))
+       ((form? y 'quasiquote) (constant? (cadr y) (+ depth 1)))
+       ((pair? y) (and (constant? (car y) depth) (constant? (cdr y) depth)))
+       ((vector? y) (constant? (vector->list y) depth))
+       (else #t)))
+    (define (keyword-form keyword y depth)
+      `(,(core-ref 'cons) ,(make-literal keyword) (,(core-ref 'cons) ,(expand y depth) ''())))
+    (define (expand y depth)
+      (cond
+       ((constant? y depth)
+        (front-quoted y))
+       ((and (unquote? y) (> depth 0))
+        (keyword-form (car y) (cadr y) (- depth 1)))
+       ((form? y 'unquote)
+        (cadr y))
+       ((form? y 'unquote-splicing)
+        (error 'expand-quasiquote "unquote-splicing outside a list" y))
+       ((form? y 'quasiquote)
+        (keyword-form 'quasiquote (cadr y) (+ depth 1)))
+       ((and (pair? y) (form? (car y) 'unquote-splicing) (= depth 0))
+        `(,(core-ref 'append) ,(cadar y) ,(expand (cdr y) depth)))
+       ((pair? y)
+        `(,(core-ref 'cons) ,(expand (car y) depth) ,(expand (cdr y) depth)))
+       (else
+        `(,(core-ref 'list->vector) ,(expand (vector->list y) depth)))))
+    (expand x 0))
 
 
   ;; Each clause is ((datum ...) expr ...), ((datum ...) => f), or a last (else expr ...) or
@@ -336,7 +387,7 @@
         (define (test x)
           (cond
            ((null? x) `(,(marker 'eq?) ,t ''()))
-           ((symbol? x) `(,(marker 'eq?) ,t ,(make-quoted-symbol x)))
+           ((symbol? x) `(,(marker 'eq?) ,t ,(make-literal x)))
            ((immediate? x) `(,(marker 'eq?) ,t ,x))
            ((exact-rational? x) `(,(core-ref 'eqv?) ,t ,x))
            (else (error 'expand-case "unsupported case datum" x))))
