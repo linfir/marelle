@@ -110,6 +110,9 @@
           ((do)
            (front-expr env (expand-do x)))
 
+          ((case-lambda)
+           (front-expr env (expand-case-lambda x)))
+
           ((quasiquote)
            (unless (= (length x) 2)
              (error 'front-expr "invalid quasiquote" x))
@@ -281,6 +284,37 @@
            (,(marker 'begin)
             ,@commands
             (,loop ,@(map (lambda (s) (if (null? (cddr s)) (car s) (caddr s))) specs))))))))
+
+
+  ;; One variadic lambda: the first clause taking the argument count binds its formals from
+  ;; the list of the arguments
+  (define (expand-case-lambda x)
+    (let ((args (gensym "args"))
+          (n (gensym "n")))
+      (define (clause c)
+        (unless (and (list? c) (>= (length c) 2))
+          (error 'expand-case-lambda "invalid case-lambda clause" c))
+        (validate-parameters (car c))
+        (let loop ((formals (car c)) (tail args) (k 0) (bindings '()))
+          (cond
+           ((pair? formals)
+            (loop (cdr formals) `(,(core-ref 'cdr) ,tail) (+ k 1)
+                  (cons (list (car formals) `(,(core-ref 'car) ,tail)) bindings)))
+           (else
+            (values (if (null? formals)
+                        `(,(marker 'eq?) ,n ,k)
+                        `(,(core-ref '>=) ,n ,k))
+                    `(,(marker 'let) ,(reverse (if (null? formals)
+                                                   bindings
+                                                   (cons (list formals tail) bindings)))
+                      ,@(cdr c)))))))
+      `(,(marker 'lambda) ,args
+        (,(marker 'let) ((,n (,(core-ref 'length) ,args)))
+         ,(let loop ((clauses (cdr x)))
+            (if (null? clauses)
+                `(,(core-ref 'case-lambda-error) ,args)
+                (let-values (((test body) (clause (car clauses))))
+                  `(,(marker 'if) ,test ,body ,(loop (cdr clauses))))))))))
 
 
   ;; Their tails stay in tail position

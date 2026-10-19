@@ -59,7 +59,7 @@
 
   (define *special-forms*
     '(if cond case and or let let* letrec letrec* lambda begin set! when unless do define
-         let-values let*-values define-values define-record-type quasiquote))
+         let-values let*-values define-values define-record-type quasiquote case-lambda))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;

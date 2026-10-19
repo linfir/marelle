@@ -39,6 +39,11 @@
       (store (as-raw g) (raw+ (fixnum-value r) (raw 6)) rest)
       (tail-call-frame g))))
 
+;; A case-lambda called with arguments no clause takes
+(define (case-lambda-error args)
+  (declare unsafe noalloc (result never))
+  (scheme-error "no `case-lambda` clause takes the arguments" args))
+
 ;; Stores the elements of the list l as the arguments of the frame f
 (define (store-arguments! (raw f) l)
   (declare unsafe noalloc (result void))
