@@ -64,6 +64,7 @@
    ((raw= (load p (raw 0)) flexvector-type) (raw 3))
    ((raw= (load p (raw 0)) ratnum-type) (raw 3))
    ((raw= (load p (raw 0)) record-type) (raw+ (load p (raw 1)) (raw 3)))
+   ((raw= (load p (raw 0)) hashtable-type) (raw 9))
    ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
    (else (raw 2)))) ; pair, box, values, symbol or record type
 
@@ -123,6 +124,7 @@
                  ((raw= header ratnum-type) (raw 1))
                  ((raw= header rtd-type) (raw 1)) ; the name
                  ((raw= header record-type) (raw 2)) ; the type and the fields
+                 ((raw= header hashtable-type) (raw 6)) ; the storage and procedures
                  ((string-header? header) n) ; only raw words
                  (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))

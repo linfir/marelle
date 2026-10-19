@@ -1,0 +1,16 @@
+(define-record-type point (fields x y))
+(define t (make-eq-hashtable))
+(define (keys n acc)
+  (if (= n 0)
+      acc
+      (keys (- n 1) (cons (if (even? n) (cons n n) (make-point n n)) acc))))
+(define ks (keys 300 '()))
+(for-each (lambda (k) (hashtable-set! t k (if (pair? k) (car k) (point-x k)))) ks)
+(define (churn n)
+  (if (= n 0)
+      0
+      (begin (cons 1 2) (churn (- n 1)))))
+(churn 1000)
+(list (fold-left + 0 (map (lambda (k) (hashtable-ref t k 0)) ks))
+      (hashtable-ref t (cons 2 2) 'fresh)
+      (hashtable-size t))

@@ -1,0 +1,12 @@
+(define t (make-eqv-hashtable))
+(for-each (lambda (i) (hashtable-set! t i (* 10 i))) '(1 2 3 4))
+(define (paired? keys vals i)
+  (or (= i (vector-length keys))
+      (and (= (vector-ref vals i) (* 10 (vector-ref keys i)))
+           (paired? keys vals (+ i 1)))))
+(call-with-values
+    (lambda () (hashtable-entries t))
+  (lambda (keys vals)
+    (list (apply + (vector->list (hashtable-keys t)))
+          (apply + (vector->list (hashtable-values t)))
+          (paired? keys vals 0))))

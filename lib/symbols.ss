@@ -33,7 +33,7 @@
     (as-val p)))
 
 ;; The hash of the code points of the string s, computed once and cached in it; never 0
-(define (string-hash s)
+(define (cached-string-hash s)
   (declare unsafe noalloc (result raw))
   (if (raw= (load (as-raw s) (raw 2)) (raw 0))
       (let hash-next ((i (raw 0))
@@ -51,12 +51,12 @@
 ;; where it goes
 (define (symbol-slot table s)
   (declare unsafe noalloc)
-  (let ((h (string-hash s))
+  (let ((h (cached-string-hash s))
         (mask (raw- (load (as-raw table) (raw 1)) (raw 1))))
     (let probe ((i (raw>>u h (load symbol-shift (raw 0)))))
       (let ((x (as-val (load (as-raw table) (raw+ i (raw 2))))))
         (if (or (eq? x #f)
-                (and (raw= (string-hash (symbol-name x)) h) (same-string? (symbol-name x) s)))
+                (and (raw= (cached-string-hash (symbol-name x)) h) (same-string? (symbol-name x) s)))
             (make-fixnum i)
             (probe (bit-and (raw+ i (raw 1)) mask)))))))
 

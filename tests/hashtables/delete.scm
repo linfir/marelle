@@ -1,0 +1,13 @@
+(define t (make-eq-hashtable))
+(define (keys n acc)
+  (if (= n 0)
+      acc
+      (keys (- n 1) (cons (cons n n) acc))))
+(define ks (keys 200 '()))
+(for-each (lambda (k) (hashtable-set! t k (car k))) ks)
+(for-each (lambda (k) (when (odd? (car k)) (hashtable-delete! t k))) ks)
+(hashtable-delete! t 'absent)
+(list (hashtable-size t)
+      (fold-left + 0 (map (lambda (k) (hashtable-ref t k 0)) ks))
+      (hashtable-contains? t (car ks))
+      (hashtable-contains? t (cadr ks)))

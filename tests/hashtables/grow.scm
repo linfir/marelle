@@ -1,0 +1,11 @@
+(define t (make-eqv-hashtable 3))
+(define (fill i)
+  (when (< i 5000)
+    (hashtable-set! t i (* i i))
+    (fill (+ i 1))))
+(fill 0)
+(define (sum i acc)
+  (if (= i 5000)
+      acc
+      (sum (+ i 1) (+ acc (hashtable-ref t i 0)))))
+(list (hashtable-size t) (sum 0 0) (hashtable-ref t 5000 'none))

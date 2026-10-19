@@ -33,6 +33,7 @@
 (define-constant ratnum-type (raw (ash 55 3)))
 (define-constant rtd-type (raw (ash 56 3)))
 (define-constant record-type (raw (ash 57 3)))
+(define-constant hashtable-type (raw (ash 58 3)))
 
 (define (fixnum? x)
   (declare unsafe inline)

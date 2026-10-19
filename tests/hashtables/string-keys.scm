@@ -1,0 +1,7 @@
+(define t (make-hashtable string-hash string=?))
+(define (fill i)
+  (when (< i 100)
+    (hashtable-set! t (list->string (list #\k (integer->char (+ 32 i)))) i)
+    (fill (+ i 1))))
+(fill 0)
+(list (hashtable-ref t (string #\k #\!) #f) (hashtable-size t))

@@ -1,0 +1,6 @@
+(define t (make-eq-hashtable))
+(hashtable-set! t (list 1) 1)
+(hashtable-set! t 'a 2)
+(hashtable-clear! t)
+(hashtable-set! t 'b 3)
+(list (hashtable-size t) (hashtable-ref t 'a #f) (hashtable-ref t 'b #f) (hashtable-keys t))
