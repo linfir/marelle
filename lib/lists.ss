@@ -341,3 +341,222 @@
                (and (equal? (vector-ref x i) (vector-ref y i))
                     (loop (+ i 1)))))))
    (else #f)))
+
+(define (memv x l)
+  (declare public)
+  (cond
+   ((null? l) #f)
+   ((eqv? x (car l)) l)
+   (else (memv x (cdr l)))))
+
+(define (assv x l)
+  (declare public)
+  (cond
+   ((null? l) #f)
+   ((eqv? x (caar l)) (car l))
+   (else (assv x (cdr l)))))
+
+(define (find ok? l)
+  (declare public)
+  (cond
+   ((null? l) #f)
+   ((ok? (car l)) (car l))
+   (else (find ok? (cdr l)))))
+
+(define (remq x l)
+  (declare public)
+  (filter (lambda (y) (not (eq? x y))) l))
+
+;; The last call is a tail call, its value the result
+(define (for-all ok? l)
+  (declare public)
+  (or (null? l)
+      (let loop ((l l))
+        (if (null? (cdr l))
+            (ok? (car l))
+            (and (ok? (car l)) (loop (cdr l)))))))
+
+(define (exists ok? l)
+  (declare public)
+  (and (pair? l)
+       (let loop ((l l))
+         (if (null? (cdr l))
+             (ok? (car l))
+             (or (ok? (car l)) (loop (cdr l)))))))
+
+;; Several lists: the cars, or #f when one ends, so the shortest one stops
+(define (cars ls)
+  (cond
+   ((null? ls) '())
+   ((pair? (car ls))
+    (let ((rest (cars (cdr ls))))
+      (and rest (cons (caar ls) rest))))
+   (else #f)))
+
+(define (cdrs ls)
+  (map cdr ls))
+
+(define (map2 f a b)
+  (declare unsafe)
+  (if (and (pair? a) (pair? b))
+      (let ((head (cons (f (car a) (car b)) '())))
+        (let loop ((tail head) (a (cdr a)) (b (cdr b)))
+          (if (and (pair? a) (pair? b))
+              (let ((p (cons (f (car a) (car b)) '())))
+                (set-tail! tail p)
+                (loop p (cdr a) (cdr b)))
+              head)))
+      '()))
+
+(define (map-lists f ls)
+  (declare unsafe)
+  (let ((head (cons #f '())))
+    (let loop ((tail head) (ls ls))
+      (let ((xs (cars ls)))
+        (if xs
+            (let ((p (cons (apply f xs) '())))
+              (set-tail! tail p)
+              (loop p (cdrs ls)))
+            (cdr head))))))
+
+(define (variadic-map f l . ls)
+  (if (null? (cdr ls))
+      (map2 f l (car ls))
+      (map-lists f (cons l ls))))
+
+(define (variadic-for-each f l . ls)
+  (if (null? (cdr ls))
+      (let loop ((a l) (b (car ls)))
+        (when (and (pair? a) (pair? b))
+          (f (car a) (car b))
+          (loop (cdr a) (cdr b))))
+      (let loop ((ls (cons l ls)))
+        (let ((xs (cars ls)))
+          (when xs
+            (apply f xs)
+            (loop (cdrs ls)))))))
+
+(define (variadic-for-all ok? l . ls)
+  (let loop ((ls (cons l ls)) (last #t))
+    (let ((xs (cars ls)))
+      (if xs
+          (let ((r (apply ok? xs)))
+            (and r (loop (cdrs ls) r)))
+          last))))
+
+(define (variadic-exists ok? l . ls)
+  (let loop ((ls (cons l ls)))
+    (let ((xs (cars ls)))
+      (and xs
+           (or (apply ok? xs) (loop (cdrs ls)))))))
+
+(define (variadic-append . ls)
+  (cond
+   ((null? ls) '())
+   ((null? (cdr ls)) (car ls))
+   (else (append (car ls) (apply variadic-append (cdr ls))))))
+
+(define (cons* x . rest)
+  (declare unsafe public)
+  (if (null? rest)
+      x
+      (let ((head (cons x '())))
+        (let loop ((tail head) (xs rest))
+          (if (null? (cdr xs))
+              (begin
+                (set-tail! tail (car xs))
+                head)
+              (let ((p (cons (car xs) '())))
+                (set-tail! tail p)
+                (loop p (cdr xs))))))))
+
+(define (check-count k (raw msg))
+  (declare unsafe inline (result void))
+  (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
+    (scheme-error msg k)))
+
+(define (iota n)
+  (declare unsafe public)
+  (check-count n "`iota` expected a nonnegative fixnum")
+  (let loop ((i n) (acc '()))
+    (if (eq? i 0)
+        acc
+        (loop (- i 1) (cons (- i 1) acc)))))
+
+(define (make-list k fill)
+  (declare unsafe public)
+  (check-count k "`make-list` expected a nonnegative fixnum")
+  (let loop ((k k) (acc '()))
+    (if (eq? k 0)
+        acc
+        (loop (- k 1) (cons fill acc)))))
+
+(define (variadic-make-list k . fill)
+  (declare unsafe)
+  (cond
+   ((null? fill) (make-list k undef))
+   ((null? (cdr fill)) (make-list k (car fill)))
+   (else (scheme-error "`make-list` expected 1 or 2 arguments" fill))))
+
+(define (list-head l k)
+  (declare unsafe public)
+  (check-count k "`list-head` expected a nonnegative fixnum")
+  (if (eq? k 0)
+      '()
+      (let ((head (cons (car l) '())))
+        (let loop ((tail head) (l (cdr l)) (k (- k 1)))
+          (if (eq? k 0)
+              head
+              (let ((p (cons (car l) '())))
+                (set-tail! tail p)
+                (loop p (cdr l) (- k 1))))))))
+
+(define (partition ok? l)
+  (declare unsafe public)
+  (let ((in (cons #f '()))
+        (out (cons #f '())))
+    (let loop ((l l) (in-tail in) (out-tail out))
+      (if (null? l)
+          (values (cdr in) (cdr out))
+          (let ((x (car l)))
+            (if (ok? x)
+                (let ((p (cons x '())))
+                  (set-tail! in-tail p)
+                  (loop (cdr l) p out-tail))
+                (let ((p (cons x '())))
+                  (set-tail! out-tail p)
+                  (loop (cdr l) in-tail p))))))))
+
+;; Stable: an element of b goes first only when strictly before
+(define (merge-lists before? a b)
+  (declare unsafe)
+  (let ((head (cons #f '())))
+    (let loop ((tail head) (a a) (b b))
+      (cond
+       ((null? a) (set-tail! tail b) (cdr head))
+       ((null? b) (set-tail! tail a) (cdr head))
+       ((before? (car b) (car a))
+        (let ((p (cons (car b) '())))
+          (set-tail! tail p)
+          (loop p a (cdr b))))
+       (else
+        (let ((p (cons (car a) '())))
+          (set-tail! tail p)
+          (loop p (cdr a) b)))))))
+
+;; Merge sort of the first n elements of l
+(define (sort-list before? l n)
+  (if (< n 2)
+      (if (= n 0) '() (list (car l)))
+      (let ((h (quotient n 2)))
+        (merge-lists before?
+                     (sort-list before? l h)
+                     (sort-list before? (list-tail l h) (- n h))))))
+
+(define (list-sort before? l)
+  (declare public)
+  (sort-list before? l (length l)))
+
+(define (sort before? l)
+  (declare public)
+  (sort-list before? l (length l)))

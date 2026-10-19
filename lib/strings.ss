@@ -219,3 +219,20 @@
     (if (= i 0)
         acc
         (loop (- i 1) (cons (string-ref s (- i 1)) acc)))))
+
+;; By code points
+(define (string-less? a b)
+  (declare unsafe noalloc)
+  (let char-next ((i (raw 0)))
+    (cond
+     ((raw= i (string-nchars b)) #f)
+     ((raw= i (string-nchars a)) #t)
+     ((raw< (string-code a i) (string-code b i)) #t)
+     ((raw> (string-code a i) (string-code b i)) #f)
+     (else (char-next (raw+ i (raw 1)))))))
+
+(define (string<? a b)
+  (declare unsafe public)
+  (check-string a "`string<?` expected a string")
+  (check-string b "`string<?` expected a string")
+  (string-less? a b))

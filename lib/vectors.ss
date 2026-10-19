@@ -79,3 +79,26 @@
    ((null? fill) (make-vector k 0))
    ((null? (cdr fill)) (make-vector k (car fill)))
    (else (scheme-error "`make-vector` expected 1 or 2 arguments" fill))))
+
+(define (vector-copy v)
+  (declare unsafe public)
+  (check-vector v "`vector-copy` expected a vector")
+  (let ((c (make-vector (vector-length v) 0)))
+    (copy-words (raw+ (as-raw c) (raw 16)) (raw+ (as-raw v) (raw 16)) (load (as-raw v) (raw 1)))
+    c))
+
+(define (vector-for-each f v)
+  (declare public)
+  (let loop ((i 0))
+    (when (< i (vector-length v))
+      (f (vector-ref v i))
+      (loop (+ i 1)))))
+
+;; Up to the shortest vector
+(define (variadic-vector-for-each f v . vs)
+  (let ((vs (cons v vs)))
+    (let ((n (apply min (map vector-length vs))))
+      (let loop ((i 0))
+        (when (< i n)
+          (apply f (map (lambda (v) (vector-ref v i)) vs))
+          (loop (+ i 1)))))))

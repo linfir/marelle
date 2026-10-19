@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "Error: `vector-copy` expected a vector: (1 2)\n"
