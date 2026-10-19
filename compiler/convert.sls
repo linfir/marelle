@@ -261,7 +261,7 @@
 
 
   ;; The def a call expr calls with the right number of arguments, or #f; another number goes
-  ;; to the def's variadic twin, if any; else it is an error, except for a procedure, which
+  ;; to the def's general def, if any; else it is an error, except for a procedure, which
   ;; checks it when called
   (define (called-def env expr)
     (let ((b (head-binding env expr))
@@ -270,7 +270,7 @@
            (let ((def (def-binding-def b)))
              (cond
               ((takes? def n) def)
-              ((variadic-twin def) => (lambda (twin) (and (takes? twin n) twin)))
+              ((general-def def) => (lambda (general) (and (takes? general n) general)))
               ((def-procedure? def) #f)
               (else (error 'compile-call "wrong number of arguments" expr)))))))
 
@@ -346,9 +346,9 @@
         (error 'compile-value "named let used as a value or called not in exit position" x)))
 
 
-  ;; The procedure object of def, or of its variadic twin, which takes any number of arguments
+  ;; The procedure object of def, or of its general def, which takes any number of arguments
   (define (def-value def x)
-    (let ((def (or (variadic-twin def) def)))
+    (let ((def (or (general-def def) def)))
       (unless (def-emitted? def)
         (error 'compile-value "inline def without a procedure object" x))
       (when (def-noalloc? def)

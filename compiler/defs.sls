@@ -8,7 +8,7 @@
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
           procedure-type unsafe-bindings
           names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
-          core-defs inlining unsafe-code? variadic-twin
+          core-defs inlining unsafe-code? general-def
           fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
   (import (chezscheme)
           (utils)
@@ -178,9 +178,9 @@
      (else (error 'core-def "missing library def" name))))
 
 
-  ;; The library procedure variadic-D taking any number of arguments, for the library def D,
-  ;; whose own calls take a fixed number
-  (define (variadic-twin def)
+  ;; The general def variadic-D of the library def D, a procedure taking any number of
+  ;; arguments, of which D is a fixed-arity specialization
+  (define (general-def def)
     (let ((name (def-name def)))
       (and (eq? (cond ((assq name (core-defs)) => cdr) (else #f)) def)
            (cond

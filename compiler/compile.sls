@@ -83,7 +83,7 @@
               body))
 
 
-  ;; A variadic twin stands for its def
+  ;; A general def is named after its specialization
   (define (procedure-name def)
     (let ((s (symbol->string (def-name def))))
       (if (and (> (string-length s) 9) (string=? (substring s 0 9) "variadic-"))

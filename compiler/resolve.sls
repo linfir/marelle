@@ -126,10 +126,10 @@
 
   ;; The calls of the library's +, *, -, comparisons, bitwise operations, make-vector and list
   ;; whose number of operands the inline def does not take, in terms of it, or #f; the others
-  ;; go to their variadic twin
+  ;; go to their general def
   (define (expand-variadic op args)
     (let ((def op))
-      (and (variadic-twin def)
+      (and (general-def def)
            (let ()
              (define (fold-operands)
                (fold-left (lambda (acc x) (list op acc x)) (car args) (cdr args)))
