@@ -5,4 +5,4 @@
 (sum (build 2000 '()) 0)
 ---
 stdout = "2535301200456458802993406412753000"
-env = { SCHEME_HEAP = "20000" }
+env = { SCHEME_GC_STRESS = "1000" }

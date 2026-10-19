@@ -5,4 +5,4 @@
   (vector-length (make-vector 3000 #t)))
 ---
 stdout = "3000"
-env = { SCHEME_HEAP = "4000" }
+env = { SCHEME_GC_STRESS = "1000" }

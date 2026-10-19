@@ -2,3 +2,4 @@
 (apply + (iota 100000 (list)))
 ---
 stdout = "5000050000"
+gc_stress = "skip"

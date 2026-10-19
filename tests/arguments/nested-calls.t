@@ -8,4 +8,4 @@
 (repeat 200 0)
 ---
 stdout = "180"
-env = { SCHEME_HEAP = "2000" }
+env = { SCHEME_GC_STRESS = "1000" }

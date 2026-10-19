@@ -5,6 +5,6 @@
       (begin (set! xs (cons n xs)) (push (- n 1)))))
 (begin (push 1000) (fold-left + 0 xs))
 ---
-env = { SCHEME_HEAP = "3000" }
+env = { SCHEME_GC_STRESS = "1000" }
 stdout = "500500"
 chez = "skip"

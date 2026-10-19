@@ -12,4 +12,4 @@
 (list (total l 0) (car l) (car (last-pair l)) "lit")
 ---
 stdout = '(111000 "1é0" "0é0" "lit")'
-env = { SCHEME_HEAP = "30000" }
+env = { SCHEME_GC_STRESS = "1000" }

@@ -7,4 +7,4 @@
 (car (flexvector-ref fv 99999))
 ---
 stdout = "99999"
-env = { SCHEME_HEAP = "1000000" }
+env = { SCHEME_GC_STRESS = "10000" }

@@ -7,5 +7,5 @@
   (repeat (lambda (x) (set! xs (cons x xs)) (set! n (+ n 1))) 1000)
   (cons n (fold-left + 0 xs)))
 ---
-env = { SCHEME_HEAP = "3000" }
+env = { SCHEME_GC_STRESS = "1000" }
 stdout = "(1000 . 500500)"

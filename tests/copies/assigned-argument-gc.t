@@ -12,4 +12,4 @@
 (f 7)
 ---
 stdout = "(0 7 2)"
-env = { SCHEME_HEAP = "2500" }
+env = { SCHEME_GC_STRESS = "1000" }

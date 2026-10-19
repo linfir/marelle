@@ -27,5 +27,5 @@
   (cons (even? 1000000) (odd? 1000001)))
 (entry)
 ---
-env = { SCHEME_HEAP = "5000" }
+env = { SCHEME_GC_STRESS = "1000" }
 stdout = "(#t . #t)"

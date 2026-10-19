@@ -103,13 +103,18 @@
       (fatal "Memory allocation failed\n"))
     p))
 
+(define (unmap-words (raw p) (raw n))
+  (declare unsafe noalloc (result void))
+  ;; munmap(p, 8n)
+  (syscall 11 p (raw<< n (raw 3)))
+  undef)
+
 ;; Called from _start with the initial stack: argc, the arguments, 0, then the environment
 (define (init-runtime (raw sp))
   (declare unsafe noalloc (result void))
   (store environment (raw 0) (raw+ sp (raw<< (raw+ (load sp (raw 0)) (raw 2)) (raw 3))))
-  ;; 2^26 words by default: 1 GiB for both spaces
-  (store scheme-cap (raw 0)
-         (env-positive "SCHEME_HEAP" (raw 67108864) (raw 2305843009213693951)))
+  (store scheme-cap (raw 0) initial-heap-words)
+  (store gc-target (raw 0) initial-heap-words)
   (store gc-stress (raw 0)
          (env-positive "SCHEME_GC_STRESS" (raw 0) (raw 18446744073709551615)))
   (store gc-countdown (raw 0) (load gc-stress (raw 0)))

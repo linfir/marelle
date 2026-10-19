@@ -9,6 +9,7 @@
   (swap 1000001 1 2))
 (entry)
 ---
-env = { SCHEME_HEAP = "1000" }
+env = { SCHEME_GC_STATS = "1" }
+stderr_contains = "GC: 0 collections"
 stdout = "(2 . 1)"
 gc_stress = "skip"

@@ -4,6 +4,11 @@
 (define-data scheme-cap 1)
 (define-data scheme-limit 1)
 (define-data spare-mem 1)
+;; The size of the next collection's to-space
+(define-data gc-target 1)
+;; The words of a semispace at first, and at most: 8 MiB, in cache, to 512 MiB
+(define-constant initial-heap-words (raw 1048576))
+(define-constant max-heap-words (raw 67108864))
 ;; Statistics, printed at exit when SCHEME_GC_STATS is set
 (define-data gc-count 1)
 (define-data gc-copied 1)
@@ -43,8 +48,11 @@
          #t)))
 
 ;; Copying collector (Cheney) with two semispaces:
-;; scheme-mem is the current one, scheme-len its used words out of scheme-cap;
-;; each space is zero past its used part, so frame slots not yet written hold 0
+;; scheme-mem is the current one, scheme-len its used words out of scheme-cap, the size of both
+;; outside a collection; each space is zero past its used part, so frame slots not yet written
+;; hold 0. The spaces start small (in cache) and double, up to max-heap-words: a collection leaving
+;; more than a quarter of a space live sets gc-target to twice its size, and the next collection
+;; copies into a to-space of that size, the old spaces unmapped.
 
 (define (object-words (raw p))
   (declare unsafe noalloc (result raw))
@@ -122,7 +130,10 @@
 ;; the rest is reached through them
 (define (collect (raw roots) (raw nroots))
   (declare unsafe noalloc (result void))
-  (let ((to (load spare-mem (raw 0))))
+  (let* ((cap (load scheme-cap (raw 0)))
+         (target (load gc-target (raw 0)))
+         (grow? (raw>u target cap))
+         (to (if grow? (map-words target) (load spare-mem (raw 0)))))
     (store gc-free (raw 0) to)
     (forward-words roots nroots)
     (forward-words (address "scheme_globals") (load (address "scheme_nglobals") (raw 0)))
@@ -141,23 +152,54 @@
       (store gc-used-before (raw 0) (raw+ (load gc-used-before (raw 0)) len))
       (when (raw>u copied (load gc-max-live (raw 0)))
         (store gc-max-live (raw 0) copied))
-      (fill-words (load scheme-mem (raw 0)) len (raw 0))
-      (store spare-mem (raw 0) (load scheme-mem (raw 0)))
+      ;; Fresh mappings are zero
+      (if grow?
+          (begin
+            (unmap-words (load scheme-mem (raw 0)) cap)
+            (unmap-words (load spare-mem (raw 0)) cap)
+            (store spare-mem (raw 0) (map-words target))
+            (set-capacity! target))
+          (begin
+            (fill-words (load scheme-mem (raw 0)) len (raw 0))
+            (store spare-mem (raw 0) (load scheme-mem (raw 0)))))
       (store scheme-mem (raw 0) to)
-      (store scheme-len (raw 0) copied))))
+      (store scheme-len (raw 0) copied)
+      (let ((cap (load scheme-cap (raw 0))))
+        (when (raw>u (raw<< copied (raw 2)) cap)
+          (grow-target! (raw<< cap (raw 1))))))))
+
+
+;; The size of both spaces, which the stubs' fast path allocates up to (but in stress mode)
+(define (set-capacity! (raw n))
+  (declare unsafe noalloc (result void))
+  (store scheme-cap (raw 0) n)
+  (when (raw= (load gc-stress (raw 0)) (raw 0))
+    (store scheme-limit (raw 0) n)))
+
+
+;; The next collection's to-space: n words, at most max-heap-words
+(define (grow-target! (raw n))
+  (declare unsafe noalloc (result void))
+  (store gc-target (raw 0) (if (raw>u n max-heap-words) max-heap-words n)))
 
 (define (free-words)
   (declare unsafe inline (result raw))
   (raw- (load scheme-cap (raw 0)) (load scheme-len (raw 0))))
 
-;; nwords words of the current space, after a collection if it is full;
-;; called from the stubs in asm.sls, the only place where a collection may happen
+;; nwords words of the current space, after a collection if it is full, and a second one
+;; into larger spaces if they still do not fit; called from the stubs in asm.sls, the only
+;; place where a collection may happen
 (define (alloc-words (raw nwords) (raw roots) (raw nroots))
   (declare unsafe noalloc (result raw))
   (when (or (gc-stress-due?) (raw>u nwords (free-words)))
     (collect roots nroots)
     (when (raw>u nwords (free-words))
-      (fatal "Out of memory\n")))
+      (let ((need (raw+ (load scheme-len (raw 0)) nwords)))
+        (when (raw>u need max-heap-words)
+          (fatal "Out of memory\n"))
+        (grow-target! (let double ((n (raw<< (load scheme-cap (raw 0)) (raw 1))))
+                        (if (raw<u n need) (double (raw<< n (raw 1))) n)))
+        (collect roots nroots))))
   (let ((len (load scheme-len (raw 0))))
     (store scheme-len (raw 0) (raw+ len nwords))
     (raw+ (load scheme-mem (raw 0)) (raw<< len (raw 3)))))

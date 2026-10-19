@@ -10,7 +10,7 @@
 (define ignored (churn 10000))
 (fold-left + 0 xs)
 ---
-env = { SCHEME_HEAP = "5000", SCHEME_GC_STATS = "1" }
+env = { SCHEME_GC_STRESS = "1000", SCHEME_GC_STATS = "1" }
 stdout = "500500"
 stderr_contains = " max live words\n"
 chez = "skip"

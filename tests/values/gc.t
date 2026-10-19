@@ -6,6 +6,6 @@
         (lambda (v l) (loop (- i 1) (+ acc (vector-ref v 0) (car l)))))))
 (loop 1000 0)
 ---
-env = { SCHEME_HEAP = "5000" }
+env = { SCHEME_GC_STRESS = "1000" }
 stdout = "11000"
 chez = "skip"

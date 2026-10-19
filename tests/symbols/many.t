@@ -14,4 +14,4 @@
 (list (all-eq? syms 1) (car syms) (eq? (car syms) 's1) (eq? 's3000 (car (last-pair syms))))
 ---
 stdout = '(#t s1 #t #t)'
-env = { SCHEME_HEAP = "60000" }
+env = { SCHEME_GC_STRESS = "1000" }

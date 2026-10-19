@@ -6,4 +6,4 @@
 (repeat 50 0)
 ---
 stdout = "24750"
-env = { SCHEME_HEAP = "3000" }
+env = { SCHEME_GC_STRESS = "1000" }

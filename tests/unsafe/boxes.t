@@ -14,5 +14,5 @@
     (box-ref b)))
 (entry)
 ---
-env = { SCHEME_HEAP = "5000" }
+env = { SCHEME_GC_STRESS = "1000" }
 stdout = "((1 . 2) . 3)"

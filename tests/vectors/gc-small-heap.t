@@ -17,4 +17,4 @@
 (repeat 100 0)
 ---
 stdout = "9900"
-env = { SCHEME_HEAP = "3000" }
+env = { SCHEME_GC_STRESS = "1000" }

@@ -3,4 +3,4 @@
 (count 100000)
 ---
 stdout = "0"
-env = { SCHEME_HEAP = "2000" }
+env = { SCHEME_GC_STRESS = "1000" }

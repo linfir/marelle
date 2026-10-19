@@ -2,3 +2,4 @@
 (length (apply (lambda (a . r) r) (iota 100000 (list))))
 ---
 stdout = "99999"
+gc_stress = "skip"

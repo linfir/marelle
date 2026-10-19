@@ -26,5 +26,5 @@
                 (cons (repeat add1 1000 0) twice)))))
 (entry)
 ---
-env = { SCHEME_HEAP = "5000" }
+env = { SCHEME_GC_STRESS = "1000" }
 stdout = "(2 7 1000 . #<procedure twice>)"
