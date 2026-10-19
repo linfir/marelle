@@ -124,9 +124,9 @@
               (cons head (resolve-body env (cdr x)))))))))
 
 
-  ;; The calls of the library's +, *, -, comparisons, bitwise operations and make-vector whose
-  ;; number of operands the inline def does not take, in terms of it, or #f; the others go to
-  ;; their variadic twin
+  ;; The calls of the library's +, *, -, comparisons, bitwise operations, make-vector and list
+  ;; whose number of operands the inline def does not take, in terms of it, or #f; the others
+  ;; go to their variadic twin
   (define (expand-variadic op args)
     (let ((def op))
       (and (variadic-twin def)
@@ -159,4 +159,10 @@
                                            (cdr tmps)))))))
                ((make-vector)
                 (and (= (length args) 1) (list op (car args) 0)))
+               ;; Nested conses, so no frame and no rest list
+               ((list)
+                (case (length args)
+                  ((0) ''())
+                  ((1) #f)
+                  (else (list (core-def 'cons) (car args) (cons op (cdr args))))))
                (else #f)))))))

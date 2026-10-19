@@ -139,16 +139,30 @@
       acc
       (fold-left f (f acc (car l)) (cdr l))))
 
+;; The cdr of a pair just allocated by the caller
+(define (set-tail! p x)
+  (declare unsafe inline (result void))
+  (store (untag p) (raw 1) x))
+
 (define (length l)
   (declare public)
-  (fold-left (lambda (n x) (+ n 1)) 0 l))
+  (let loop ((n 0) (l l))
+    (if (null? l)
+        n
+        (loop (+ n 1) (cdr l)))))
 
+;; Each new pair's cdr is b until the next one replaces it
 (define (append a b)
   (declare public)
   (if (null? a)
       b
-      (cons (car a)
-            (append (cdr a) b))))
+      (let ((head (cons (car a) b)))
+        (let loop ((tail head) (a (cdr a)))
+          (if (null? a)
+              head
+              (let ((p (cons (car a) b)))
+                (set-tail! tail p)
+                (loop p (cdr a))))))))
 
 (define (append-reverse a b)
   (declare public)
@@ -168,8 +182,15 @@
 
 (define (map f l)
   (declare public)
-  (reverse (fold-left (lambda (acc x) (cons (f x) acc))
-                      '() l)))
+  (if (null? l)
+      '()
+      (let ((head (cons (f (car l)) '())))
+        (let loop ((tail head) (l (cdr l)))
+          (if (null? l)
+              head
+              (let ((p (cons (f (car l)) '())))
+                (set-tail! tail p)
+                (loop p (cdr l))))))))
 
 (define (for-each f l)
   (declare public)
@@ -178,8 +199,11 @@
         (f (car l))
         (for-each f (cdr l)))))
 
-(define (list . xs)
-  (declare public)
+(define (list x)
+  (declare inline public)
+  (cons x '()))
+
+(define (variadic-list . xs)
   xs)
 
 (define (list-ref l k)
@@ -189,7 +213,13 @@
 (define (list-copy l)
   (declare public)
   (if (pair? l)
-      (cons (car l) (list-copy (cdr l)))
+      (let ((head (cons (car l) (cdr l))))
+        (let loop ((tail head) (l (cdr l)))
+          (if (pair? l)
+              (let ((p (cons (car l) (cdr l))))
+                (set-tail! tail p)
+                (loop p (cdr l)))
+              head)))
       l))
 
 (define (last-pair l)
@@ -215,19 +245,33 @@
 
 (define (filter keep? l)
   (declare public)
-  (reverse (fold-left (lambda (acc x) (if (keep? x) (cons x acc) acc))
-                      '() l)))
+  (let ((head (cons #f '())))
+    (let loop ((tail head) (l l))
+      (if (null? l)
+          (cdr head)
+          (let ((x (car l)))
+            (if (keep? x)
+                (let ((p (cons x '())))
+                  (set-tail! tail p)
+                  (loop p (cdr l)))
+                (loop tail (cdr l))))))))
 
 ;; SRFI 1: (f x acc), the first element as the initial acc
 (define (reduce f default l)
   (declare public)
   (if (null? l)
       default
-      (fold-left (lambda (acc x) (f x acc)) (car l) (cdr l))))
+      (let loop ((acc (car l)) (l (cdr l)))
+        (if (null? l)
+            acc
+            (loop (f (car l) acc) (cdr l))))))
 
 (define (fold-right f acc l)
   (declare public)
-  (fold-left (lambda (acc x) (f x acc)) acc (reverse l)))
+  (let loop ((acc acc) (l (reverse l)))
+    (if (null? l)
+        acc
+        (loop (f (car l) acc) (cdr l)))))
 
 (define (memq x l)
   (declare public)
