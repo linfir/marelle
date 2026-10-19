@@ -6,7 +6,7 @@
   (declare unsafe inline)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) (bignum-type))))
+       (raw= (load (as-raw x) (raw 0)) bignum-type)))
 
 ;; Limb i of the bignum at p with n limbs, 0 past them
 (define (limb (raw p) (raw n) (raw i))
@@ -22,7 +22,7 @@
 (define (make-bignum n negative?)
   (declare unsafe inline)
   (let ((r (alloc (raw+ (fixnum-value n) (raw 3)))))
-    (store r (raw 0) (bignum-type))
+    (store r (raw 0) bignum-type)
     (store r (raw 1) (fixnum-value n))
     (store r (raw 2) (if negative? (raw 1) (raw 0)))
     (as-val r)))
@@ -476,7 +476,7 @@
          (q (word-address r (raw+ n (raw 3))))
          (u (word-address q nq)))
     (divide-magnitudes! q u a b)
-    (store r (raw 0) (bignum-type))
+    (store r (raw 0) bignum-type)
     (store r (raw 1) n)
     (store r (raw 2) (cond
                       ((not quotient?) (load a (raw 2)))

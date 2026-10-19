@@ -18,54 +18,19 @@
   (declare unsafe inline (result void))
   (store (address "scheme_globals") i v))
 
-(define (procedure-type)
-  (declare unsafe inline (result raw))
-  (raw 336)) ; 42 << 3
-
-(define (frame-type)
-  (declare unsafe inline (result raw))
-  (raw 344)) ; 43 << 3
-
-(define (forward-type)
-  (declare unsafe inline (result raw))
-  (raw 352)) ; 44 << 3
-
-(define (box-type)
-  (declare unsafe inline (result raw))
-  (raw 360)) ; 45 << 3
-
-(define (bignum-type)
-  (declare unsafe inline (result raw))
-  (raw 368)) ; 46 << 3
-
-(define (vector-type)
-  (declare unsafe inline (result raw))
-  (raw 376)) ; 47 << 3
-
+(define-constant procedure-type (raw (ash 42 3)))
+(define-constant frame-type (raw (ash 43 3)))
+(define-constant forward-type (raw (ash 44 3)))
+(define-constant box-type (raw (ash 45 3)))
+(define-constant bignum-type (raw (ash 46 3)))
+(define-constant vector-type (raw (ash 47 3)))
 ;; The string types, one per kind, are 48 to 51 (lib/strings.ss)
-(define (ascii-string-type)
-  (declare unsafe inline (result raw))
-  (raw 384)) ; 48 << 3
-
-(define (utf32-string-type)
-  (declare unsafe inline (result raw))
-  (raw 392)) ; 49 << 3
-
-(define (symbol-type)
-  (declare unsafe inline (result raw))
-  (raw 416)) ; 52 << 3
-
-(define (flexvector-type)
-  (declare unsafe inline (result raw))
-  (raw 424)) ; 53 << 3
-
-(define (values-type)
-  (declare unsafe inline (result raw))
-  (raw 432)) ; 54 << 3
-
-(define (ratnum-type)
-  (declare unsafe inline (result raw))
-  (raw 440)) ; 55 << 3
+(define-constant ascii-string-type (raw (ash 48 3)))
+(define-constant utf32-string-type (raw (ash 49 3)))
+(define-constant symbol-type (raw (ash 52 3)))
+(define-constant flexvector-type (raw (ash 53 3)))
+(define-constant values-type (raw (ash 54 3)))
+(define-constant ratnum-type (raw (ash 55 3)))
 
 (define (fixnum? x)
   (declare unsafe inline)
@@ -88,16 +53,16 @@
 
 (define (arity-error proc (raw nargs))
   (declare unsafe noalloc (result never))
-  (put-string (stderr) "Error: procedure of arity ")
+  (put-string stderr "Error: procedure of arity ")
   (let ((arity (load (as-raw proc) (raw 1))))
     (if (raw< arity (raw 0))
         (begin
-          (put-string (stderr) "at least ")
-          (put-int (stderr) (raw- (raw -1) arity)))
-        (put-int (stderr) arity)))
-  (put-string (stderr) " called with ")
-  (put-int (stderr) nargs)
-  (put-string (stderr) " arguments\n")
+          (put-string stderr "at least ")
+          (put-int stderr (raw- (raw -1) arity)))
+        (put-int stderr arity)))
+  (put-string stderr " called with ")
+  (put-int stderr nargs)
+  (put-string stderr " arguments\n")
   (exit-process (raw 1)))
 
 ;; Calls: the caller allocates the callee's frame and stores the arguments in it; a call whose
@@ -108,7 +73,7 @@
   (declare unsafe inline public)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) (procedure-type))))
+       (raw= (load (as-raw x) (raw 0)) procedure-type)))
 
 ;; n, or -(r + 1) for r required parameters and a rest one
 (define (procedure-arity proc)
@@ -153,7 +118,7 @@
 (define (make-box v)
   (declare unsafe inline)
   (let ((b (alloc (raw 2))))
-    (store b (raw 0) (box-type))
+    (store b (raw 0) box-type)
     (store b (raw 1) v)
     (as-val b)))
 

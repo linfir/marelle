@@ -4,7 +4,7 @@
   (declare unsafe inline public)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) (vector-type))))
+       (raw= (load (as-raw x) (raw 0)) vector-type)))
 
 (define (check-vector v (raw msg))
   (declare unsafe inline (result void))
@@ -39,7 +39,7 @@
   (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
     (scheme-error "`make-vector` expected a nonnegative fixnum" k))
   (let ((p (alloc (raw+ (fixnum-value k) (raw 2)))))
-    (store p (raw 0) (vector-type))
+    (store p (raw 0) vector-type)
     (store p (raw 1) (fixnum-value k))
     (fill-words (raw+ p (raw 16)) (fixnum-value k) (as-raw fill))
     (as-val p)))

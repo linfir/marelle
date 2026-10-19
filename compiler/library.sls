@@ -15,16 +15,25 @@
 
 
   (define (item-name x)
-    (if (def? x) (def-name x) (data-name x)))
+    (cond
+     ((def? x) (def-name x))
+     ((data? x) (data-name x))
+     (else (library-constant-name x))))
 
 
   (define (item-binding x)
-    (if (def? x) (make-def-binding x) (make-data-binding x)))
+    (cond
+     ((def? x) (make-def-binding x))
+     ((data? x) (make-data-binding x))
+     ((eq? (library-constant-kind x) 'raw)
+      (make-constant-binding `(quad ,(library-constant-value x))))
+     (else (make-constant-binding (immediate (library-constant-value x))))))
 
 
-  ;; Data, and defs with raw parameters or result, only unsafe defines may use
+  ;; Data, constants, and defs with raw parameters or result, only unsafe defines may use
   (define (unsafe-item? x)
     (or (data? x)
+        (library-constant? x)
         (eq? (def-result x) 'raw)
         (memq 'raw (def-params-kinds x))
         #f))
@@ -38,33 +47,36 @@
                  (filter unsafe-item? items))))
 
 
-  ;; The def or data of a library define or define-data; a procedure gets a fresh symbol,
-  ;; since programs may have their own of the same name
+  ;; The def, data or constant of a library define, define-data or define-constant; a procedure
+  ;; gets a fresh symbol, since programs may have their own of the same name
   (define (scanned-item x)
-    (if (library-data? x)
-        (let ((d (make-data (library-data-name x) (mangle (library-data-name x))
-                            (library-data-nwords x) #f)))
-          (add-symbol! (data-symbol d) (data-name d))
-          d)
-        (let* ((name (library-def-name x))
-               (attrs (library-def-attrs x))
-               (def (make-def name
-                              (mangle (if (library-def-procedure? x) (fresh-name name) name))
-                              (map cons (library-def-args x) (library-def-kinds x))
-                              (library-def-result x)
-                              (and (memq ':inline attrs) #t) (and (memq ':public attrs) #t)
-                              (and (memq ':noalloc attrs) #t) (library-def-procedure? x)
-                              (library-def-unsafe? x) 0 #f #f (library-def-body x) #f #f)))
-          (when (and (def-noalloc? def) (or (def-inline? def) (def-public? def)))
-            (error 'scanned-item ":noalloc with another attribute" name))
-          ;; An emitted def is called with the Scheme convention
-          (unless (or (not (def-emitted? def))
-                      (def-noalloc? def)
-                      (and (for-all (lambda (k) (memq k '(val rest))) (def-params-kinds def))
-                           (memq (def-result def) '(val never))))
-            (error 'scanned-item "raw parameter or result in a non-inline def" name))
-          (add-def-symbols! def)
-          def)))
+    (cond
+     ((library-constant? x) x)
+     ((library-data? x)
+      (let ((d (make-data (library-data-name x) (mangle (library-data-name x))
+                          (library-data-nwords x) #f)))
+        (add-symbol! (data-symbol d) (data-name d))
+        d))
+     (else
+      (let* ((name (library-def-name x))
+             (attrs (library-def-attrs x))
+             (def (make-def name
+                            (mangle (if (library-def-procedure? x) (fresh-name name) name))
+                            (map cons (library-def-args x) (library-def-kinds x))
+                            (library-def-result x)
+                            (and (memq ':inline attrs) #t) (and (memq ':public attrs) #t)
+                            (and (memq ':noalloc attrs) #t) (library-def-procedure? x)
+                            (library-def-unsafe? x) 0 #f #f (library-def-body x) #f #f)))
+        (when (and (def-noalloc? def) (or (def-inline? def) (def-public? def)))
+          (error 'scanned-item ":noalloc with another attribute" name))
+        ;; An emitted def is called with the Scheme convention
+        (unless (or (not (def-emitted? def))
+                    (def-noalloc? def)
+                    (and (for-all (lambda (k) (memq k '(val rest))) (def-params-kinds def))
+                         (memq (def-result def) '(val never))))
+          (error 'scanned-item "raw parameter or result in a non-inline def" name))
+        (add-def-symbols! def)
+        def))))
 
 
   ;; The library defs a letrec init may call and stay simple
@@ -216,30 +228,41 @@
            (print-entry '(stubs)))
          `((names ,((names)))
            ,@(map (lambda (x)
-                    (if (data? x)
-                        `(data ,(data-name x) ,(data-symbol x) ,(data-nwords x))
-                        `(def ,(def-name x) ,(def-symbol x) ,(def-params x) ,(def-result x)
-                              (,@(if (def-inline? x) '(inline) '())
-                               ,@(if (def-public? x) '(public) '())
-                               ,@(if (def-noalloc? x) '(noalloc) '()))
-                              ,(def-unsafe? x) ,(def-procedure? x)
-                              ,@(if (def-inline? x) (def-body x) '()))))
+                    (cond
+                     ((library-constant? x)
+                      `(constant ,(library-constant-name x) ,(library-constant-kind x)
+                                 ,(library-constant-value x)))
+                     ((data? x)
+                      `(data ,(data-name x) ,(data-symbol x) ,(data-nwords x)))
+                     (else
+                      `(def ,(def-name x) ,(def-symbol x) ,(def-params x) ,(def-result x)
+                            (,@(if (def-inline? x) '(inline) '())
+                             ,@(if (def-public? x) '(public) '())
+                             ,@(if (def-noalloc? x) '(noalloc) '()))
+                            ,(def-unsafe? x) ,(def-procedure? x)
+                            ,@(if (def-inline? x) (def-body x) '())))))
                   items))))))
 
 
-  ;; The def or data of an interface entry, extern
+  ;; The def, data or constant of an interface entry, extern
   (define (interface-item x)
-    (if (eq? (car x) 'data)
-        (apply (lambda (name symbol nwords) (make-data name symbol nwords #t)) (cdr x))
-        (apply (lambda (name symbol params result attrs unsafe? procedure? . body)
-                 (make-def name symbol params result (and (memq 'inline attrs) #t)
-                           (and (memq 'public attrs) #t) (and (memq 'noalloc attrs) #t)
-                           procedure? unsafe? 0 #f #t body #f #f))
-               (cdr x))))
+    (case (car x)
+      ((constant) (apply make-library-constant (cdr x)))
+      ((data) (apply (lambda (name symbol nwords) (make-data name symbol nwords #t)) (cdr x)))
+      (else
+       (apply (lambda (name symbol params result attrs unsafe? procedure? . body)
+                (make-def name symbol params result (and (memq 'inline attrs) #t)
+                          (and (memq 'public attrs) #t) (and (memq 'noalloc attrs) #t)
+                          procedure? unsafe? 0 #f #t body #f #f))
+              (cdr x)))))
 
 
   (define (define-data-form? form)
     (and (non-empty-list? form) (eq? (car form) 'define-data)))
+
+
+  (define (static-form? form)
+    (or (declared-define? form) (define-data-form? form) (define-constant-form? form)))
 
 
   ;; Also expands define-values
@@ -276,7 +299,7 @@
 
 
   ;; Prints the IR of the program, its top-level forms with begins spliced: a define with a declare
-  ;; and define-data are static, like the library's; the others are the letrec* body of main
+  ;; define-data and define-constant are static, like the library's; the others are the letrec* body of main
   ;; (main-body), whose variables, but the procedures, are global cells; the last form gives the
   ;; result
   (define (compile-scheme-program interface program)
@@ -286,7 +309,7 @@
      (cadr (assq 'names interface)) "scheme_literals"
      (lambda ()
        (let ((library (map interface-item
-                           (filter (lambda (x) (memq (car x) '(def data))) interface)))
+                           (filter (lambda (x) (memq (car x) '(def data constant))) interface)))
              (library-init (literal-init-def "scheme_library_init" #t))
              (init (literal-init-def "scheme_init" #f)))
          (add-symbol! "main_proc" 'main)
@@ -294,15 +317,14 @@
          (add-def-symbols! init)
          (set-pure-defs! library)
          (for-each (lambda (x)
-                     (if (def? x)
-                         (add-def-symbols! x)
-                         (add-symbol! (data-symbol x) (data-name x))))
+                     (cond
+                      ((def? x) (add-def-symbols! x))
+                      ((data? x) (add-symbol! (data-symbol x) (data-name x)))))
                    library)
          (let-values (((safe unsafe) (item-bindings library)))
            (set-envs! library safe (append safe unsafe unsafe-bindings)))
          (let*-values (((all) (splice-begins program))
-                       ((static) (filter (lambda (x) (or (declared-define? x) (define-data-form? x)))
-                                         all))
+                       ((static) (filter static-form? all))
                        ((forms) (filter (lambda (x) (not (memq x static))) all))
                        ((items) (map scanned-item (scan-library static)))
                        ((safe unsafe) (item-bindings items)))
@@ -323,7 +345,7 @@
                                             (filter def? library))))
                (compile-defs! items)
                (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
-                                                     (define-data-form? (car (last-pair all))))))))
+                                                     (static-form? (car (last-pair all))))))))
                  (parameterize ((startup-defs (list library-init init)))
                    (compile-procedure
                     (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env

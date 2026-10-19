@@ -5,7 +5,7 @@
   (declare unsafe inline public)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) (flexvector-type))))
+       (raw= (load (as-raw x) (raw 0)) flexvector-type)))
 
 (define (check-flexvector fv (raw msg))
   (declare unsafe inline (result void))
@@ -28,7 +28,7 @@
   (declare unsafe inline)
   (let* ((s (make-vector (if (< k 4) 4 k) 0))
          (p (alloc (raw 3))))
-    (store p (raw 0) (flexvector-type))
+    (store p (raw 0) flexvector-type)
     (store p (raw 2) s)
     (as-val p)))
 

@@ -1,13 +1,8 @@
 ;; The environment variables, NAME=VALUE C strings ending with 0
 (define-data environment 1)
 
-(define (stdout)
-  (declare unsafe inline (result raw))
-  (raw 1))
-
-(define (stderr)
-  (declare unsafe inline (result raw))
-  (raw 2))
+(define-constant stdout (raw 1))
+(define-constant stderr (raw 2))
 
 ;; Writes the n bytes at buf to the file descriptor fd, stopping on an error
 (define (write-bytes (raw fd) (raw buf) (raw n))
@@ -41,7 +36,7 @@
 ;; Prints msg and exits, when the program cannot go on
 (define (fatal (raw msg))
   (declare unsafe noalloc (result never))
-  (put-string (stderr) msg)
+  (put-string stderr msg)
   (exit-process (raw 1)))
 
 ;; The address of the value of entry, a NAME=VALUE string, or 0 if its name is not name
@@ -91,11 +86,11 @@
         default
         (let ((n (parse-positive s)))
           (when (or (raw= n (raw 0)) (raw>u n max))
-            (put-string (stderr) "Invalid ")
-            (put-string (stderr) name)
-            (put-string (stderr) ": ")
-            (put-string (stderr) s)
-            (put-string (stderr) "\n")
+            (put-string stderr "Invalid ")
+            (put-string stderr name)
+            (put-string stderr ": ")
+            (put-string stderr s)
+            (put-string stderr "\n")
             (exit-process (raw 1)))
           n))))
 
@@ -130,25 +125,25 @@
 ;; Called from _start with the value of scheme_main
 (define (finish-program v)
   (declare unsafe noalloc (result never))
-  (display (stdout) v)
+  (display stdout v)
   (exit-process (raw 0)))
 
 ;; Prints "Error: msg: x" and exits
 (define (scheme-error (raw msg) x)
   (declare unsafe noalloc (result never))
-  (put-string (stderr) "Error: ")
-  (put-string (stderr) msg)
-  (put-string (stderr) ": ")
-  (display (stderr) x)
-  (put-string (stderr) "\n")
+  (put-string stderr "Error: ")
+  (put-string stderr msg)
+  (put-string stderr ": ")
+  (display stderr x)
+  (put-string stderr "\n")
   (exit-process (raw 1)))
 
 ;; A letrec variable used or assigned before its init
 (define (definition-error (raw name) (raw what))
   (declare unsafe noalloc (result never))
-  (put-string (stderr) "Error: `")
-  (put-string (stderr) name)
-  (put-string (stderr) "` ")
-  (put-string (stderr) what)
-  (put-string (stderr) " before its definition\n")
+  (put-string stderr "Error: `")
+  (put-string stderr name)
+  (put-string stderr "` ")
+  (put-string stderr what)
+  (put-string stderr " before its definition\n")
   (exit-process (raw 1)))

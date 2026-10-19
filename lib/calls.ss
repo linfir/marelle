@@ -88,7 +88,7 @@
   (if (and (pair? xs) (null? (cdr xs)))
       (car xs)
       (let ((p (alloc (raw 2))))
-        (store p (raw 0) (values-type))
+        (store p (raw 0) values-type)
         (store p (raw 1) xs)
         (as-val p))))
 
@@ -96,7 +96,7 @@
   (declare unsafe inline)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) (values-type))))
+       (raw= (load (as-raw x) (raw 0)) values-type)))
 
 (define (call-with-values producer consumer)
   (declare unsafe public)

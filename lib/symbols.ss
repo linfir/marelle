@@ -13,7 +13,7 @@
   (declare unsafe inline public)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) (symbol-type))))
+       (raw= (load (as-raw x) (raw 0)) symbol-type)))
 
 (define (symbol-name sym)
   (declare unsafe inline)
@@ -28,7 +28,7 @@
 (define (make-symbol s)
   (declare unsafe inline)
   (let ((p (alloc (raw 2))))
-    (store p (raw 0) (symbol-type))
+    (store p (raw 0) symbol-type)
     (store p (raw 1) s)
     (as-val p)))
 

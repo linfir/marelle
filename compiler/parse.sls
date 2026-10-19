@@ -10,7 +10,9 @@
           library-def? library-def-name library-def-args library-def-kinds
           library-def-result library-def-attrs library-def-body library-def-procedure?
           library-def-unsafe? declared-define? parse-library-define parse-define-data
-          library-data? library-data-name library-data-nwords)
+          library-data? library-data-name library-data-nwords
+          make-library-constant library-constant? library-constant-name library-constant-kind
+          library-constant-value define-constant-form?)
   (import (chezscheme)
           (utils))
 
@@ -326,6 +328,11 @@
     (fields name nwords))
 
 
+  ;; (define-constant name e) or (define-constant name (raw e)), kind val or raw, e folded
+  (define-record-type library-constant
+    (fields name kind value))
+
+
   ;; x or (raw x) => (x . kind)
   (define (parse-typed-param p)
     (cond
@@ -409,7 +416,44 @@
     (make-library-data (cadr form) (caddr form)))
 
 
-  ;; The library-def and library-data records of the library forms
+  (define (define-constant-form? form)
+    (and (non-empty-list? form) (eq? (car form) 'define-constant)))
+
+
+  (define constant-ops
+    `((+ . ,+) (- . ,-) (* . ,*) (ash . ,ash) (quotient . ,quotient)
+      (bitwise-and . ,bitwise-and) (bitwise-ior . ,bitwise-ior) (bitwise-xor . ,bitwise-xor)))
+
+
+  ;; The value of e: literals, the constants (name . value), and constant-ops
+  (define (fold-constant e constants form)
+    (cond
+     ((or (integer? e) (boolean? e) (char? e)) e)
+     ((and (symbol? e) (assq e constants)) => cdr)
+     ((and (non-empty-list? e) (assq (car e) constant-ops))
+      => (lambda (op)
+           (let ((args (map (lambda (x) (fold-constant x constants form)) (cdr e))))
+             (unless (for-all integer? args)
+               (error 'parse-define-constant "non integer operand" form))
+             (apply (cdr op) args))))
+     (else (error 'parse-define-constant "invalid constant expression" form))))
+
+
+  (define (parse-define-constant form constants)
+    (unless (and (= (length form) 3) (symbol? (cadr form)))
+      (error 'parse-define-constant "invalid define-constant" form))
+    (let* ((e (caddr form))
+           (raw? (and (non-empty-list? e) (eq? (car e) 'raw) (= (length e) 2)))
+           (value (fold-constant (if raw? (cadr e) e) constants form)))
+      (if raw?
+          (unless (and (integer? value) (<= (- (expt 2 63)) value (- (expt 2 64) 1)))
+            (error 'parse-define-constant "invalid raw constant" form))
+          (unless (immediate? value)
+            (error 'parse-define-constant "invalid constant" form)))
+      (make-library-constant (cadr form) (if raw? 'raw 'val) value)))
+
+
+  ;; The library-def, library-data and library-constant records of the library forms
   (define (scan-library forms)
     (let loop ((forms forms)
                (acc '())
@@ -417,10 +461,19 @@
       (if (null? forms)
           (reverse acc)
           (let* ((form (car forms))
-                 (x (if (and (non-empty-list? form) (eq? (car form) 'define-data))
-                        (parse-define-data form)
-                        (parse-library-define form)))
-                 (name (if (library-def? x) (library-def-name x) (library-data-name x))))
+                 (x (cond
+                     ((and (non-empty-list? form) (eq? (car form) 'define-data))
+                      (parse-define-data form))
+                     ((define-constant-form? form)
+                      (parse-define-constant
+                       form
+                       (map (lambda (c) (cons (library-constant-name c) (library-constant-value c)))
+                            (filter library-constant? acc))))
+                     (else (parse-library-define form))))
+                 (name (cond
+                        ((library-def? x) (library-def-name x))
+                        ((library-data? x) (library-data-name x))
+                        (else (library-constant-name x)))))
             (when (memq name names)
               (error 'scan-library "redefinition not allowed" name))
             (loop (cdr forms) (cons x acc) (cons name names)))))))

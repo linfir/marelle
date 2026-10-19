@@ -6,7 +6,7 @@
 ;; Exactly the four words (48 to 51) << 3: the GC also reads a pair's car as a header
 (define (string-header? (raw h))
   (declare unsafe inline)
-  (raw= (bit-and h (raw -25)) (ascii-string-type)))
+  (raw= (bit-and h (raw -25)) ascii-string-type))
 
 (define (string? x)
   (declare unsafe inline public)
@@ -25,16 +25,16 @@
 
 (define (ascii-string? s)
   (declare unsafe inline)
-  (raw= (load (as-raw s) (raw 0)) (ascii-string-type)))
+  (raw= (load (as-raw s) (raw 0)) ascii-string-type))
 
 (define (string-type ascii?)
   (declare unsafe inline (result raw))
-  (if ascii? (ascii-string-type) (utf32-string-type)))
+  (if ascii? ascii-string-type utf32-string-type))
 
 ;; The words of a string of n chars with the header h
 (define (string-words (raw h) (raw n))
   (declare unsafe inline (result raw))
-  (raw+ (raw 3) (if (raw= h (ascii-string-type))
+  (raw+ (raw 3) (if (raw= h ascii-string-type)
                     (raw>>u (raw+ n (raw 7)) (raw 3))
                     (raw>>u (raw+ n (raw 1)) (raw 1)))))
 
@@ -56,7 +56,7 @@
 ;; Sets char i of the string at p to the code n, which fits its kind
 (define (string-set-code! (raw p) (raw i) (raw n))
   (declare unsafe inline (result void))
-  (if (raw= (load p (raw 0)) (ascii-string-type))
+  (if (raw= (load p (raw 0)) ascii-string-type)
       (store8 p (raw+ i (raw 24)) n)
       (store32 p (raw+ (raw<< i (raw 2)) (raw 24)) n)))
 

@@ -20,16 +20,16 @@
 ;; Each stretch between collections allocates from the words copied up to the used words
 (define (print-gc-stats)
   (declare unsafe noalloc (result void))
-  (put-string (stderr) "GC: ")
-  (put-int (stderr) (load gc-count (raw 0)))
-  (put-string (stderr) " collections, ")
-  (put-int (stderr) (raw- (raw+ (load gc-used-before (raw 0)) (load scheme-len (raw 0)))
-                          (load gc-copied (raw 0))))
-  (put-string (stderr) " words allocated, ")
-  (put-int (stderr) (load gc-copied (raw 0)))
-  (put-string (stderr) " words copied, ")
-  (put-int (stderr) (load gc-max-live (raw 0)))
-  (put-string (stderr) " max live words\n"))
+  (put-string stderr "GC: ")
+  (put-int stderr (load gc-count (raw 0)))
+  (put-string stderr " collections, ")
+  (put-int stderr (raw- (raw+ (load gc-used-before (raw 0)) (load scheme-len (raw 0)))
+                        (load gc-copied (raw 0))))
+  (put-string stderr " words allocated, ")
+  (put-int stderr (load gc-copied (raw 0)))
+  (put-string stderr " words copied, ")
+  (put-int stderr (load gc-max-live (raw 0)))
+  (put-string stderr " max live words\n"))
 
 ;; Counts down to the next forced collection in stress mode (SCHEME_GC_STRESS)
 (define (gc-stress-due?)
@@ -49,12 +49,12 @@
 (define (object-words (raw p))
   (declare unsafe noalloc (result raw))
   (cond
-   ((raw= (load p (raw 0)) (frame-type)) (load p (raw 1)))
-   ((raw= (load p (raw 0)) (procedure-type)) (raw+ (load p (raw 4)) (raw 5)))
-   ((raw= (load p (raw 0)) (bignum-type)) (raw+ (load p (raw 1)) (raw 3)))
-   ((raw= (load p (raw 0)) (vector-type)) (raw+ (load p (raw 1)) (raw 2)))
-   ((raw= (load p (raw 0)) (flexvector-type)) (raw 3))
-   ((raw= (load p (raw 0)) (ratnum-type)) (raw 3))
+   ((raw= (load p (raw 0)) frame-type) (load p (raw 1)))
+   ((raw= (load p (raw 0)) procedure-type) (raw+ (load p (raw 4)) (raw 5)))
+   ((raw= (load p (raw 0)) bignum-type) (raw+ (load p (raw 1)) (raw 3)))
+   ((raw= (load p (raw 0)) vector-type) (raw+ (load p (raw 1)) (raw 2)))
+   ((raw= (load p (raw 0)) flexvector-type) (raw 3))
+   ((raw= (load p (raw 0)) ratnum-type) (raw 3))
    ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
    (else (raw 2)))) ; pair, box, values or symbol
 
@@ -71,7 +71,7 @@
            ((or (raw<u p mem)
                 (raw>=u p (raw+ mem (raw<< (load scheme-len (raw 0)) (raw 3)))))
             x) ; null or static procedure
-           ((raw= (load p (raw 0)) (forward-type))
+           ((raw= (load p (raw 0)) forward-type)
             (bit-or (load p (raw 1)) t))
            (else
             (let ((new (load gc-free (raw 0)))
@@ -82,7 +82,7 @@
                     (store new (raw 1) (load p (raw 1))))
                   (copy-words new p n))
               (store gc-free (raw 0) (raw+ new (raw<< n (raw 3))))
-              (store p (raw 0) (forward-type))
+              (store p (raw 0) forward-type)
               (store p (raw 1) new)
               (bit-or new t))))))))
 
@@ -101,17 +101,17 @@
   (declare unsafe noalloc (result raw))
   (let* ((n (object-words p))
          (header (load p (raw 0)))
-         (frame? (raw= header (frame-type)))
+         (frame? (raw= header frame-type))
          (start (cond
                  (frame? (raw 4))
-                 ((raw= header (procedure-type)) (raw 5))
-                 ((raw= header (box-type)) (raw 1))
-                 ((raw= header (values-type)) (raw 1))
-                 ((raw= header (symbol-type)) (raw 1)) ; the name
-                 ((raw= header (bignum-type)) n) ; only raw words
-                 ((raw= header (vector-type)) (raw 2))
-                 ((raw= header (flexvector-type)) (raw 2)) ; the storage
-                 ((raw= header (ratnum-type)) (raw 1))
+                 ((raw= header procedure-type) (raw 5))
+                 ((raw= header box-type) (raw 1))
+                 ((raw= header values-type) (raw 1))
+                 ((raw= header symbol-type) (raw 1)) ; the name
+                 ((raw= header bignum-type) n) ; only raw words
+                 ((raw= header vector-type) (raw 2))
+                 ((raw= header flexvector-type) (raw 2)) ; the storage
+                 ((raw= header ratnum-type) (raw 1))
                  ((string-header? header) n) ; only raw words
                  (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))
