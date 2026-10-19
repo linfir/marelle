@@ -85,7 +85,7 @@
   ;; The library defs a letrec init may call and stay simple
   (define pure-names
     '(car cdr cons + - * = < > <= >= eq? eqv? not null? pair? boolean? integer? procedure?
-          char? string? symbol? vector? zero?))
+          char? string? symbol? vector? zero? make-record-type))
 
 
   ;; Per compilation: the library's defs of pure-names
@@ -96,12 +96,15 @@
     (pure-defs (filter (lambda (x) (and (def? x) (memq (def-name x) pure-names))) library)))
 
 
+  ;; x a name, or a (core name) head, always the library's def
   (define (pure-def-name? env x)
-    (let ((entry (assq x env)))
-      (and entry
-           (def-binding? (cdr entry))
-           (memq (def-binding-def (cdr entry)) (pure-defs))
-           #t)))
+    (if (pair? x)
+        (and (memq (cadr x) pure-names) #t)
+        (let ((entry (assq x env)))
+          (and entry
+               (def-binding? (cdr entry))
+               (memq (def-binding-def (cdr entry)) (pure-defs))
+               #t))))
 
 
   ;; The core of a def, its letrec* forms fixed, analyzed, its closures converted, its names
@@ -287,7 +290,7 @@
     (or (declared-define? form) (define-data-form? form) (define-constant-form? form)))
 
 
-  ;; Also expands define-values
+  ;; Also expands define-values and define-record-type
   (define (splice-begins forms)
     (apply append (map (lambda (x)
                          (cond
@@ -295,6 +298,8 @@
                            (splice-begins (cdr x)))
                           ((define-values-form? x)
                            (expand-top-define-values x))
+                          ((define-record-type-form? x)
+                           (expand-top-define-record-type x))
                           (else (list x))))
                        forms)))
 

@@ -63,8 +63,9 @@
    ((raw= (load p (raw 0)) vector-type) (raw+ (load p (raw 1)) (raw 2)))
    ((raw= (load p (raw 0)) flexvector-type) (raw 3))
    ((raw= (load p (raw 0)) ratnum-type) (raw 3))
+   ((raw= (load p (raw 0)) record-type) (raw+ (load p (raw 1)) (raw 3)))
    ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
-   (else (raw 2)))) ; pair, box, values or symbol
+   (else (raw 2)))) ; pair, box, values, symbol or record type
 
 ;; The new address of the object x points to, copied to gc-free if it is in the
 ;; current space; a moved object holds forward-type and its new address
@@ -120,6 +121,8 @@
                  ((raw= header vector-type) (raw 2))
                  ((raw= header flexvector-type) (raw 2)) ; the storage
                  ((raw= header ratnum-type) (raw 1))
+                 ((raw= header rtd-type) (raw 1)) ; the name
+                 ((raw= header record-type) (raw 2)) ; the type and the fields
                  ((string-header? header) n) ; only raw words
                  (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))

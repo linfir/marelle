@@ -115,6 +115,11 @@
     (put-string out "/")
     (display out (as-val (load (as-raw x) (raw 2)))))
    ((raw= (load (as-raw x) (raw 0)) vector-type) (display-vector out x))
+   ((raw= (load (as-raw x) (raw 0)) record-type) (display-record out x))
+   ((raw= (load (as-raw x) (raw 0)) rtd-type)
+    (put-string out "#<record type ")
+    (display-symbol out (as-val (load (as-raw x) (raw 1))))
+    (put-string out ">"))
    ((string-header? (load (as-raw x) (raw 0))) (display-string out x))
    ((raw= (load (as-raw x) (raw 0)) symbol-type) (display-symbol out x))
    ((raw= (load (as-raw x) (raw 0)) flexvector-type) (put-string out "#<flexvector>"))
@@ -201,6 +206,21 @@
             (display out (as-val (load (as-raw v) (raw+ i (raw 2)))))
             (elem-next (raw+ i (raw 1))))))
     (put-string out ")")))
+
+;; Like Chez's, without the gensym of the type's name
+(define (display-record (raw out) r)
+  (declare unsafe noalloc (result void))
+  (let ((n (load (as-raw r) (raw 1))))
+    (put-string out "#[")
+    (display-symbol out (as-val (load (load (as-raw r) (raw 2)) (raw 1))))
+    (let field-next ((i (raw 0)))
+      (if (raw= i n)
+          undef
+          (begin
+            (put-string out " ")
+            (display out (as-val (load (as-raw r) (raw+ i (raw 3)))))
+            (field-next (raw+ i (raw 1))))))
+    (put-string out "]")))
 
 ;; The number of limbs at q once its leading zero limbs are dropped
 (define (significant-limbs (raw q) (raw m))

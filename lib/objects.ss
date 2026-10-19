@@ -31,6 +31,8 @@
 (define-constant flexvector-type (raw (ash 53 3)))
 (define-constant values-type (raw (ash 54 3)))
 (define-constant ratnum-type (raw (ash 55 3)))
+(define-constant rtd-type (raw (ash 56 3)))
+(define-constant record-type (raw (ash 57 3)))
 
 (define (fixnum? x)
   (declare unsafe inline)

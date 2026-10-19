@@ -5,7 +5,8 @@
           formals-names formals->params
           parse-lambda parse-let parse-let* parse-letrec named-let? parse-named-let
           parse-if parse-cond parse-case parse-do parse-begin parse-set! parse-define
-          parse-let-values parse-define-values define-values-form? core-ref expand-and fresh-local
+          parse-let-values parse-define-values define-values-form?
+          parse-define-record-type define-record-type-form? core-ref expand-and fresh-local
           scan-library
           library-def? library-def-name library-def-args library-def-kinds
           library-def-result library-def-attrs library-def-body library-def-procedure?
@@ -63,7 +64,7 @@
 
   (define *special-forms*
     '(if cond case and or let let* letrec letrec* lambda begin set! when unless do define
-         let-values let*-values define-values))
+         let-values let*-values define-values define-record-type))
 
 
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
@@ -234,6 +235,40 @@
       (error 'parse-define-values "invalid define-values" form))
     (validate-parameters (cadr form))
     (values (cadr form) (caddr form)))
+
+
+  ;; The subset of Chez's form the compiler uses:
+  ;; (define-record-type name [(fields field ...)]), a field f or (mutable f)
+  ;; => (values name ((f . mutable?) ...))
+  (define (parse-define-record-type form)
+    (define (invalid)
+      (error 'parse-define-record-type "invalid define-record-type" form))
+    (unless (and (list? form) (<= 2 (length form) 3) (symbol? (cadr form)))
+      (invalid))
+    (let ((fields (if (null? (cddr form))
+                      '()
+                      (let ((clause (caddr form)))
+                        (unless (and (pair? clause) (list? clause) (eq? (car clause) 'fields))
+                          (invalid))
+                        (map (lambda (f)
+                               (cond
+                                ((symbol? f) (cons f #f))
+                                ((and (list? f) (= (length f) 2) (eq? (car f) 'mutable)
+                                      (symbol? (cadr f)))
+                                 (cons (cadr f) #t))
+                                (else (invalid))))
+                             (cdr clause))))))
+      (let loop ((names (map car fields)))
+        (unless (null? names)
+          (when (memq (car names) (cdr names))
+            (error 'parse-define-record-type "duplicate field" (car names)))
+          (loop (cdr names))))
+      (values (cadr form) fields)))
+
+
+  (define (define-record-type-form? form)
+    (and (non-empty-list? form)
+         (eq? (car form) 'define-record-type)))
 
 
   ;; (if test then [else]) => (values test then else)

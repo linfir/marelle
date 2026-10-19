@@ -8,11 +8,7 @@
   ;; instructions of the open block, all newest first, and its counters
   (define-record-type fn
     (fields (mutable blocks) (mutable label) (mutable instrs)
-            tmps raws labels)
-    (protocol
-     (lambda (new)
-       (lambda ()
-         (new '() 0 '() (make-counter) (make-counter) (make-counter))))))
+            tmps raws labels))
 
 
   (define current-fn (make-parameter #f))
@@ -20,7 +16,8 @@
 
   ;; The blocks of the function whose body (emit) emits
   (define (with-function emit)
-    (parameterize ((current-fn (make-fn)))
+    (parameterize ((current-fn
+                    (make-fn '() 0 '() (make-counter) (make-counter) (make-counter))))
       (emit)
       (close-block!)
       (reverse (fn-blocks (current-fn)))))

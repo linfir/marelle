@@ -2,13 +2,13 @@
 ;; original, and every special form headed by its marker, so a plain symbol at the head of a
 ;; form is a call.
 ;; The derived forms are expanded: cond, case, let*, letrec (as letrec*), do, let-values,
-;; let*-values, the bodies' defines and define-values, and when and unless outside unsafe
-;; defines.
+;; let*-values, the bodies' defines, define-values and define-record-type, and when and
+;; unless outside unsafe defines.
 ;; The core forms left are if, begin, set!, lambda, let, named let, letrec* (for the letrec
 ;; pass), and, or, eq? (from case), and when and unless in unsafe defines.
 
 (library (front)
-  (export front-def expand-top-define-values)
+  (export front-def expand-top-define-values expand-top-define-record-type)
   (import (chezscheme)
           (utils)
           (parse))
@@ -122,7 +122,7 @@
                `(,(marker keyword) ,@(front-exprs env (cdr x)))
                (front-expr env (expand-when keyword x))))
 
-          ((define define-values)
+          ((define define-values define-record-type)
            (error 'front-expr "invalid context for definition" x))
 
           (else
@@ -155,6 +155,8 @@
                                           expr (rename-formals formals copies)
                                           (list `(,(core-ref 'list) ,@copies)))))
                            bindings)))))
+        ((define-record-type)
+         (loop (cdr forms) (append (reverse (record-type-bindings (car forms))) bindings)))
         ((begin)
          (loop (append (cdar forms) (cdr forms)) bindings))
         (else
@@ -177,6 +179,48 @@
           ,(call-with-values-form expr (rename-formals formals copies)
                                   `(,@(map (lambda (x c) `(,(marker 'set!) ,x ,c)) names copies)
                                     ,undef))))))
+
+
+  ;; The type, made when the form is evaluated, then make-name, name?, and name-f and
+  ;; name-f-set! per field, which check their record's type
+  (define (record-type-bindings form)
+    (let-values (((name fields) (parse-define-record-type form)))
+      (let ((type (gensym (symbol->string name)))
+            (indices (iota (length fields))))
+        (define (named . parts)
+          (string->symbol
+           (apply string-append (map (lambda (x) (if (symbol? x) (symbol->string x) x)) parts))))
+        (define (checked who r value)
+          `(,(marker 'if) (,(core-ref 'record-of?) ,r ,type)
+            ,value
+            (,(core-ref 'record-error) ,(make-quoted-symbol who) ,type ,r)))
+        (define (field-bindings field i)
+          (let ((get (named name "-" (car field)))
+                (r (gensym "r"))
+                (x (gensym "x")))
+            (cons `(,get (,(marker 'lambda) (,r)
+                          ,(checked get r `(,(core-ref 'record-field) ,r ,i))))
+                  (if (cdr field)
+                      (let ((set (named get "-set!")))
+                        `((,set (,(marker 'lambda) (,r ,x)
+                                 ,(checked set r `(,(core-ref 'record-field-set!) ,r ,i ,x))))))
+                      '()))))
+        (let ((args (fresh-names (map car fields)))
+              (r (gensym "r"))
+              (x (gensym "x")))
+          `((,type (,(core-ref 'make-record-type) ,(make-quoted-symbol name)))
+            (,(named "make-" name)
+             (,(marker 'lambda) ,args
+              (,(marker 'let) ((,r (,(core-ref 'make-record) ,type ,(length fields))))
+               ,@(map (lambda (a i) `(,(core-ref 'record-field-set!) ,r ,i ,a)) args indices)
+               ,r)))
+            (,(named name "?")
+             (,(marker 'lambda) (,x) (,(core-ref 'record-of?) ,x ,type)))
+            ,@(apply append (map field-bindings fields indices)))))))
+
+
+  (define (expand-top-define-record-type form)
+    (map (lambda (b) `(define ,@b)) (record-type-bindings form)))
 
 
   (define (call-with-values-form expr formals body)

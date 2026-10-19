@@ -163,8 +163,8 @@
            (or (not (memq x group)) (memq x simple-vars))))
      (else
       (and (list? x)
-           (symbol? (car x))
-           (not (gensym? (car x)))
+           (or (and (symbol? (car x)) (not (gensym? (car x))))
+               (eq? (special-keyword (car x)) 'core))
            ((pure?) (car x))
            (for-all (lambda (y) (simple-init? y simple-vars group)) (cdr x))))))
 
