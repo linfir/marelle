@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "Error: `gensym` expected an optional string: (\"a\" \"b\")\n"
+chez = "skip"

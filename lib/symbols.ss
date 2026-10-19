@@ -1,19 +1,33 @@
 ;; Symbols: [symbol-type, hash, name], the name an immutable string, the hash a raw word, of
 ;; the name's code points; interned in symbol-table: open addressing over a vector of 2^k slots,
 ;; #f when empty, linear probing, keyed on the hash; doubled when half full. The table is strong:
-;; symbols are never collected
+;; symbols are never collected.
+;; Gensyms: [gensym-type, hash, name], uninterned, the hash their number, so unique; printed by
+;; their name, as Chez does when print-gensym is #f
 
 ;; The table, a vector, or 0 before the first symbol; collect forwards it
 (define-data symbol-table 1)
 ;; Its number of symbols, and 64 - k: a hash's slot is its top k bits
 (define-data symbol-count 1)
 (define-data symbol-shift 1)
+;; The number of gensyms made
+(define-data gensym-count 1)
+
+(define (symbol-header? (raw h))
+  (declare unsafe inline)
+  (raw= (bit-and h (raw -9)) symbol-type))
 
 (define (symbol? x)
   (declare unsafe inline public)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) symbol-type)))
+       (symbol-header? (load (as-raw x) (raw 0)))))
+
+(define (gensym? x)
+  (declare unsafe inline public)
+  (and (tag=? x (raw 0))
+       (not (raw= (as-raw x) (raw 0)))
+       (raw= (load (as-raw x) (raw 0)) gensym-type)))
 
 (define (symbol-name sym)
   (declare unsafe inline)
@@ -36,6 +50,32 @@
     (store p (raw 1) (string-hash-word s))
     (store p (raw 2) s)
     (as-val p)))
+
+(define (make-gensym s)
+  (declare unsafe inline)
+  (let ((p (alloc (raw 3)))
+        (n (load gensym-count (raw 0))))
+    (store gensym-count (raw 0) (raw+ n (raw 1)))
+    (store p (raw 0) gensym-type)
+    (store p (raw 1) n)
+    (store p (raw 2) s)
+    (as-val p)))
+
+(define (gensym name)
+  (declare unsafe public)
+  (check-string name "`gensym` expected a string")
+  (make-gensym name))
+
+(define (numbered-name n)
+  (string-append "g" (number->string n)))
+
+;; With no argument, named g and its number
+(define (variadic-gensym . name)
+  (declare unsafe)
+  (cond
+   ((null? name) (make-gensym (numbered-name (make-fixnum (load gensym-count (raw 0))))))
+   ((null? (cdr name)) (gensym (car name)))
+   (else (scheme-error "`gensym` expected an optional string" name))))
 
 ;; The hash of the code points of the string s
 (define (string-hash-word s)

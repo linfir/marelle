@@ -121,7 +121,7 @@
     (display-symbol out (as-val (load (as-raw x) (raw 1))))
     (put-string out ">"))
    ((string-header? (load (as-raw x) (raw 0))) (display-string out x))
-   ((raw= (load (as-raw x) (raw 0)) symbol-type) (display-symbol out x))
+   ((symbol-header? (load (as-raw x) (raw 0))) (display-symbol out x))
    ((raw= (load (as-raw x) (raw 0)) flexvector-type) (put-string out "#<flexvector>"))
    ((raw= (load (as-raw x) (raw 0)) hashtable-type) (display-hashtable out x))
    ((raw= (load (as-raw x) (raw 0)) values-type) (display-values out x))

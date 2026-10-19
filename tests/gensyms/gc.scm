@@ -1,0 +1,5 @@
+(define gs (map (lambda (i) (gensym (number->string i))) (iota 300)))
+(define t (make-eq-hashtable))
+(for-each (lambda (g) (hashtable-set! t g (symbol->string g))) gs)
+(define junk (map (lambda (i) (make-vector 50 i)) (iota 300)))
+(list (hashtable-ref t (list-ref gs 299) #f) (gensym? (car gs)) (hashtable-size t))
