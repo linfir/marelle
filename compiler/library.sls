@@ -14,6 +14,7 @@
           (core-check)
           (defs)
           (compile)
+          (expr)
           (output))
 
 
@@ -220,7 +221,8 @@
                    (var-facts (make-eq-hashtable))
                    (lambda-frees (make-eq-hashtable))
                    (top-globals (make-eq-hashtable))
-                   (pure-defs '()))
+                   (pure-defs '())
+                   (current-expressions scheme-expressions))
       (thunk)))
 
 
