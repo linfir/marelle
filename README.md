@@ -24,6 +24,7 @@ defines (`declare unsafe`) for raw words, memory and syscalls.
 make                      # compile the compiler and the runtime library
 ./run.py -e '(/ 6 4)'     # prints 3/2
 ./run.py program.scm      # compile, link and run a file
+./run.py --dump closure -e '(car (list 1))'  # the IR after a pass, without running
 make test                 # the test suite, tests/
 ```
 

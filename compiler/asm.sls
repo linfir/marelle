@@ -547,7 +547,8 @@
   ;; x is (function|noalloc name (arity n) block ...);
   ;; a block is (block n instr ...), n being its label, and falls through to the next one
   (define (function->asm x)
-    (let* ((blocks (allocate-registers (cdddr x)))
+    (let* ((head `(function ,(cadr x)))
+           (blocks (dumped 'reg-alloc head (allocate-registers (cdddr x))))
            (ctx (new-asm-context x blocks))
            (fn (asm-context-fn ctx))
            (arity (asm-context-arity ctx))
@@ -574,7 +575,7 @@
                   (emit-asm! ctx `(label ,(label-name ctx (cadr block))))
                   (for-each (lambda (instr) (instr->asm! ctx instr)) (cddr block)))
                 blocks)
-      (peephole (reverse (asm-context-code ctx)))))
+      (dumped 'peephole head (peephole (dumped 'asm head (reverse (asm-context-code ctx)))))))
 
 
   (define (top->asm x)

@@ -102,26 +102,29 @@
 
 
   ;; The core of a def, its letrec* forms fixed, analyzed, its closures converted
-  (define (make-core env names body unsafe?)
-    (let* ((core (front-def env names body unsafe?))
-           (core (cons (car core) (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x))))))
+  (define (make-core name env names body unsafe?)
+    (let* ((core (dumped 'front (list name) (front-def env names body unsafe?)))
+           (core (dumped 'letrec (list name)
+                         (cons (car core)
+                               (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x)))))))
       (analyze-def! (car core) (cdr core))
-      (cons (car core) (convert-closures (cdr core)))))
+      (dumped 'closure (list name) (cons (car core) (convert-closures (cdr core))))))
 
 
   ;; The core of main, whose body is a letrec*: its variables not bound by a fix get global
   ;; cells
   (define (make-main-core env body)
-    (let* ((core (front-def env '() body #f))
+    (let* ((core (dumped 'front '(main) (front-def env '() body #f)))
            (vars (map car (cadr (cadr core))))
-           (core (cons '() (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x)))))
+           (core (dumped 'letrec '(main)
+                         (cons '() (fix-letrec (cdr core) (lambda (x) (pure-def-name? env x))))))
            (fixed (fix-names core)))
       (for-each (lambda (x)
                   (unless (memq x fixed)
                     (hashtable-set! (top-globals) x (hashtable-size (top-globals)))))
                 vars)
       (analyze-def! '() (cdr core))
-      (cons '() (convert-closures (cdr core)))))
+      (dumped 'closure '(main) (cons '() (convert-closures (cdr core))))))
 
 
   (define (fix-names x)
@@ -137,8 +140,8 @@
                 (when (def? x)
                   (def-env-set! x (if (def-unsafe? x) unsafe-env env))
                   (unless (null? (def-body x))
-                    (def-core-set! x (make-core (def-env x) (map car (def-params x)) (def-body x)
-                                                (def-unsafe? x))))))
+                    (def-core-set! x (make-core (def-name x) (def-env x) (map car (def-params x))
+                                                (def-body x) (def-unsafe? x))))))
               items))
 
 
@@ -322,7 +325,8 @@
                       ((data? x) (add-symbol! (data-symbol x) (data-name x)))))
                    library)
          (let-values (((safe unsafe) (item-bindings library)))
-           (set-envs! library safe (append safe unsafe unsafe-bindings)))
+           (parameterize ((dump-pass #f))
+             (set-envs! library safe (append safe unsafe unsafe-bindings))))
          (let*-values (((all) (splice-begins program))
                        ((static) (filter static-form? all))
                        ((forms) (filter (lambda (x) (not (memq x static))) all))

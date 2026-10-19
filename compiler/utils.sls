@@ -1,6 +1,7 @@
 (library (utils)
   (export make-counter acons map-in-order for-each-idx adjoin non-empty-list?
-          split-last span span-reverse append-reverse read-all mangle)
+          split-last span span-reverse append-reverse read-all mangle
+          dump-passes dump-pass dumped)
   (import (chezscheme))
 
 
@@ -81,6 +82,36 @@
         (if (eof-object? x)
             (reverse acc)
             (loop (cons x acc))))))
+
+
+  (define dump-passes '(front letrec closure compile copy-prop reg-alloc asm peephole))
+
+
+  ;; The pass whose output dump! prints, else #f
+  (define dump-pass (make-parameter #f))
+
+
+  ;; xs, printed after head to the console when pass is the dumped one: a function's blocks or
+  ;; instructions one per line, else pretty-printed
+  (define (dumped pass head xs)
+    (when (eq? pass (dump-pass))
+      (let ((port (console-output-port)))
+        (if (eq? (car head) 'function)
+            (begin
+              (fprintf port "(function ~s" (cadr head))
+              (for-each (lambda (x)
+                          (if (eq? (car x) 'block)
+                              (begin
+                                (fprintf port "\n  (block ~s" (cadr x))
+                                (for-each (lambda (i) (fprintf port "\n    ~s" i)) (cddr x))
+                                (display ")" port))
+                              (fprintf port "\n  ~s" x)))
+                        xs)
+              (display ")\n\n" port))
+            (begin
+              (pretty-print (append head xs) port)
+              (newline port)))))
+    xs)
 
 
   (define mangle-names

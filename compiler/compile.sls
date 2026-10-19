@@ -1080,7 +1080,7 @@
           (begin
             (check-noalloc (def-name def) blocks)
             (add-entries! `((noalloc ,(def-code def) (arity ,(length params))
-                                     ,@(propagate-copies (map lower-block blocks) #t)))))
+                                     ,@(lower-function (def-code def) blocks #t)))))
           (add-entries! (procedure-entries def blocks)))))
 
 
@@ -1239,4 +1239,10 @@
         (rodata ,proc (quad ,procedure-type) (quad ,(if (def-rest? def) (- arity) arity))
                 (quad ,(def-code def)) (quad ,(or name 0)) (quad ,(def-captures def)))
         (function ,(def-code def) (arity ,arity)
-                  ,@(propagate-copies (map lower-block blocks) #f))))))
+                  ,@(lower-function (def-code def) blocks #f)))))
+
+
+  (define (lower-function name blocks noalloc?)
+    (let ((head `(function ,name)))
+      (dumped 'copy-prop head
+              (propagate-copies (dumped 'compile head (map lower-block blocks)) noalloc?)))))

@@ -41,9 +41,11 @@ def lib_missing():
     return None
 
 
-def compile_source(source):
+def compile_source(source, dump=None):
     # Chez loads the compiled compiler libraries in build/chez instead of the .sls
     command = ["scheme", "--libdirs", "compiler::build/chez", "--program", ROOT / "run"]
+    if dump:
+        command += ["--dump", dump]
     return run_stage("compiler", command, input=source, cwd=ROOT).stdout
 
 
@@ -70,6 +72,7 @@ def parse_args():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("-e", metavar="STRING")
     source.add_argument("file", nargs="?", type=Path)
+    parser.add_argument("--dump", metavar="PASS", help="print the IR after PASS instead of running")
     return parser.parse_args()
 
 
@@ -83,6 +86,9 @@ def main():
         exit(1)
 
     try:
+        if args.dump:
+            sys.stdout.write(compile_source(source, args.dump))
+            return
         result = run_pipeline(source)
     except PipelineFailure as error:
         sys.stdout.write(error.result.stdout)

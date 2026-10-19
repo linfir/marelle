@@ -3,6 +3,7 @@
 ;; Run from the project root; compile and asm in one process.
 ;; ./run --lib DIR: the library, lib/*.ss, into DIR/lib.s and the interface DIR/lib.scm
 ;; ./run < SOURCE > ASM: a program, against build/lib.scm
+;; ./run --dump PASS < SOURCE: the program's IR after PASS (see dump-passes), instead of the asm
 
 (import (chezscheme)
         (utils)
@@ -50,8 +51,15 @@
                         (parameterize ((print-brackets #f))
                           (for-each pretty-print interface)))))
         (write-file (string-append (cadr args) "/lib.s") (stage compile-asm ir)))
-      (let* ((source (let ((s (get-string-all (current-input-port))))
-                       (if (eof-object? s) "" s)))
-             (interface (with-input-from-file "build/lib.scm" read-all))
-             (ir (stage (lambda (forms) (compile-scheme-program interface forms)) source)))
-        (display (stage compile-asm ir)))))
+      (let ((pass (and (pair? args) (string=? (car args) "--dump") (pair? (cdr args))
+                       (string->symbol (cadr args)))))
+        (when (and pass (not (memq pass dump-passes)))
+          (errorf 'run "unknown pass ~a, expected one of ~a" pass dump-passes))
+        (parameterize ((dump-pass pass))
+          (let* ((source (let ((s (get-string-all (current-input-port))))
+                           (if (eof-object? s) "" s)))
+                 (interface (with-input-from-file "build/lib.scm" read-all))
+                 (ir (stage (lambda (forms) (compile-scheme-program interface forms)) source))
+                 (asm (stage compile-asm ir)))
+            (unless pass
+              (display asm)))))))
