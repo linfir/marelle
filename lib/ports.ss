@@ -162,6 +162,11 @@
   (declare unsafe inline public)
   (as-val (load current-ports (raw 2))))
 
+;; Chez's: the console's output, whatever the current output port
+(define (console-output-port)
+  (declare unsafe public)
+  (as-val stdout))
+
 (define (variadic-current-error-port . port)
   (declare unsafe)
   (current-port port (raw 2) output-flag current-error-port))
@@ -228,6 +233,35 @@
 (define (variadic-write x . port)
   (declare unsafe)
   (write x (optional-port port (raw 1) write 1)))
+
+;; Chez's pretty-print, without line breaks yet: write, then a newline
+(define (pretty-print x port)
+  (declare unsafe public)
+  (check-port port output-flag pretty-print)
+  (port-put! port x (raw 1))
+  (port-put! port #\newline (raw 0))
+  undef)
+
+(define (variadic-pretty-print x . port)
+  (declare unsafe)
+  (pretty-print x (optional-port port (raw 1) pretty-print 1)))
+
+;; A parameter of Chez's printer, value #f, setting it ignored
+(define (ignored-parameter value who)
+  (cond
+   ((null? value) #f)
+   ((null? (cdr value)) (void))
+   (else (argument-count-error who (length value)))))
+
+;; Gensyms always print by their name
+(define (print-gensym . value)
+  (declare public)
+  (ignored-parameter value print-gensym))
+
+;; Lists always print in parentheses
+(define (print-brackets . value)
+  (declare public)
+  (ignored-parameter value print-brackets))
 
 (define (newline port)
   (declare unsafe public)

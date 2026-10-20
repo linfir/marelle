@@ -1,0 +1,5 @@
+(let ((g (gensym "g")))
+  (list (print-gensym)
+        (print-brackets)
+        (parameterize ((print-gensym #t) (print-brackets #t))
+          (list (print-gensym) (with-output-to-string (lambda () (write (list g))))))))

@@ -155,6 +155,11 @@
   (declare unsafe inline (result void))
   (store c (raw+ i (raw 5)) v))
 
+;; Chez's unspecified value
+(define (void)
+  (declare unsafe inline public)
+  undef)
+
 (define (not x)
   (declare inline public)
   (if x #f #t))

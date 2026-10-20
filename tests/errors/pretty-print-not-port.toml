@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in pretty-print: 2 is not a textual output port\n"
