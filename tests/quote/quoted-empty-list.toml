@@ -1,0 +1,2 @@
+stdout = "((quote ()) quote (()) 2)"
+chez = "skip"

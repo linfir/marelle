@@ -370,7 +370,8 @@
   (define (front-quoted x)
     (cond
      ((null? x) ''())
-     ((or (immediate? x) (exact-rational? x) (string? x)) x)
+     ;; Not ''(), the form of the empty list, which immediate? also takes
+     ((and (not (pair? x)) (or (immediate? x) (exact-rational? x) (string? x))) x)
      (else
       (let check ((y x))
         (cond
@@ -397,7 +398,7 @@
        ((vector? y) (constant? (vector->list y) depth))
        (else #t)))
     (define (keyword-form keyword y depth)
-      `(,(core-ref 'cons) ,(make-literal keyword) (,(core-ref 'cons) ,(expand y depth) ''())))
+      `(,(core-ref 'cons) ,(make-literal keyword) (,(core-ref 'cons) ,(expand y depth) '())))
     (define (expand y depth)
       (cond
        ((constant? y depth)
@@ -434,7 +435,7 @@
               `(,(marker 'begin) ,@(cdr clause))))
         (define (test x)
           (cond
-           ((null? x) `(,(marker 'eq?) ,t ''()))
+           ((null? x) `(,(marker 'eq?) ,t '()))
            ((symbol? x) `(,(marker 'eq?) ,t ,(make-literal x)))
            ((immediate? x) `(,(marker 'eq?) ,t ,x))
            ((exact-rational? x) `(,(core-ref 'eqv?) ,t ,x))
