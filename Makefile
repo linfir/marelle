@@ -49,8 +49,10 @@ build/stage2.s: build/flat.ss build/stage1 build/lib.scm
 build/stage1.o build/stage2.o: build/%.o: build/%.s
 	as -o $@ $<
 
+# Stripped: ld's symbol table names the inputs (stage1.o), so the two stages would differ
 build/stage1 build/stage2: build/%: build/%.o build/lib.o
 	ld -o $@ $^
+	strip $@
 
 # The fixed point: stage 1 compiles the library and the compiler as Chez did
 fixpoint: build/stage2
@@ -59,6 +61,7 @@ fixpoint: build/stage2
 	cmp build/lib.s build/stage1-lib/lib.s
 	cmp build/lib.scm build/stage1-lib/lib.scm
 	cmp build/stage1.s build/stage2.s
+	cmp build/stage1 build/stage2
 
 test: all
 	time ./tests.py
