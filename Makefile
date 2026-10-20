@@ -42,7 +42,7 @@ test-chez:
 
 fmt:
 	black --line-length 120 *.py
-	emacs -Q --batch --eval '(progn (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss compiler/*.sls compile asm run
+	emacs -Q --batch --eval '(progn (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss compiler/*.sls compile asm run flatten
 
 clean:
 	rm -rf build

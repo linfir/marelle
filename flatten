@@ -1,0 +1,161 @@
+#!/usr/bin/env -S scheme --program
+
+;; ./flatten > FLAT, run from the project root: run and the libraries of compiler/ as one program,
+;; the library bodies in dependency order, then run's body, without library, import and the #! line.
+;; Stops on a name defined in two files, or on a Chez name one file defines and another uses.
+
+(import (chezscheme))
+
+
+;; The forms of a file, after its #! line
+(define (read-file path)
+  (call-with-input-file path
+    (lambda (port)
+      (when (eqv? (peek-char port) #\#)
+        (get-line port))
+      (let loop ((forms '()))
+        (let ((x (read port)))
+          (if (eof-object? x)
+              (reverse forms)
+              (loop (cons x forms))))))))
+
+
+(define (library-path name)
+  (format "compiler/~a.sls" (car name)))
+
+
+(define (library-form path)
+  (let ((forms (read-file path)))
+    (unless (and (= (length forms) 1) (pair? (car forms)) (eq? (caar forms) 'library))
+      (errorf 'flatten "~a is not one library form" path))
+    (car forms)))
+
+
+;; (path imports exports body), imports the library names but (chezscheme)
+(define (unit path imports exports body)
+  (list path (remove '(chezscheme) imports) exports body))
+
+(define unit-path car)
+(define unit-imports cadr)
+(define unit-exports caddr)
+(define unit-body cadddr)
+
+
+(define (library-unit name)
+  (let* ((path (library-path name))
+         (form (library-form path)))
+    (unless (equal? (cadr form) name)
+      (errorf 'flatten "~a defines ~s" path (cadr form)))
+    (unit path (cdr (cadddr form)) (cdr (caddr form)) (cddddr form))))
+
+
+(define (program-unit path)
+  (let ((forms (read-file path)))
+    (unless (and (pair? forms) (pair? (car forms)) (eq? (caar forms) 'import))
+      (errorf 'flatten "~a does not start with import" path))
+    (unit path (cdar forms) '() (cdr forms))))
+
+
+;; The units run needs, each after those it imports
+(define (ordered-units)
+  (let ((done '())
+        (units '()))
+    (let visit ((u (program-unit "run")))
+      (for-each (lambda (name)
+                  (unless (member name done)
+                    (set! done (cons name done))
+                    (visit (library-unit name))))
+                (unit-imports u))
+      (set! units (cons u units)))
+    (reverse units)))
+
+
+;; The names a top-level form defines
+(define (defined-names x)
+  (define (record-names type clauses)
+    (let ((s (symbol->string type)))
+      (define (name . parts)
+        (string->symbol (apply string-append parts)))
+      (append (list type (name "make-" s) (name s "?"))
+              (apply append
+                     (map (lambda (clause)
+                            (if (and (pair? clause) (eq? (car clause) 'fields))
+                                (apply append
+                                       (map (lambda (f)
+                                              (let ((field (symbol->string (if (pair? f) (cadr f) f))))
+                                                (if (and (pair? f) (eq? (car f) 'mutable))
+                                                    (list (name s "-" field) (name s "-" field "-set!"))
+                                                    (list (name s "-" field)))))
+                                            (cdr clause)))
+                                '()))
+                          clauses)))))
+  (define (formals-names formals)
+    (cond ((pair? formals) (cons (car formals) (formals-names (cdr formals))))
+          ((null? formals) '())
+          (else (list formals))))
+  (if (pair? x)
+      (case (car x)
+        ((define)
+         (list (if (pair? (cadr x)) (caadr x) (cadr x))))
+        ((define-values)
+         (formals-names (cadr x)))
+        ((define-record-type)
+         (unless (symbol? (cadr x))
+           (errorf 'flatten "unsupported define-record-type ~s" (cadr x)))
+         (record-names (cadr x) (cddr x)))
+        ((begin)
+         (apply append (map defined-names (cdr x))))
+        ((define-syntax library import)
+         (errorf 'flatten "unsupported top-level form ~s" (car x)))
+        (else '()))
+      '()))
+
+
+;; The symbols x contains, quoted data included
+(define (symbols-in x)
+  (let ((seen (make-eq-hashtable)))
+    (let walk ((x x))
+      (cond ((symbol? x) (hashtable-set! seen x #t))
+            ((pair? x) (walk (car x)) (walk (cdr x)))
+            ((vector? x) (vector-for-each walk x))))
+    (vector->list (hashtable-keys seen))))
+
+
+(define (check-clashes units)
+  (let ((owner (make-eq-hashtable))
+        (chez (environment '(chezscheme))))
+    (for-each (lambda (u)
+                (for-each (lambda (name)
+                            (let ((other (hashtable-ref owner name #f)))
+                              (when other
+                                (errorf 'flatten "~s defined in ~a and ~a"
+                                        name (unit-path other) (unit-path u)))
+                              (hashtable-set! owner name u)))
+                          (apply append (map defined-names (unit-body u)))))
+              units)
+    ;; A file using a Chez name another one defines would get the definition once flattened
+    (for-each (lambda (u)
+                (for-each (lambda (name)
+                            (let ((other (hashtable-ref owner name #f)))
+                              (when (and other
+                                         (not (eq? other u))
+                                         (top-level-bound? name chez)
+                                         (not (and (memq name (unit-exports other))
+                                                   (member (unit-path other)
+                                                           (map library-path (unit-imports u))))))
+                                (errorf 'flatten "~s defined in ~a shadows Chez's in ~a"
+                                        name (unit-path other) (unit-path u)))))
+                          (symbols-in (unit-body u))))
+              units)))
+
+
+(let ((units (ordered-units)))
+  (check-clashes units)
+  (parameterize ((print-brackets #f))
+    (for-each (lambda (u)
+                (printf ";; ~a\n\n" (unit-path u))
+                (for-each (lambda (x)
+                            (pretty-print x)
+                            (newline))
+                          (unit-body u)))
+              units)))
