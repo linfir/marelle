@@ -80,6 +80,15 @@
         undef))
   (syscall 231 status)) ; exit_group
 
+;; Flushes the ports and exits with status 0 with no argument, a fixnum's low byte, else 1, as in
+;; Chez (R7RS gives 0 for #t)
+(define (exit . value)
+  (declare unsafe public)
+  (exit-process (cond
+                 ((null? value) (raw 0))
+                 ((fixnum? (car value)) (bit-and (fixnum-value (car value)) (raw 255)))
+                 (else (raw 1)))))
+
 ;; Prints msg and exits, when the program cannot go on
 (define (fatal (raw msg))
   (declare unsafe noalloc (result never))

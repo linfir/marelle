@@ -1,0 +1,2 @@
+(display "a")
+(exit 'failure)

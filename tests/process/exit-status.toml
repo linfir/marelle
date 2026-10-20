@@ -1,0 +1,3 @@
+stage = "executable"
+exit = 3
+stdout = "a"
