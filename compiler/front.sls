@@ -19,7 +19,7 @@
 
 
   (define (fresh-names names)
-    (map (lambda (x) (gensym (symbol->string x))) names))
+    (map-in-order (lambda (x) (gensym (symbol->string x))) names))
 
 
   ;; A local's entry holds its fresh name, any other entry a binding record
@@ -39,7 +39,7 @@
 
 
   (define (front-exprs env exprs)
-    (map (lambda (x) (front-expr env x)) exprs))
+    (map-in-order (lambda (x) (front-expr env x)) exprs))
 
 
   (define (front-expr env x)
@@ -240,7 +240,7 @@
       (if (and (pair? bindings) (null? (cdr bindings)))
           (call-with-values-form (cadar bindings) (caar bindings) body)
           (let* ((names (map (lambda (b) (formals-names (car b))) bindings))
-                 (copies (map fresh-names names)))
+                 (copies (map-in-order fresh-names names)))
             (let loop ((bindings bindings)
                        (cs copies))
               (if (null? bindings)
@@ -317,9 +317,9 @@
   ;; Nothing exits non-locally, so no dynamic-wind.
   (define (expand-parameterize x)
     (let-values (((bindings body) (parse-parameterize x)))
-      (let ((ps (map (lambda (b) (gensym "p")) bindings))
-            (vs (map (lambda (b) (gensym "v")) bindings))
-            (olds (map (lambda (b) (gensym "old")) bindings))
+      (let ((ps (map-in-order (lambda (b) (gensym "p")) bindings))
+            (vs (map-in-order (lambda (b) (gensym "v")) bindings))
+            (olds (map-in-order (lambda (b) (gensym "old")) bindings))
             (result (gensym "result")))
         `(,(marker 'let) (,@(map (lambda (p b) (list p (car b))) ps bindings)
                           ,@(map (lambda (v b) (list v (cadr b))) vs bindings))

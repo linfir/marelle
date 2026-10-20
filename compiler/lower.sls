@@ -84,7 +84,7 @@
               (params (map (lambda (p) (cons (param-var p) (param-kind p))) (cadr b)))
               (c (make-cont (fresh-label) params (caddr b)
                             (and (or rec? (> n 1))
-                                 (map (lambda (p) (fresh-tmp (cdr p))) params))
+                                 (map-in-order (lambda (p) (fresh-tmp (cdr p))) params))
                             rec? n n (hashtable-size (conts)) #f)))
          (hashtable-set! (conts) k c)
          (when (cont-tmps c)
@@ -150,7 +150,7 @@
   ;; Sets each tmp to its operand, all read before any is written: an operand reading one of
   ;; the tmps is copied first
   (define (move! tmps ops)
-    (let ((ops (map (lambda (op)
+    (let ((ops (map-in-order (lambda (op)
                       (if (exists (lambda (tmp) (reads? op tmp)) tmps)
                           (emit-op! 'mov (kind op) (list op))
                           op))

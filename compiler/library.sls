@@ -234,7 +234,7 @@
     (new-compilation
      0 "scheme_library_literals"
      (lambda ()
-       (let ((items (map scanned-item (scan-library forms)))
+       (let ((items (map-in-order scanned-item (scan-library forms)))
              (init (literal-init-def "scheme_library_init" #f)))
          (add-def-symbols! init)
          (set-pure-defs! items)
@@ -355,7 +355,7 @@
          (let*-values (((all) (splice-begins program))
                        ((static) (filter static-form? all))
                        ((forms) (filter (lambda (x) (not (memq x static))) all))
-                       ((items) (map scanned-item (scan-library static)))
+                       ((items) (map-in-order scanned-item (scan-library static)))
                        ((safe unsafe) (item-bindings items)))
            (for-each (lambda (x)
                        (let-values (((name args body) (parse-define x)))

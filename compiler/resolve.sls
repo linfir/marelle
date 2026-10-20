@@ -84,7 +84,7 @@
           `(,(car x) ,name ,(map (lambda (b) (list (car b) (resolve env (cadr b)))) bindings)
             ,@(resolve-body env body)))
         (let-values (((bindings body) (parse-let x)))
-          (let ((locals (map (lambda (b)
+          (let ((locals (map-in-order (lambda (b)
                                (if (top-global-index (car b)) (fresh-local (car b)) (car b)))
                              bindings)))
             `(,(car x) ,(map (lambda (local b) (list local (resolve env (cadr b)))) locals bindings)
@@ -153,7 +153,7 @@
                ;; Each operand once, compared with the next
                ((= < > <= >= char=? char<? char<=? char>? char>=?)
                 (and (> (length args) 2)
-                     (let ((tmps (map (lambda (x) (gensym "operand")) args)))
+                     (let ((tmps (map-in-order (lambda (x) (gensym "operand")) args)))
                        `(,(marker 'let) ,(map list tmps args)
                          ,(expand-and (map (lambda (x y) (list op x y))
                                            (list-head tmps (- (length tmps) 1))

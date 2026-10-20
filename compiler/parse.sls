@@ -66,7 +66,7 @@
   ;; Heads of the forms the compiler builds, so a program rebinding if or let keeps them;
   ;; fix, check-defined, closure, core, const, low and the cells have no source form
   (define markers
-    (map (lambda (k) (cons (gensym (symbol->string k)) k))
+    (map-in-order (lambda (k) (cons (gensym (symbol->string k)) k))
          (append '(eq? fix check-defined closure core const low %cell %cell-ref %cell-set!)
                  *special-forms*)))
 

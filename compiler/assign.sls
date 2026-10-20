@@ -11,6 +11,7 @@
 (library (assign)
   (export convert-assignments)
   (import (chezscheme)
+          (utils)
           (parse)
           (vars)
           (closure)
@@ -25,7 +26,7 @@
 
   ;; renames: the captures of the enclosing closure body, to their local there
   (define (convert-body body renames)
-    (map (lambda (x) (convert x renames)) body))
+    (map-in-order (lambda (x) (convert x renames)) body))
 
 
   (define (convert x renames)
@@ -65,7 +66,7 @@
 
 
   (define (convert-bindings vars bindings renames)
-    (map (lambda (var b) (list var (convert (cadr b) renames))) vars bindings))
+    (map-in-order (lambda (var b) (list var (convert (cadr b) renames))) vars bindings))
 
 
   (define (renamed x renames)
@@ -99,7 +100,7 @@
   ;; The names bound around body, each assigned one renamed to a fresh local of its initial
   ;; value, and body converted, in a let binding the assigned ones to their box or cell
   (define (convert-binder names body renames)
-    (let ((news (map (lambda (x) (if (assigned? x) (fresh-local x) x)) names))
+    (let ((news (map-in-order (lambda (x) (if (assigned? x) (fresh-local x) x)) names))
           (body (convert-body body renames)))
       (values news
               (let ((cells (filter (lambda (b) (not (eq? (car b) (cdr b)))) (map cons names news))))
@@ -118,7 +119,7 @@
   ;; parameters' boxes and cells
   (define (convert-closure x renames)
     (let-values (((captures formals body) (parse-closure x)))
-      (let ((inner (map (lambda (c) (cons c (fresh-local c))) captures)))
+      (let ((inner (map-in-order (lambda (c) (cons c (fresh-local c))) captures)))
         (let-values (((names body) (convert-binder (formals-names formals) body inner)))
           `(,(car x) ,(map (lambda (c) (renamed c renames)) captures)
             ,(rename-formals formals names)
