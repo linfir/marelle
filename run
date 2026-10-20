@@ -1,7 +1,8 @@
 #!/usr/bin/env -S scheme --libdirs compiler::build/chez --program
 
 ;; Run from the project root; compile and asm in one process.
-;; ./run --lib DIR: the library, lib/*.ss, into DIR/lib.s and the interface DIR/lib.scm
+;; ./run --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s and the
+;; interface DIR/lib.scm
 ;; ./run < SOURCE > ASM: a program, against build/lib.scm
 ;; ./run --dump PASS < SOURCE: the program's IR after PASS (see dump-passes), instead of the asm
 
@@ -15,15 +16,9 @@
 (print-gensym #f)
 
 
-;; The forms of lib/*.ss, in file name order
-(define (library-forms)
-  (apply append
-         (map (lambda (name) (with-input-from-file (string-append "lib/" name) read-all))
-              (sort string<?
-                    (filter (lambda (name)
-                              (let ((n (string-length name)))
-                                (and (> n 3) (string=? (substring name (- n 3) n) ".ss"))))
-                            (directory-list "lib"))))))
+;; The forms of the files, in order
+(define (library-forms files)
+  (apply append (map (lambda (file) (with-input-from-file file read-all)) files)))
 
 
 (define (stage f input)
@@ -33,10 +28,12 @@
         (lambda () (f (read-all)))))))
 
 
+;; Replacing the file, which Chez's call-with-output-file does not
 (define (write-file path text)
-  (call-with-port (open-file-output-port path (file-options no-fail) (buffer-mode block)
-                                         (native-transcoder))
-    (lambda (port) (put-string port text))))
+  (when (file-exists? path)
+    (delete-file path))
+  (call-with-output-file path
+    (lambda (port) (display text port))))
 
 
 (let ((args (cdr (command-line))))
@@ -44,7 +41,7 @@
       (let* ((interface #f)
              (ir (with-output-to-string
                    (lambda ()
-                     (set! interface (compile-scheme-library (library-forms)))))))
+                     (set! interface (compile-scheme-library (library-forms (cddr args))))))))
         (write-file (string-append (cadr args) "/lib.scm")
                     (with-output-to-string
                       (lambda ()
@@ -56,10 +53,9 @@
         (when (and pass (not (memq pass dump-passes)))
           (errorf 'run "unknown pass ~a, expected one of ~a" pass dump-passes))
         (parameterize ((dump-pass pass))
-          (let* ((source (let ((s (get-string-all (current-input-port))))
-                           (if (eof-object? s) "" s)))
-                 (interface (with-input-from-file "build/lib.scm" read-all))
-                 (ir (stage (lambda (forms) (compile-scheme-program interface forms)) source))
+          (let* ((interface (with-input-from-file "build/lib.scm" read-all))
+                 (ir (with-output-to-string
+                       (lambda () (compile-scheme-program interface (read-all)))))
                  (asm (stage compile-asm ir)))
             (unless pass
               (display asm)))))))

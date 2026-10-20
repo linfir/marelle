@@ -28,7 +28,7 @@ build/lib.o: build/lib.s
 # One recipe writes both
 build/lib.s build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
 	mkdir -p build
-	$(CHEZ) --program run --lib build
+	$(CHEZ) --program run --lib build $(sort $(wildcard lib/*.ss))
 
 test: all
 	time ./tests.py
