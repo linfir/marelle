@@ -30,6 +30,28 @@ build/lib.s build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
 	mkdir -p build
 	$(CHEZ) --program schemec --lib build $(sort $(wildcard lib/*.ss))
 
+# Self-hosting: the compiler as one program, compiled by schemec under Chez (stage 1), then by
+# stage 1 (stage 2)
+stage1: build/stage1
+
+stage2: build/stage2
+
+build/flat.ss: flatten schemec $(CHEZ_LIBS)
+	mkdir -p build
+	./flatten > $@
+
+build/stage1.s: build/flat.ss $(CHEZ_OBJS) build/lib.scm
+	$(CHEZ) --program schemec < $< > $@
+
+build/stage2.s: build/flat.ss build/stage1 build/lib.scm
+	build/stage1 < $< > $@
+
+build/stage1.o build/stage2.o: build/%.o: build/%.s
+	as -o $@ $<
+
+build/stage1 build/stage2: build/%: build/%.o build/lib.o
+	ld -o $@ $^
+
 test: all
 	time ./tests.py
 
@@ -47,4 +69,7 @@ fmt:
 clean:
 	rm -rf build
 
-.PHONY: all chez prebuild test bench test-chez fmt clean
+# A failed recipe leaves no partial output
+.DELETE_ON_ERROR:
+
+.PHONY: all chez prebuild stage1 stage2 test bench test-chez fmt clean
