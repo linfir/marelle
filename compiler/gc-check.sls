@@ -33,7 +33,7 @@
                                 (raw (find odd? (set-members across))))
                            (when raw
                              (compile-error 'check-gc-safety "raw live across a safepoint"
-                                    name (index-var raw) instr))))
+                                            name (index-var raw) instr))))
                        (live-before instr live)))
                    (live-at-end block next ins)
                    (reverse (cddr block))))

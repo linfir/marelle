@@ -208,7 +208,7 @@
     (let ((ak (atom-kind a)))
       (unless (if (eq? k 'any) (memq ak '(val raw)) (eq? ak k))
         (compile-error 'check-kind (if (eq? k 'any) "expected a val or a raw" (format "expected a ~a" k))
-               form))))
+                       form))))
 
 
   (define (param x)

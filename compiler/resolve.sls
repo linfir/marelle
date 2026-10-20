@@ -85,8 +85,8 @@
             ,@(resolve-body env body)))
         (let-values (((bindings body) (parse-let x)))
           (let ((locals (map-in-order (lambda (b)
-                               (if (top-global-index (car b)) (fresh-local (car b)) (car b)))
-                             bindings)))
+                                        (if (top-global-index (car b)) (fresh-local (car b)) (car b)))
+                                      bindings)))
             `(,(car x) ,(map (lambda (local b) (list local (resolve env (cadr b)))) locals bindings)
               ,@(apply append
                        (map (lambda (local b)

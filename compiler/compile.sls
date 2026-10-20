@@ -30,7 +30,7 @@
   (define (check-kind x k expr)
     (unless (if (eq? k 'any) (memq (kind x) '(val raw)) (eq? (kind x) k))
       (compile-error 'check-kind (if (eq? k 'any) "expected a val or a raw" (format "expected a ~a" k))
-             expr)))
+                     expr)))
 
 
   ;; The load of the literal cell of the string or symbol x
