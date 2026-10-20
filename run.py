@@ -80,7 +80,7 @@ def run_chez(source, *, stdin=None):
     with tempfile.TemporaryDirectory() as directory:
         program = Path(directory) / "program.scm"
         program.write_text(source)
-        command = ["scheme", "--script", ROOT / "chez.ss", program]
+        command = ["scheme", "--script", ROOT / "chez" / "chez.ss", program]
         return run_stage("chez", command, input=stdin, cwd=directory)
 
 
