@@ -8,7 +8,7 @@ import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from run import PipelineFailure, lib_missing, run_chez, run_pipeline
+from run import PipelineFailure, lib_missing, run_chez, run_pipeline, use_stage1
 
 
 ROOT = Path(__file__).resolve().parent
@@ -153,6 +153,7 @@ def parse_args():
         action="store_true",
         help="run the tests with Chez Scheme instead of the compiler",
     )
+    parser.add_argument("--stage1", action="store_true", help="compile with build/stage1")
     parser.add_argument(
         "--gc-stress",
         type=int,
@@ -162,6 +163,8 @@ def parse_args():
     args = parser.parse_args()
     if args.gc_stress is not None and args.gc_stress < 1:
         parser.error("--gc-stress must be at least 1")
+    if args.stage1 and args.chez:
+        parser.error("--stage1 and --chez exclude each other")
     return args
 
 
@@ -187,6 +190,8 @@ def print_failure(name, failure):
 
 def main():
     args = parse_args()
+    if args.stage1:
+        use_stage1()
     paths = selected_cases([*args.patterns, *args.patterns_k])
     if not paths:
         print("No tests matched")

@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from subprocess import run
 
-from run import PipelineFailure, compile_source, lib_missing, run_stage
+from run import PipelineFailure, compile_source, lib_missing, run_stage, use_stage1
 
 ROOT = Path(__file__).resolve().parent
 BENCH = ROOT / "bench"
@@ -84,7 +84,10 @@ def main():
     parser.add_argument("-n", type=int, default=5, metavar="RUNS", help="runs of each program (5)")
     parser.add_argument("--offsets", type=int, default=1, metavar="K", help="library code offsets (1)")
     parser.add_argument("--chez", action="store_true", help="also time Chez Scheme")
+    parser.add_argument("--stage1", action="store_true", help="compile with build/stage1")
     args = parser.parse_args()
+    if args.stage1:
+        use_stage1()
 
     missing = lib_missing()
     if missing:
