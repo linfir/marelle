@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in read: invalid delimiter 1 for character\n"

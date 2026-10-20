@@ -1,0 +1,1 @@
+stdout = "a\n(quote b)\na\n(unquote c)\na\n#t\na\ne\n8"

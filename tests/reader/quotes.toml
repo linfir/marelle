@@ -1,0 +1,1 @@
+stdout = "(quote a)\n(quasiquote (a (unquote b) (unquote-splicing c)))\n(quote (quote a))\n3"

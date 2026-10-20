@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in string->number: 37 is not a valid radix\n"

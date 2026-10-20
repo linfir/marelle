@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in read: bracketed list terminated by parenthesis\n"

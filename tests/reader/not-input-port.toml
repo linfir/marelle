@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in read: #<output port> is not a textual input port\n"

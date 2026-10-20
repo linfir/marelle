@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in read: more than one item found after dot (.)\n"

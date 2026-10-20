@@ -1,0 +1,1 @@
+(read (open-output-string))

@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in read: invalid code point value 55296 in string hex escape\n"

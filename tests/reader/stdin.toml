@@ -1,0 +1,2 @@
+stdin = "(1 \"two\") three"
+stdout = "((1 \"two\") three #!eof)"

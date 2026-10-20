@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in read: invalid sharp-sign prefix #q\n"

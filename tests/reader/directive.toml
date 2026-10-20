@@ -1,0 +1,3 @@
+stage = "executable"
+stderr = "Exception in read: invalid syntax #!fold-case\n"
+chez = "skip"

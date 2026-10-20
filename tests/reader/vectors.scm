@@ -1,0 +1,10 @@
+;; Vectors, nested
+(let ((p (open-input-string "#(1 #(2) \"x\") #()")))
+  (let next ((x (read p))
+             (n 0))
+    (if (eof-object? x)
+        n
+        (begin
+          (write x)
+          (newline)
+          (next (read p) (+ n 1))))))
