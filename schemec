@@ -45,8 +45,7 @@
         (write-file (string-append (cadr args) "/lib.scm")
                     (with-output-to-string
                       (lambda ()
-                        (parameterize ((print-brackets #f))
-                          (for-each pretty-print interface)))))
+                        (for-each (lambda (x) (write x) (newline)) interface))))
         (write-file (string-append (cadr args) "/lib.s") (stage compile-asm ir)))
       (let ((pass (and (pair? args) (string=? (car args) "--dump") (pair? (cdr args))
                        (string->symbol (cadr args)))))

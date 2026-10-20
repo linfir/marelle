@@ -117,28 +117,24 @@
     (apply errorf who fmt (map printable args)))
 
 
-  ;; xs, printed after head to the console when pass is the dumped one: a function's blocks or
-  ;; instructions one per line, else pretty-printed
+  ;; xs, printed after head to the console when pass is the dumped one, one per line; a
+  ;; function's blocks one instruction per line
   (define (dumped pass head xs)
     (when (eq? pass (dump-pass))
       (let ((port (console-output-port))
             (head (printable head))
             (xs (printable xs)))
-        (if (eq? (car head) 'function)
-            (begin
-              (fprintf port "(function ~s" (cadr head))
-              (for-each (lambda (x)
-                          (if (eq? (car x) 'block)
-                              (begin
-                                (fprintf port "\n  (block ~s" (cadr x))
-                                (for-each (lambda (i) (fprintf port "\n    ~s" i)) (cddr x))
-                                (display ")" port))
-                              (fprintf port "\n  ~s" x)))
-                        xs)
-              (display ")\n\n" port))
-            (begin
-              (pretty-print (append head xs) port)
-              (newline port)))))
+        (fprintf port "(~s" (car head))
+        (for-each (lambda (x) (fprintf port " ~s" x)) (cdr head))
+        (for-each (lambda (x)
+                    (if (and (eq? (car head) 'function) (eq? (car x) 'block))
+                        (begin
+                          (fprintf port "\n  (block ~s" (cadr x))
+                          (for-each (lambda (i) (fprintf port "\n    ~s" i)) (cddr x))
+                          (display ")" port))
+                        (fprintf port "\n  ~s" x)))
+                  xs)
+        (display ")\n\n" port)))
     xs)
 
 
