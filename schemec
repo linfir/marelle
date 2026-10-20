@@ -58,3 +58,7 @@
                  (asm (stage compile-asm ir)))
             (unless pass
               (display asm)))))))
+
+
+;; Compiled by itself, the value of the last form would be printed
+(exit)
