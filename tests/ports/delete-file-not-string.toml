@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in delete-file: f is not a string\n"

@@ -1,0 +1,6 @@
+(with-output-to-file "f.txt" (lambda () (display 1)))
+(let* ((a (file-exists? "f.txt"))
+       (b (delete-file "f.txt"))
+       (c (file-exists? "f.txt"))
+       (d (delete-file "f.txt")))
+  (list a b c d (file-exists? ".")))

@@ -1,6 +1,9 @@
 ;; The environment variables, NAME=VALUE C strings ending with 0
 (define-data environment 1)
 
+;; The initial stack: argc, then the arguments, C strings
+(define-data arguments 1)
+
 ;; Writes the n bytes at buf to the file descriptor fd, stopping on an error
 (define (write-all (raw fd) (raw buf) (raw n))
   (declare unsafe noalloc (result void))
@@ -157,6 +160,7 @@
 (define (init-runtime (raw sp))
   (declare unsafe noalloc (result void))
   (init-console-ports!)
+  (store arguments (raw 0) sp)
   (store environment (raw 0) (raw+ sp (raw<< (raw+ (load sp (raw 0)) (raw 2)) (raw 3))))
   (store scheme-cap (raw 0) initial-heap-words)
   (store gc-target (raw 0) initial-heap-words)
@@ -171,6 +175,27 @@
       (store gc-stats (raw 0) (raw 1))))
   (store scheme-mem (raw 0) (map-words (load scheme-cap (raw 0))))
   (store spare-mem (raw 0) (map-words (load scheme-cap (raw 0)))))
+
+;; The address of argument k, a fixnum
+(define (argument-address k)
+  (declare unsafe inline (result raw))
+  (load (load arguments (raw 0)) (raw+ (fixnum-value k) (raw 1))))
+
+;; Argument k as a string, from its UTF-8 bytes
+(define (argument-string k)
+  (declare unsafe)
+  (let ((bv (alloc-bytevector (make-fixnum (c-string-length (argument-address k))))))
+    (copy-bytes! (byte-address bv (raw 0)) (argument-address k) (bytevector-nbytes bv))
+    (utf8->string bv)))
+
+;; The program's name and its arguments (R7RS)
+(define (command-line)
+  (declare unsafe public)
+  (let argument-next ((k (- (make-fixnum (load (load arguments (raw 0)) (raw 0))) 1))
+                      (acc '()))
+    (if (< k 0)
+        acc
+        (argument-next (- k 1) (cons (argument-string k) acc)))))
 
 ;; Called from _start with the value of scheme_main
 (define (finish-program v)

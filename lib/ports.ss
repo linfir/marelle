@@ -504,6 +504,26 @@
     (store (as-raw p) (raw 2) (fixnum-value fd))
     p))
 
+;; The name as a C string, or 0 after checking it is a string
+(define (checked-file-name name who)
+  (declare unsafe inline (result raw))
+  (check-string name who)
+  (file-name name))
+
+;; access(2) with F_OK
+(define (file-exists? name)
+  (declare unsafe public)
+  (let ((path (checked-file-name name file-exists?)))
+    (and (not (raw= path (raw 0)))
+         (raw= (syscall 21 path (raw 0)) (raw 0)))))
+
+;; unlink(2); #f when it fails, as in Chez
+(define (delete-file name)
+  (declare unsafe public)
+  (let ((path (checked-file-name name delete-file)))
+    (and (not (raw= path (raw 0)))
+         (raw= (syscall 87 path) (raw 0)))))
+
 (define (open-input-file name)
   (declare unsafe public)
   (open-file name (raw 0) input-flag open-input-file)) ; O_RDONLY
