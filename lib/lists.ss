@@ -462,11 +462,12 @@
       (and xs
            (or (apply ok? xs) (loop (cdrs ls)))))))
 
+;; From the last list, which is shared, so each other is copied once
 (define (variadic-append . ls)
-  (cond
-   ((null? ls) '())
-   ((null? (cdr ls)) (car ls))
-   (else (append (car ls) (apply variadic-append (cdr ls))))))
+  (if (null? ls)
+      '()
+      (let ((rev (reverse ls)))
+        (fold-left (lambda (acc l) (append l acc)) (car rev) (cdr rev)))))
 
 (define (cons* x . rest)
   (declare unsafe public)
