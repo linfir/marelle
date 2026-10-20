@@ -1,7 +1,8 @@
 #!/usr/bin/env -S scheme --program
 
-;; ./flatten > FLAT, run from the project root: run and the libraries of compiler/ as one program,
-;; the library bodies in dependency order, then run's body, without library, import and the #! line.
+;; ./flatten > FLAT, run from the project root: schemec and the libraries of compiler/ as one
+;; program, the library bodies in dependency order, then schemec's body, without library, import
+;; and the #! line.
 ;; Stops on a name defined in two files, or on a Chez name one file defines and another uses.
 
 (import (chezscheme))
@@ -56,11 +57,11 @@
     (unit path (cdar forms) '() (cdr forms))))
 
 
-;; The units run needs, each after those it imports
+;; The units schemec needs, each after those it imports
 (define (ordered-units)
   (let ((done '())
         (units '()))
-    (let visit ((u (program-unit "run")))
+    (let visit ((u (program-unit "schemec")))
       (for-each (lambda (name)
                   (unless (member name done)
                     (set! done (cons name done))

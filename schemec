@@ -1,10 +1,10 @@
 #!/usr/bin/env -S scheme --libdirs compiler::build/chez --program
 
-;; Run from the project root; compile and asm in one process.
-;; ./run --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s and the
+;; The compiler, run from the project root: every stage in one process.
+;; ./schemec --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s and the
 ;; interface DIR/lib.scm
-;; ./run < SOURCE > ASM: a program, against build/lib.scm
-;; ./run --dump PASS < SOURCE: the program's IR after PASS (see dump-passes), instead of the asm
+;; ./schemec < SOURCE > ASM: a program, against build/lib.scm
+;; ./schemec --dump PASS < SOURCE: the program's IR after PASS (see dump-passes), instead of the asm
 
 (import (chezscheme)
         (utils)
@@ -51,7 +51,7 @@
       (let ((pass (and (pair? args) (string=? (car args) "--dump") (pair? (cdr args))
                        (string->symbol (cadr args)))))
         (when (and pass (not (memq pass dump-passes)))
-          (errorf 'run "unknown pass ~a, expected one of ~a" pass dump-passes))
+          (errorf 'schemec "unknown pass ~a, expected one of ~a" pass dump-passes))
         (parameterize ((dump-pass pass))
           (let* ((interface (with-input-from-file "build/lib.scm" read-all))
                  (ir (with-output-to-string

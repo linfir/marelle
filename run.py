@@ -43,7 +43,7 @@ def lib_missing():
 
 def compile_source(source, dump=None):
     # Chez loads the compiled compiler libraries in build/chez instead of the .sls
-    command = ["scheme", "--libdirs", "compiler::build/chez", "--program", ROOT / "run"]
+    command = ["scheme", "--libdirs", "compiler::build/chez", "--program", ROOT / "schemec"]
     if dump:
         command += ["--dump", dump]
     return run_stage("compiler", command, input=source, cwd=ROOT).stdout

@@ -2,7 +2,7 @@
 SHELL = /bin/bash
 
 # A missing source is not a prerequisite, so a built library works without its sources
-SOURCES = $(wildcard lib/*.ss run compiler/*.sls)
+SOURCES = $(wildcard lib/*.ss schemec compiler/*.sls)
 CHEZ_LIBS = $(wildcard compiler/*.sls)
 CHEZ_OBJS = $(patsubst compiler/%.sls,build/chez/%.so,$(CHEZ_LIBS))
 # Chez with the compiled compiler libraries, which it loads instead of a .sls when not older
@@ -28,7 +28,7 @@ build/lib.o: build/lib.s
 # One recipe writes both
 build/lib.s build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
 	mkdir -p build
-	$(CHEZ) --program run --lib build $(sort $(wildcard lib/*.ss))
+	$(CHEZ) --program schemec --lib build $(sort $(wildcard lib/*.ss))
 
 test: all
 	time ./tests.py
@@ -42,7 +42,7 @@ test-chez:
 
 fmt:
 	black -q --line-length 120 *.py
-	emacs -Q --batch --eval '(let ((inhibit-message t)) (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss compiler/*.sls run flatten $$(find tests -name '*.scm')
+	emacs -Q --batch --eval '(let ((inhibit-message t)) (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss compiler/*.sls schemec flatten $$(find tests -name '*.scm')
 
 clean:
 	rm -rf build
