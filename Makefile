@@ -52,6 +52,14 @@ build/stage1.o build/stage2.o: build/%.o: build/%.s
 build/stage1 build/stage2: build/%: build/%.o build/lib.o
 	ld -o $@ $^
 
+# The fixed point: stage 1 compiles the library and the compiler as Chez did
+fixpoint: build/stage2
+	mkdir -p build/stage1-lib
+	build/stage1 --lib build/stage1-lib $(sort $(wildcard lib/*.ss))
+	cmp build/lib.s build/stage1-lib/lib.s
+	cmp build/lib.scm build/stage1-lib/lib.scm
+	cmp build/stage1.s build/stage2.s
+
 test: all
 	time ./tests.py
 
@@ -72,4 +80,4 @@ clean:
 # A failed recipe leaves no partial output
 .DELETE_ON_ERROR:
 
-.PHONY: all chez prebuild stage1 stage2 test bench test-chez fmt clean
+.PHONY: all chez prebuild stage1 stage2 fixpoint test bench test-chez fmt clean
