@@ -3,7 +3,8 @@
 
 (library (ops)
   (export low-ops low-op op-operands op-result op-effect op-instr op-test? low-test)
-  (import (chezscheme))
+  (import (chezscheme)
+          (utils))
 
 
   ;; operands  the kinds of the operands: raw, val, any (a val or a raw), literal (checked by
@@ -90,7 +91,7 @@
 
   (define (low-op name)
     (or (find (lambda (op) (eq? (op-name op) name)) table)
-        (error 'low-op "unknown low operation" name)))
+        (compile-error 'low-op "unknown low operation" name)))
 
 
   (define (op-test? op)

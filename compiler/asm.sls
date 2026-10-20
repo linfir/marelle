@@ -115,7 +115,7 @@
       ((raw)
        (frame-word ctx (+ (asm-context-arity ctx) (asm-context-ntmp ctx) (cadr x))))
       (else
-       (error 'slot "not a slot operand" x))))
+       (compile-error 'slot "not a slot operand" x))))
 
 
   (define (load! ctx reg x)
@@ -132,9 +132,9 @@
         ((quad)
          (emit-asm! ctx `(mov ,reg ,(cadr x))))
         (else
-         (error 'load! "unknown operand" x))))
+         (compile-error 'load! "unknown operand" x))))
      (else
-      (error 'load! "unknown operand" x))))
+      (compile-error 'load! "unknown operand" x))))
 
 
   (define (store! ctx x reg)
@@ -195,7 +195,7 @@
 
   (define (load-args! ctx args regs)
     (when (> (length args) (length regs))
-      (error 'load-args! "too many arguments" args))
+      (compile-error 'load-args! "too many arguments" args))
     (for-each (lambda (reg x) (load! ctx reg x)) (list-head regs (length args)) args))
 
 
@@ -537,7 +537,7 @@
            (emit-asm! ctx '(jmp r11))))))
 
       (else
-       (error 'instr->asm! "unknown instruction" instr))))
+       (compile-error 'instr->asm! "unknown instruction" instr))))
 
 
   ;; x is (function|noalloc name (arity n) block ...);
@@ -598,7 +598,7 @@
       ((function noalloc)
        (function->asm x))
       ((stubs) runtime-asm)
-      (else (error 'top->asm "unknown top-level entry" x))))
+      (else (compile-error 'top->asm "unknown top-level entry" x))))
 
 
   ;; The process entry and the allocation stub, in the library
@@ -740,7 +740,7 @@
       (printf "qword ptr [rip + ~s ~a ~a]" (cadr x) (if (< (caddr x) 0) "-" "+") (abs (caddr x))))
      ((eq? (car x) 'rip)
       (printf "qword ptr [rip + ~s]" (cadr x)))
-     (else (error 'print-operand "unknown operand" x))))
+     (else (compile-error 'print-operand "unknown operand" x))))
 
 
   (define (print-asm x)

@@ -29,7 +29,7 @@
   ;; k is a kind, or any for a val or a raw
   (define (check-kind x k expr)
     (unless (if (eq? k 'any) (memq (kind x) '(val raw)) (eq? (kind x) k))
-      (error 'check-kind (if (eq? k 'any) "expected a val or a raw" (format "expected a ~a" k))
+      (compile-error 'check-kind (if (eq? k 'any) "expected a val or a raw" (format "expected a ~a" k))
              expr)))
 
 
@@ -78,7 +78,7 @@
                 (for-each (lambda (instr)
                             (when (or (memq (car instr) '(call tailcall selfcall alloc allocframe))
                                       (self? instr))
-                              (error 'check-noalloc "safepoint or self in a noalloc def" name instr)))
+                              (compile-error 'check-noalloc "safepoint or self in a noalloc def" name instr)))
                           (cddr block)))
               body))
 

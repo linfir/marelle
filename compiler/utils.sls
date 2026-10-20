@@ -1,7 +1,8 @@
 (library (utils)
   (export make-counter acons map-in-order for-each-idx adjoin non-empty-list?
           split-last span span-reverse append-reverse read-all mangle
-          dump-passes dump-pass dumped)
+          dump-passes dump-pass dumped add-printer! printable
+          compile-error compile-errorf)
   (import (chezscheme))
 
 
@@ -91,11 +92,38 @@
   (define dump-pass (make-parameter #f))
 
 
+  ;; (pred . f) pairs: a record of pred is printed as (f record)
+  (define printers '())
+
+
+  (define (add-printer! pred f)
+    (set! printers (cons (cons pred f) printers)))
+
+
+  ;; x with each record of a printer replaced by what it is printed as
+  (define (printable x)
+    (cond ((pair? x) (cons (printable (car x)) (printable (cdr x))))
+          ((vector? x) (list->vector (map printable (vector->list x))))
+          ((find (lambda (p) ((car p) x)) printers) => (lambda (p) ((cdr p) x)))
+          (else x)))
+
+
+  ;; error and errorf, the records printed as in dumps
+  (define (compile-error who msg . irritants)
+    (apply error who msg (map printable irritants)))
+
+
+  (define (compile-errorf who fmt . args)
+    (apply errorf who fmt (map printable args)))
+
+
   ;; xs, printed after head to the console when pass is the dumped one: a function's blocks or
   ;; instructions one per line, else pretty-printed
   (define (dumped pass head xs)
     (when (eq? pass (dump-pass))
-      (let ((port (console-output-port)))
+      (let ((port (console-output-port))
+            (head (printable head))
+            (xs (printable xs)))
         (if (eq? (car head) 'function)
             (begin
               (fprintf port "(function ~s" (cadr head))

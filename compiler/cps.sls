@@ -48,7 +48,7 @@
     (let ((bound (make-eq-hashtable))
           (own (car (caddr fun))))
       (define (fail msg x)
-        (error 'check-cps (format "~a in ~a" msg (cadr fun)) x))
+        (compile-error 'check-cps (format "~a in ~a" msg (cadr fun)) x))
 
       (define (bind! x)
         (unless (symbol? x)

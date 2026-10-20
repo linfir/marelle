@@ -8,6 +8,7 @@
           var-facts lambda-frees top-globals top-global-index
           analyze-def! free-locals boxed? assigned?)
   (import (chezscheme)
+          (utils)
           (parse))
 
 
@@ -136,7 +137,7 @@
   ;; The free locals of a lambda form
   (define (free-locals form)
     (or (hashtable-ref (lambda-frees) form #f)
-        (error 'free-locals "lambda not analyzed" form)))
+        (compile-error 'free-locals "lambda not analyzed" form)))
 
 
   (define (fact var accessor)

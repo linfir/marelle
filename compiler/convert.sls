@@ -199,7 +199,7 @@
 
   (define (atom-kind a)
     (if (symbol? a)
-        (or (hashtable-ref (kinds) a #f) (error 'convert "variable without a kind" a))
+        (or (hashtable-ref (kinds) a #f) (compile-error 'convert "variable without a kind" a))
         (kind a)))
 
 
@@ -207,7 +207,7 @@
   (define (check-atom a k form)
     (let ((ak (atom-kind a)))
       (unless (if (eq? k 'any) (memq ak '(val raw)) (eq? ak k))
-        (error 'check-kind (if (eq? k 'any) "expected a val or a raw" (format "expected a ~a" k))
+        (compile-error 'check-kind (if (eq? k 'any) "expected a val or a raw" (format "expected a ~a" k))
                form))))
 
 
@@ -252,7 +252,7 @@
   (define (lookup env x)
     (let ((entry (assq x env)))
       (unless entry
-        (error 'lookup "unknown symbol" x))
+        (compile-error 'lookup "unknown symbol" x))
       (cdr entry)))
 
 
@@ -285,7 +285,7 @@
               ((takes? def n) def)
               ((general-def def) => (lambda (general) (and (takes? general n) general)))
               ((def-procedure? def) #f)
-              (else (error 'compile-call "wrong number of arguments" expr)))))))
+              (else (compile-error 'compile-call "wrong number of arguments" expr)))))))
 
 
   (define (takes? def n)
@@ -307,7 +307,7 @@
       (c `(as-val ,(intern-number! x))))
 
      ((number? x)
-      (error 'compile-value "unsupported number" x))
+      (compile-error 'compile-value "unsupported number" x))
 
      ;; Outside unsafe code, a Scheme string, loaded from its literal cell
      ((string? x)
@@ -338,7 +338,7 @@
       (cps-call env x c))
 
      (else
-      (error 'compile-value "unsupported expression" x))))
+      (compile-error 'compile-value "unsupported expression" x))))
 
 
   (define (cps-variable env x c)
@@ -358,17 +358,17 @@
 
   (define (loop-error b x)
     (if (eq? (loop-binding-state b) 'lambda)
-        (error 'compile-value "named let called from a lambda" x)
-        (error 'compile-value "named let used as a value or called not in exit position" x)))
+        (compile-error 'compile-value "named let called from a lambda" x)
+        (compile-error 'compile-value "named let used as a value or called not in exit position" x)))
 
 
   ;; The procedure object of def, or of its general def, which takes any number of arguments
   (define (def-value def x)
     (let ((def (or (general-def def) def)))
       (unless (def-emitted? def)
-        (error 'compile-value "inline def without a procedure object" x))
+        (compile-error 'compile-value "inline def without a procedure object" x))
       (when (def-noalloc? def)
-        (error 'compile-value "noalloc def without a procedure object" x))
+        (compile-error 'compile-value "noalloc def without a procedure object" x))
       `(as-val ,(def-proc def))))
 
 
@@ -415,7 +415,7 @@
        (cps env (cadr x)
             (lambda (a)
               (unless (memq (atom-kind a) '(val raw))
-                (error 'compile-value "expected a val or a raw" x))
+                (compile-error 'compile-value "expected a val or a raw" x))
               (letprim `(move ,a) (atom-kind a) c))))
 
       ((%cell-ref)
@@ -447,7 +447,7 @@
       ;; have any kind
       ((when unless)
        (unless (>= (length x) 3)
-         (error 'compile-value "invalid when or unless" x))
+         (compile-error 'compile-value "invalid when or unless" x))
        (let* ((j (new-name "j"))
               (k #f)
               (body (cps-seq env (cddr x)
@@ -474,7 +474,7 @@
                         inner))))
 
       (else
-       (error 'compile-value "unsupported form" x))))
+       (compile-error 'compile-value "unsupported form" x))))
 
 
   (define (cps-call env x c)
@@ -501,7 +501,7 @@
      ((def-noalloc? def)
       (letprim `(stackcall ,(def-result def) ,(def-code def) ,@as) (def-result def) c))
      ((def-rest? def)
-      (error 'call-def "def with a rest parameter called with its parameters" (def-name def)))
+      (compile-error 'call-def "def with a rest parameter called with its parameters" (def-name def)))
      (else
       (app-to #f def as (def-result def) c))))
 
@@ -546,7 +546,7 @@
           ((raw)
            (unless (literal? (lambda (n)
                                (and (integer? n) (exact? n) (<= (- (expt 2 63)) n (- (expt 2 64) 1)))))
-             (error 'compile-value "invalid raw literal" x))
+             (compile-error 'compile-value "invalid raw literal" x))
            (c `(quad ,(cadr x))))
 
           ;; Casts only wrap the atom, except that as-val copies a raw slot into a tmp, since
@@ -562,7 +562,7 @@
                         (integer? (cadr x))
                         (exact? (cadr x))
                         (>= (cadr x) 0))
-             (error 'compile-value "invalid syscall" x))
+             (compile-error 'compile-value "invalid syscall" x))
            (cps-exprs env (cddr x) (map (lambda (y) 'raw) (cddr x)) x
                       (lambda (as) (letprim `(syscall (quad ,(cadr x)) ,@as) 'raw c))))
 
@@ -571,7 +571,7 @@
                          (lambda (as)
                            (let ((n (car as)))
                              (when (and (pair? n) (eq? (car n) 'quad) (<= (cadr n) 0))
-                               (error 'compile-value "invalid alloc" x)))
+                               (compile-error 'compile-value "invalid alloc" x)))
                            (letprim `(alloc ,@as) 'raw c))))
 
           ((tail-call-frame)
@@ -585,7 +585,7 @@
 
           ((address)
            (unless (literal? string?)
-             (error 'compile-value "invalid address" x))
+             (compile-error 'compile-value "invalid address" x))
            (c (cadr x)))
 
           (else
@@ -607,7 +607,7 @@
   ;; form is the whole expression, for errors
   (define (cps-exprs env xs kinds form c)
     (unless (= (length xs) (length kinds))
-      (error 'compile-exprs "wrong number of operands" form))
+      (compile-error 'compile-exprs "wrong number of operands" form))
     (let loop ((xs xs) (kinds kinds) (as '()))
       (if (null? xs)
           (c (reverse as))
@@ -647,7 +647,7 @@
 
     (let ((kinds (def-params-kinds def)))
       (unless (= (length (cdr x)) (length kinds))
-        (error 'compile-exprs "wrong number of operands" x))
+        (compile-error 'compile-exprs "wrong number of operands" x))
       (let loop ((xs (cdr x)) (kinds kinds) (as '()))
         (cond
          ((null? xs)
@@ -819,7 +819,7 @@
             (cps env (cadar bs)
                  (lambda (a)
                    (unless (memq (atom-kind a) '(val raw))
-                     (error 'compile-loop "expected a val or a raw" (car bs)))
+                     (compile-error 'compile-loop "expected a val or a raw" (car bs)))
                    (loop (cdr bs) (cons a as))))
             (let* ((as (reverse as))
                    (k (new-name (symbol->string name)))
@@ -834,7 +834,7 @@
   (define (cps-loop-call env x loop)
     (let ((params (loop-binding-slots loop)))
       (unless (= (length (cdr x)) (length params))
-        (error 'compile-loop-call "wrong number of arguments" x))
+        (compile-error 'compile-loop-call "wrong number of arguments" x))
       (cps-exprs env (cdr x) (map atom-kind params) x
                  (lambda (as) `(throw ,(loop-binding-label loop) ,@as)))))
 
@@ -870,7 +870,7 @@
   ;; (last env def x) converts the last expression
   (define (cps-inline def as form last)
     (when (memq def (inlining))
-      (error 'compile-inline "recursive inline def" (def-name def)))
+      (compile-error 'compile-inline "recursive inline def" (def-name def)))
     (let ((callee-env (map (lambda (name a) (cons name (make-local-binding a)))
                            (def-core-names def) as)))
       (parameterize ((inlining (cons def (inlining)))
@@ -886,7 +886,7 @@
             (cps-named env (caar bs) (cadar bs)
                        (lambda (a)
                          (unless (memq (atom-kind a) '(val raw))
-                           (error 'compile-let "expected a val or a raw" (car bs)))
+                           (compile-error 'compile-let "expected a val or a raw" (car bs)))
                          (loop (cdr bs) (cons (cons (caar bs) (make-local-binding a)) entries))))
             (cps-seq (append entries env) body last)))))
 
@@ -917,7 +917,7 @@
     (map (lambda (var)
            (let ((entry (assq var env)))
              (unless (and entry (local-binding? (cdr entry)))
-               (error 'compile-lambda "capture not a local" var))
+               (compile-error 'compile-lambda "capture not a local" var))
              entry))
          (cadr form)))
 
@@ -931,7 +931,7 @@
                            #f (cons (formals-names args) body))))
         (for-each (lambda (c)
                     (when (eq? (atom-kind (local-binding-operand (cdr c))) 'raw)
-                      (error 'compile-lambda "captured raw variable" (car c))))
+                      (compile-error 'compile-lambda "captured raw variable" (car c))))
                   captures)
         (add-def-symbols! def)
         def)))

@@ -7,6 +7,7 @@
 (library (core-check)
   (export check-core)
   (import (chezscheme)
+          (utils)
           (parse)
           (closure)
           (defs)
@@ -17,7 +18,7 @@
     (let ((bound (make-eq-hashtable))
           (cells (make-eq-hashtable)))
       (define (fail msg x)
-        (error 'check-core (format "~a, after assignment conversion, in ~a" msg name) x))
+        (compile-error 'check-core (format "~a, after assignment conversion, in ~a" msg name) x))
 
       (define (bind! x)
         (unless (and (symbol? x) (gensym? x))

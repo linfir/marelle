@@ -111,7 +111,7 @@
 
           ((quasiquote)
            (unless (= (length x) 2)
-             (error 'front-expr "invalid quasiquote" x))
+             (compile-error 'front-expr "invalid quasiquote" x))
            (front-expr env (expand-quasiquote env (cadr x))))
 
           ((let-values)
@@ -129,7 +129,7 @@
                (front-expr env (expand-when keyword x))))
 
           ((define define-values define-record-type)
-           (error 'front-expr "invalid context for definition" x))
+           (compile-error 'front-expr "invalid context for definition" x))
 
           (else
            `(,(marker keyword) ,@(front-exprs env (cdr x)))))))))
@@ -167,7 +167,7 @@
          (loop (append (cdar forms) (cdr forms)) bindings))
         (else
          (cond
-          ((null? forms) (error 'expand-body "no expression in body" body))
+          ((null? forms) (compile-error 'expand-body "no expression in body" body))
           ((null? bindings) forms)
           (else `((,(marker 'letrec*) ,(reverse bindings) ,@forms))))))))
 
@@ -289,7 +289,7 @@
           (n (gensym "n")))
       (define (clause c)
         (unless (and (list? c) (>= (length c) 2))
-          (error 'expand-case-lambda "invalid case-lambda clause" c))
+          (compile-error 'expand-case-lambda "invalid case-lambda clause" c))
         (validate-parameters (car c))
         (let loop ((formals (car c)) (tail args) (k 0) (bindings '()))
           (cond
@@ -333,7 +333,7 @@
   ;; Their tails stay in tail position
   (define (expand-when keyword x)
     (unless (>= (length x) 3)
-      (error 'expand-when "invalid when or unless" x))
+      (compile-error 'expand-when "invalid when or unless" x))
     (let ((body `(,(marker 'begin) ,@(cddr x))))
       (if (eq? keyword 'when)
           `(,(marker 'if) ,(cadr x) ,body ,undef)
@@ -350,7 +350,7 @@
           (cond
            ((auxiliary? env test 'else)
             (unless (and (null? rest) (pair? body))
-              (error 'expand-cond "invalid else clause" (car clauses)))
+              (compile-error 'expand-cond "invalid else clause" (car clauses)))
             `(,(marker 'begin) ,@body))
            ((null? body)
             (let ((t (gensym "cond")))
@@ -358,7 +358,7 @@
                 (,(marker 'if) ,t ,t ,(expand-cond env rest)))))
            ((auxiliary? env (car body) '=>)
             (unless (= (length body) 2)
-              (error 'expand-cond "invalid => clause" (car clauses)))
+              (compile-error 'expand-cond "invalid => clause" (car clauses)))
             (let ((t (gensym "cond")))
               `(,(marker 'let) ((,t ,test))
                 (,(marker 'if) ,t (,(cadr body) ,t) ,(expand-cond env rest)))))
@@ -378,7 +378,7 @@
          ((vector? y) (vector-for-each check y))
          ((not (or (symbol? y) (null? y) (boolean? y) (char? y) (exact-rational? y) (string? y)
                    (bytevector? y)))
-          (error 'front-expr "unsupported quoted datum" y))))
+          (compile-error 'front-expr "unsupported quoted datum" y))))
       (make-literal x))))
 
 
@@ -407,7 +407,7 @@
        ((form? y 'unquote)
         (cadr y))
        ((form? y 'unquote-splicing)
-        (error 'expand-quasiquote "unquote-splicing outside a list" y))
+        (compile-error 'expand-quasiquote "unquote-splicing outside a list" y))
        ((form? y 'quasiquote)
         (keyword-form 'quasiquote (cadr y) (+ depth 1)))
        ((and (pair? y) (form? (car y) 'unquote-splicing) (= depth 0))
@@ -429,7 +429,7 @@
           (if (auxiliary? env (cadr clause) '=>)
               (begin
                 (unless (= (length clause) 3)
-                  (error 'expand-case "invalid => clause" clause))
+                  (compile-error 'expand-case "invalid => clause" clause))
                 `(,(caddr clause) ,t))
               `(,(marker 'begin) ,@(cdr clause))))
         (define (test x)
@@ -438,18 +438,18 @@
            ((symbol? x) `(,(marker 'eq?) ,t ,(make-literal x)))
            ((immediate? x) `(,(marker 'eq?) ,t ,x))
            ((exact-rational? x) `(,(core-ref 'eqv?) ,t ,x))
-           (else (error 'expand-case "unsupported case datum" x))))
+           (else (compile-error 'expand-case "unsupported case datum" x))))
         `(,(marker 'let) ((,t ,key))
           ,(let loop ((clauses clauses))
              (cond
               ((null? clauses) undef)
               ((auxiliary? env (caar clauses) 'else)
                (unless (null? (cdr clauses))
-                 (error 'expand-case "invalid else clause" (car clauses)))
+                 (compile-error 'expand-case "invalid else clause" (car clauses)))
                (body (car clauses)))
               (else
                (unless (list? (caar clauses))
-                 (error 'expand-case "invalid case clause" (car clauses)))
+                 (compile-error 'expand-case "invalid case clause" (car clauses)))
                `(,(marker 'if)
                  (,(marker 'or) ,@(map test (caar clauses)))
                  ,(body (car clauses))

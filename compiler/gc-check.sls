@@ -1,6 +1,7 @@
 (library (gc-check)
   (export check-gc-safety raws-in)
   (import (chezscheme)
+          (utils)
           (flow))
 
 
@@ -31,7 +32,7 @@
                          (let* ((across (set-minus live (indexes->set (instr-defs instr))))
                                 (raw (find odd? (set-members across))))
                            (when raw
-                             (error 'check-gc-safety "raw live across a safepoint"
+                             (compile-error 'check-gc-safety "raw live across a safepoint"
                                     name (index-var raw) instr))))
                        (live-before instr live)))
                    (live-at-end block next ins)

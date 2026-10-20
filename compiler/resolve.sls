@@ -12,6 +12,7 @@
 (library (resolve)
   (export resolve-body)
   (import (chezscheme)
+          (utils)
           (parse)
           (vars)
           (closure)
@@ -73,8 +74,8 @@
          ((def-binding? b) (def-binding-def b))
          ((data-binding? b) (data-binding-data b))
          ((constant-binding? b) `(,(marker 'const) ,(constant-binding-operand b)))
-         ((low-op-binding? b) (error 'compile-value "low operation used as a value" x))
-         (else (error 'lookup "unknown symbol" x)))))))
+         ((low-op-binding? b) (compile-error 'compile-value "low operation used as a value" x))
+         (else (compile-error 'lookup "unknown symbol" x)))))))
 
 
   (define (resolve-let env x)
@@ -107,9 +108,9 @@
        ((gensym? var)
         `(,(car x) ,var ,(resolve env value)))
        ((binding env var)
-        (error 'compile-set! "set! of a library procedure or primitive" var))
+        (compile-error 'compile-set! "set! of a library procedure or primitive" var))
        (else
-        (error 'lookup "unknown symbol" var)))))
+        (compile-error 'lookup "unknown symbol" var)))))
 
 
   (define (resolve-call env x)

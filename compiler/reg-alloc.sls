@@ -143,7 +143,7 @@
                       (cond
                        ((not iv)
                         (unless def?
-                          (error 'var-intervals "variable read before its first definition" (index-var i)))
+                          (compile-error 'var-intervals "variable read before its first definition" (index-var i)))
                         (hashtable-set! table i (make-interval (index-var i) position position #f)))
                        ((< position (interval-start iv))
                         (interval-start-set! iv position))

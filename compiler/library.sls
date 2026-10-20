@@ -71,13 +71,13 @@
                             (and (memq ':noalloc attrs) #t) (library-def-procedure? x)
                             (library-def-unsafe? x) 0 #f #f (library-def-body x) #f #f)))
         (when (and (def-noalloc? def) (or (def-inline? def) (def-public? def)))
-          (error 'scanned-item ":noalloc with another attribute" name))
+          (compile-error 'scanned-item ":noalloc with another attribute" name))
         ;; An emitted def is called with the Scheme convention
         (unless (or (not (def-emitted? def))
                     (def-noalloc? def)
                     (and (for-all (lambda (k) (memq k '(val rest))) (def-params-kinds def))
                          (memq (def-result def) '(val never))))
-          (error 'scanned-item "raw parameter or result in a non-inline def" name))
+          (compile-error 'scanned-item "raw parameter or result in a non-inline def" name))
         (add-def-symbols! def)
         def))))
 
@@ -317,7 +317,7 @@
        ((define-form? (car forms))
         (let-values (((name args body) (parse-define (car forms))))
           (when (assq name bindings)
-            (error 'compile-scheme-program "redefinition not allowed" name))
+            (compile-error 'compile-scheme-program "redefinition not allowed" name))
           (loop (cdr forms)
                 (cons (list name (if args `(,(marker 'lambda) ,args ,@body) (car body)))
                       bindings))))
@@ -331,7 +331,7 @@
   ;; result
   (define (compile-scheme-program interface program)
     (when (null? (splice-begins program))
-      (error 'compile-scheme-program "empty program"))
+      (compile-error 'compile-scheme-program "empty program"))
     (new-compilation
      (cadr (assq 'names interface)) "scheme_literals"
      (lambda ()
@@ -360,7 +360,7 @@
            (for-each (lambda (x)
                        (let-values (((name args body) (parse-define x)))
                          (when (find (lambda (x) (eq? (item-name x) name)) items)
-                           (error 'compile-scheme-program "redefinition not allowed" name))))
+                           (compile-error 'compile-scheme-program "redefinition not allowed" name))))
                      (filter define-form? forms))
            (let* ((env (append safe
                                (map (lambda (x) (cons (def-name x) (make-def-binding x)))

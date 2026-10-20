@@ -106,7 +106,7 @@
               (and (> (string-length sym) 3)
                    (member (substring sym 0 3) '("str" "num"))
                    (for-all char-numeric? (string->list (substring sym 3 (string-length sym))))))
-      (error 'add-symbol! "symbol clash" name sym))
+      (compile-error 'add-symbol! "symbol clash" name sym))
     (hashtable-set! (symbols) sym name))
 
 
@@ -175,7 +175,7 @@
   (define (core-def name)
     (cond
      ((assq name (core-defs)) => cdr)
-     (else (error 'core-def "missing library def" name))))
+     (else (compile-error 'core-def "missing library def" name))))
 
 
   ;; The general def variadic-D of the library def D, a procedure taking any number of
@@ -188,8 +188,6 @@
             (else #f)))))
 
 
-  ;; Printed by name, in the resolved forms of errors and dumps
-  (record-writer (record-type-descriptor def)
-                 (lambda (r p wr) (display (def-name r) p)))
-  (record-writer (record-type-descriptor data)
-                 (lambda (r p wr) (display (data-name r) p))))
+  ;; Printed by name, in dumps
+  (add-printer! def? def-name)
+  (add-printer! data? data-name))

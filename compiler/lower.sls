@@ -61,7 +61,7 @@
   (define (atom->operand a)
     (cond
      ((symbol? a)
-      (or (hashtable-ref (vars) a #f) (error 'lower "unbound variable" a)))
+      (or (hashtable-ref (vars) a #f) (compile-error 'lower "unbound variable" a)))
      ((pair? a)
       (cons (car a) (map atom->operand (cdr a))))
      (else a)))
@@ -104,11 +104,11 @@
       ((unreachable)
        (emit! '(unreachable)))
       (else
-       (error 'lower "not a term" t))))
+       (compile-error 'lower "not a term" t))))
 
 
   (define (cont-of k)
-    (or (hashtable-ref (conts) k #f) (error 'lower "unknown continuation" k)))
+    (or (hashtable-ref (conts) k #f) (compile-error 'lower "unknown continuation" k)))
 
 
   (define (use! c)
