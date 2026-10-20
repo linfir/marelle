@@ -1,1 +1,1 @@
-(char<? #\a)
+(char->integer #\a #\b)

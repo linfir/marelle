@@ -125,9 +125,9 @@
               (cons head (resolve-body env (cdr x)))))))))
 
 
-  ;; The calls of the library's +, *, -, comparisons, bitwise operations, make-vector and list
-  ;; whose number of operands the inline def does not take, in terms of it, or #f; the others
-  ;; go to their general def
+  ;; The calls of the library's +, *, -, comparisons (char ones too), bitwise operations,
+  ;; make-vector and list whose number of operands the inline def does not take, in terms of
+  ;; it, or #f; the others go to their general def
   (define (expand-variadic op args)
     (let ((def op))
       (and (general-def def)
@@ -151,7 +151,7 @@
                   ((0 2) #f)
                   (else (fold-operands))))
                ;; Each operand once, compared with the next
-               ((= < > <= >=)
+               ((= < > <= >= char=? char<? char<=? char>? char>=?)
                 (and (> (length args) 2)
                      (let ((tmps (map (lambda (x) (gensym "operand")) args)))
                        `(,(marker 'let) ,(map list tmps args)

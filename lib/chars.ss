@@ -60,6 +60,21 @@
   (check-chars x y char>=?)
   (raw>= (as-raw x) (as-raw y)))
 
+(define (variadic-char=? x . xs)
+  (compare-all (lambda (a b) (char=? a b)) x xs))
+
+(define (variadic-char<? x . xs)
+  (compare-all (lambda (a b) (char<? a b)) x xs))
+
+(define (variadic-char<=? x . xs)
+  (compare-all (lambda (a b) (char<=? a b)) x xs))
+
+(define (variadic-char>? x . xs)
+  (compare-all (lambda (a b) (char>? a b)) x xs))
+
+(define (variadic-char>=? x . xs)
+  (compare-all (lambda (a b) (char>=? a b)) x xs))
+
 ;; Characters: ASCII only
 (define (char-upper-case? c)
   (declare public)
