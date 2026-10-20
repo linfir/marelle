@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `quotient` expected a nonzero divisor: 0\n"
+stderr = "Exception in quotient: undefined for 0\n"

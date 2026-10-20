@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in logbit?: invalid bit index -1\n"

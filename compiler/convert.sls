@@ -92,12 +92,14 @@
                             (lambda (name)
                               (call-def (core-def 'string->symbol) (list name) x store))))
                   ((string? x)
-                   (call-def (core-def 'literal-string)
-                             (list (intern-string! x)
-                                   `(quad ,(bytevector-length (string->utf8 x)))
-                                   `(quad ,(string-length x))
-                                   `(quad ,(if (ascii? x) 1 0)))
-                             x store))
+                   (call-def (core-def 'make-fixnum) (list (intern-string! x)) x
+                             (lambda (bytes)
+                               (call-def (core-def 'literal-string)
+                                         (list bytes
+                                               (immediate-operand (bytevector-length (string->utf8 x)))
+                                               (immediate-operand (string-length x))
+                                               (immediate-operand (ascii? x)))
+                                         x store))))
                   (else
                    (build-datum x store))))))))))
 
@@ -332,7 +334,10 @@
     (let ((b (lookup env x)))
       (cond
        ((local-binding? b)
-        (c (local-binding-operand b)))
+        (let ((a (local-binding-operand b)))
+          (if (deferred-literal? a)
+              (letprim `(literal ,(cadr a)) 'val c)
+              (c a))))
        ;; A static procedure of a fix
        ((def-binding? b)
         (c (def-value (def-binding-def b) x)))
@@ -601,13 +606,50 @@
 
   ;; The atoms of a call to def, the extra ones packed into its rest parameter's list
   (define (cps-args env def x c)
-    (if (def-rest? def)
-        (let ((required (list-head (cdr x) (def-required def))))
-          (cps-exprs env required (map (lambda (y) 'val) required) x
-                     (lambda (as)
-                       (cps-rest-list env (list-tail (cdr x) (def-required def)) x
-                                      (lambda (l) (c (append as (list l))))))))
-        (cps-exprs env (cdr x) (def-params-kinds def) x c)))
+    (cond
+     ((def-rest? def)
+      (let ((required (list-head (cdr x) (def-required def))))
+        (cps-exprs env required (map (lambda (y) 'val) required) x
+                   (lambda (as)
+                     (cps-rest-list env (list-tail (cdr x) (def-required def)) x
+                                    (lambda (l) (c (append as (list l)))))))))
+     ((def-inline? def)
+      (cps-inline-args env def x c))
+     (else
+      (cps-exprs env (cdr x) (def-params-kinds def) x c))))
+
+
+  ;; As cps-exprs, but a literal, or a variable bound to one, stays unloaded: the parameter is
+  ;; bound to (deferred-literal datum), loaded at each use (cps-variable), so a literal only an
+  ;; inline def's error path uses is loaded there
+  (define (cps-inline-args env def x c)
+    (define (deferred x)
+      (cond
+       ((literal? x) `(deferred-literal ,(literal-datum x)))
+       ((and (string? x) (not (unsafe-code?))) `(deferred-literal ,x))
+       ((symbol? x)
+        (let ((b (lookup env x)))
+          (and (local-binding? b)
+               (deferred-literal? (local-binding-operand b))
+               (local-binding-operand b))))
+       (else #f)))
+
+    (let ((kinds (def-params-kinds def)))
+      (unless (= (length (cdr x)) (length kinds))
+        (error 'compile-exprs "wrong number of operands" x))
+      (let loop ((xs (cdr x)) (kinds kinds) (as '()))
+        (cond
+         ((null? xs)
+          (c (reverse as)))
+         ((and (eq? (car kinds) 'val) (deferred (car xs)))
+          => (lambda (a) (loop (cdr xs) (cdr kinds) (cons a as))))
+         (else
+          (cps-checked env (car xs) (car kinds) x
+                       (lambda (a) (loop (cdr xs) (cdr kinds) (cons a as)))))))))
+
+
+  (define (deferred-literal? a)
+    (and (pair? a) (eq? (car a) 'deferred-literal)))
 
 
   ;; A fresh list of the values of xs, consed from the last

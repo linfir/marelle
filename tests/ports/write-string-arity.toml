@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception: incorrect number of arguments 5 to #<procedure write-string>\n"

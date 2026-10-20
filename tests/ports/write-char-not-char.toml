@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "`write-char` expected a character"
+stderr_contains = "Exception in write-char: \"a\" is not a character"

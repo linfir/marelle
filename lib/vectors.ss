@@ -6,38 +6,38 @@
        (not (raw= (as-raw x) (raw 0)))
        (raw= (load (as-raw x) (raw 0)) vector-type)))
 
-(define (check-vector v (raw msg))
-  (declare unsafe inline (result void))
+(define (check-vector v who)
+  (declare inline (result void))
   (unless (vector? v)
-    (scheme-error msg v)))
+    (argument-error who 'vector v)))
 
 ;; i is a fixnum in [0, length); one unsigned compare also rejects negatives
-(define (check-index v i (raw msg) (raw range-msg))
+(define (check-index v i who)
   (declare unsafe inline (result void))
-  (check-vector v msg)
+  (check-vector v who)
   (unless (and (fixnum? i) (raw<u (fixnum-value i) (load (as-raw v) (raw 1))))
-    (scheme-error range-msg i)))
+    (index-error who i v)))
 
 (define (vector-length v)
   (declare unsafe inline public)
-  (check-vector v "`vector-length` expected a vector")
+  (check-vector v vector-length)
   (make-fixnum (load (as-raw v) (raw 1))))
 
 (define (vector-ref v i)
   (declare unsafe inline public)
-  (check-index v i "`vector-ref` expected a vector" "`vector-ref` index out of range")
+  (check-index v i vector-ref)
   (as-val (load (as-raw v) (raw+ (fixnum-value i) (raw 2)))))
 
 (define (vector-set! v i x)
   (declare unsafe inline public)
-  (check-index v i "`vector-set!` expected a vector" "`vector-set!` index out of range")
+  (check-index v i vector-set!)
   (store (as-raw v) (raw+ (fixnum-value i) (raw 2)) x)
   undef)
 
 (define (make-vector k fill)
   (declare unsafe inline public)
   (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
-    (scheme-error "`make-vector` expected a nonnegative fixnum" k))
+    (argument-error make-vector 'vector-length k))
   (let ((p (alloc (raw+ (fixnum-value k) (raw 2)))))
     (store p (raw 0) vector-type)
     (store p (raw 1) (fixnum-value k))
@@ -46,7 +46,8 @@
 
 (define (vector-fill! v x)
   (declare unsafe public)
-  (check-vector v "`vector-fill!` expected a vector")
+  (unless (vector? v)
+    (argument-error vector-fill! 'mutable-vector v))
   (fill-words (raw+ (as-raw v) (raw 16)) (load (as-raw v) (raw 1)) (as-raw x))
   undef)
 
@@ -74,15 +75,14 @@
   (list->vector xs))
 
 (define (variadic-make-vector k . fill)
-  (declare unsafe)
   (cond
    ((null? fill) (make-vector k 0))
    ((null? (cdr fill)) (make-vector k (car fill)))
-   (else (scheme-error "`make-vector` expected 1 or 2 arguments" fill))))
+   (else (argument-count-error make-vector (+ 1 (length fill))))))
 
 (define (vector-copy v)
   (declare unsafe public)
-  (check-vector v "`vector-copy` expected a vector")
+  (check-vector v vector-copy)
   (let ((c (make-vector (vector-length v) 0)))
     (copy-words (raw+ (as-raw c) (raw 16)) (raw+ (as-raw v) (raw 16)) (load (as-raw v) (raw 1)))
     c))

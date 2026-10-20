@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "`close-port` expected a port: 5"
+stderr_contains = "Exception in close-port: 5 is not a port"

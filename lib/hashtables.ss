@@ -17,10 +17,10 @@
        (not (raw= (as-raw x) (raw 0)))
        (raw= (load (as-raw x) (raw 0)) hashtable-type)))
 
-(define (check-hashtable t (raw msg))
-  (declare unsafe inline (result void))
+(define (check-hashtable t who)
+  (declare inline (result void))
   (unless (hashtable? t)
-    (scheme-error msg t)))
+    (argument-error who 'hashtable t)))
 
 (define (table-count t)
   (declare unsafe inline (result raw))
@@ -198,7 +198,7 @@
     (cond
      ((fixnum? h) h)
      ((bignum? h) (hash-fixnum (load (as-raw h) (raw 3))))
-     (else (scheme-error "hashtable hash function returned a non-integer" h)))))
+     (else (hash-function-error (as-val (load (as-raw t) (raw 7))) h k)))))
 
 ;; A fixnum slot from the fixnum hash h
 (define (generic-home t h)
@@ -314,29 +314,29 @@
   (make-table 0 8 #f #f))
 
 (define (variadic-make-eq-hashtable . k)
-  (declare unsafe)
   (cond
    ((null? k) (make-eq-hashtable))
    ((and (null? (cdr k)) (table-size? (car k))) (make-table 0 (table-slots (car k)) #f #f))
-   (else (scheme-error "`make-eq-hashtable` expected an optional nonnegative fixnum" k))))
+   ((null? (cdr k)) (argument-error make-eq-hashtable 'size-argument (car k)))
+   (else (argument-count-error make-eq-hashtable (length k)))))
 
 (define (make-eqv-hashtable)
   (declare public)
   (make-table 1 8 #f #f))
 
 (define (variadic-make-eqv-hashtable . k)
-  (declare unsafe)
   (cond
    ((null? k) (make-eqv-hashtable))
    ((and (null? (cdr k)) (table-size? (car k))) (make-table 1 (table-slots (car k)) #f #f))
-   (else (scheme-error "`make-eqv-hashtable` expected an optional nonnegative fixnum" k))))
+   ((null? (cdr k)) (argument-error make-eqv-hashtable 'size-argument (car k)))
+   (else (argument-count-error make-eqv-hashtable (length k)))))
 
 (define (check-hash-procedures hash equiv)
-  (declare unsafe inline (result void))
+  (declare inline (result void))
   (unless (procedure? hash)
-    (scheme-error "`make-hashtable` expected a procedure" hash))
+    (argument-error make-hashtable 'procedure hash))
   (unless (procedure? equiv)
-    (scheme-error "`make-hashtable` expected a procedure" equiv)))
+    (argument-error make-hashtable 'procedure equiv)))
 
 (define (make-hashtable hash equiv)
   (declare unsafe public)
@@ -344,35 +344,35 @@
   (make-table 2 8 hash equiv))
 
 (define (variadic-make-hashtable hash equiv . k)
-  (declare unsafe)
   (check-hash-procedures hash equiv)
   (cond
    ((null? k) (make-table 2 8 hash equiv))
    ((and (null? (cdr k)) (table-size? (car k))) (make-table 2 (table-slots (car k)) hash equiv))
-   (else (scheme-error "`make-hashtable` expected an optional nonnegative fixnum" k))))
+   ((null? (cdr k)) (argument-error make-hashtable 'size-argument (car k)))
+   (else (argument-count-error make-hashtable (+ 2 (length k))))))
 
 (define (hashtable-size t)
   (declare unsafe public)
-  (check-hashtable t "`hashtable-size` expected a hashtable")
+  (check-hashtable t hashtable-size)
   (make-fixnum (table-count t)))
 
 (define (hashtable-ref t k default)
   (declare unsafe public)
-  (check-hashtable t "`hashtable-ref` expected a hashtable")
+  (check-hashtable t hashtable-ref)
   (let ((i (table-slot t k)))
     (if (slot-empty? t i)
         default
         (as-val (slot-word (table-storage t) (fixnum-value i) (raw 1))))))
 
 (define (hashtable-contains? t k)
-  (declare unsafe public)
-  (check-hashtable t "`hashtable-contains?` expected a hashtable")
+  (declare public)
+  (check-hashtable t hashtable-contains?)
   (not (slot-empty? t (table-slot t k))))
 
 ;; Grows first, so that the slot found stays valid
 (define (hashtable-set! t k v)
   (declare unsafe public)
-  (check-hashtable t "`hashtable-set!` expected a hashtable")
+  (check-hashtable t hashtable-set!)
   (when (raw>u (raw<< (raw+ (table-count t) (raw 1)) (raw 1)) (storage-slots (table-storage t)))
     (resize! t (make-fixnum (raw<< (storage-slots (table-storage t)) (raw 1)))))
   (let ((i (table-slot t k)))
@@ -390,13 +390,13 @@
           undef))))
 
 (define (hashtable-update! t k proc default)
-  (declare unsafe public)
-  (check-hashtable t "`hashtable-update!` expected a hashtable")
+  (declare public)
+  (check-hashtable t hashtable-update!)
   (hashtable-set! t k (proc (hashtable-ref t k default))))
 
 (define (hashtable-delete! t k)
   (declare unsafe public)
-  (check-hashtable t "`hashtable-delete!` expected a hashtable")
+  (check-hashtable t hashtable-delete!)
   (let ((i (table-slot t k)))
     (unless (slot-empty? t i)
       (store (as-raw t) (raw 1) (raw- (table-count t) (raw 1)))
@@ -411,7 +411,7 @@
 
 (define (hashtable-clear! t)
   (declare unsafe public)
-  (check-hashtable t "`hashtable-clear!` expected a hashtable")
+  (check-hashtable t hashtable-clear!)
   (let ((s (make-storage 8)))
     (store (as-raw t) (raw 1) (raw 0))
     (store (as-raw t) (raw 2) (raw 0))
@@ -438,17 +438,17 @@
 
 (define (hashtable-keys t)
   (declare unsafe public)
-  (check-hashtable t "`hashtable-keys` expected a hashtable")
+  (check-hashtable t hashtable-keys)
   (table-column t (raw 0)))
 
 (define (hashtable-values t)
   (declare unsafe public)
-  (check-hashtable t "`hashtable-values` expected a hashtable")
+  (check-hashtable t hashtable-values)
   (table-column t (raw 1)))
 
 (define (hashtable-entries t)
   (declare unsafe public)
-  (check-hashtable t "`hashtable-entries` expected a hashtable")
+  (check-hashtable t hashtable-entries)
   (let* ((keys (table-column t (raw 0)))
          (vals (table-column t (raw 1))))
     (values keys vals)))
@@ -461,7 +461,7 @@
     (let pair-next ((x x)
                     (h (raw 3)))
       (if (pair? x)
-          (pair-next (cdr x) (mix h (equal-hash-word (car x))))
+          (pair-next (pair-cdr x) (mix h (equal-hash-word (pair-car x))))
           (mix h (equal-hash-word x)))))
    ((not (tag=? x (raw 0))) (as-raw x))
    ((raw= (as-raw x) (raw 0)) (raw 0))
@@ -483,13 +483,13 @@
 
 (define (string-hash s)
   (declare unsafe public)
-  (check-string s "`string-hash` expected a string")
+  (check-string s string-hash)
   (hash-fixnum (string-hash-word s)))
 
 (define (symbol-hash s)
   (declare unsafe public)
   (unless (symbol? s)
-    (scheme-error "`symbol-hash` expected a symbol" s))
+    (argument-error symbol-hash 'symbol s))
   (hash-fixnum (symbol-hash-word s)))
 
 (define (display-hashtable (raw out) t)

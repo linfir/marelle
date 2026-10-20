@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in close-output-port: #<input port> is not an output port\n"

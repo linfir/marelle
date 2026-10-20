@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "Error: `vector-copy` expected a vector: (1 2)\n"
+stderr_contains = "Exception in vector-copy: (1 2) is not a vector\n"

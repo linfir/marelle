@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "Error: `vector-fill!` expected a vector: ()\n"
+stderr_contains = "Exception in vector-fill!: () is not a mutable vector\n"

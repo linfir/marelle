@@ -72,8 +72,8 @@
   (let port-next ((l (as-val (load output-ports (raw 0)))))
     (if (pair? l)
         (begin
-          (flush-port (as-raw (car l)))
-          (port-next (cdr l)))
+          (flush-port (as-raw (pair-car l)))
+          (port-next (pair-cdr l)))
         undef))
   (syscall 231 status)) ; exit_group
 
@@ -177,16 +177,6 @@
   (declare unsafe noalloc (result never))
   (put-datum stdout (raw 1) v)
   (exit-process (raw 0)))
-
-;; Prints "Error: msg: x" and exits
-(define (scheme-error (raw msg) x)
-  (declare unsafe noalloc (result never))
-  (put-string stderr "Error: ")
-  (put-string stderr msg)
-  (put-string stderr ": ")
-  (put-datum stderr (raw 1) x)
-  (put-string stderr "\n")
-  (exit-process (raw 1)))
 
 ;; A letrec variable used or assigned before its init
 (define (definition-error (raw name) (raw what))

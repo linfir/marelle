@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in open-output-file: failed for .: is a directory\n"

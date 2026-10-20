@@ -2,17 +2,26 @@
   (declare unsafe inline public)
   (tag=? x (raw 3)))
 
+;; Unchecked, for noalloc defs, which cannot call error
+(define (pair-car x)
+  (declare unsafe inline)
+  (as-val (load (untag x) (raw 0))))
+
+(define (pair-cdr x)
+  (declare unsafe inline)
+  (as-val (load (untag x) (raw 1))))
+
 (define (car x)
   (declare unsafe inline public)
   (unless (pair? x)
-    (scheme-error "`car` expected a pair" x))
-  (as-val (load (untag x) (raw 0))))
+    (argument-error car 'pair x))
+  (pair-car x))
 
 (define (cdr x)
   (declare unsafe inline public)
   (unless (pair? x)
-    (scheme-error "`cdr` expected a pair" x))
-  (as-val (load (untag x) (raw 1))))
+    (argument-error cdr 'pair x))
+  (pair-cdr x))
 
 (define (caar x)
   (declare inline public)
@@ -301,11 +310,10 @@
    (else (member-with x (cdr l) compare))))
 
 (define (variadic-member x l . compare)
-  (declare unsafe)
   (cond
    ((null? compare) (member x l))
    ((null? (cdr compare)) (member-with x l (car compare)))
-   (else (scheme-error "`member` expected 2 or 3 arguments" compare))))
+   (else (argument-count-error member (+ 2 (length compare))))))
 
 (define (assoc x l)
   (declare public)
@@ -321,11 +329,10 @@
    (else (assoc-with x (cdr l) compare))))
 
 (define (variadic-assoc x l . compare)
-  (declare unsafe)
   (cond
    ((null? compare) (assoc x l))
    ((null? (cdr compare)) (assoc-with x l (car compare)))
-   (else (scheme-error "`assoc` expected 2 or 3 arguments" compare))))
+   (else (argument-count-error assoc (+ 2 (length compare))))))
 
 (define (equal? x y)
   (declare public)
@@ -474,22 +481,22 @@
                 (set-tail! tail p)
                 (loop p (cdr xs))))))))
 
-(define (check-count k (raw msg))
+(define (check-count k who kind)
   (declare unsafe inline (result void))
   (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
-    (scheme-error msg k)))
+    (argument-error who kind k)))
 
 (define (iota n)
-  (declare unsafe public)
-  (check-count n "`iota` expected a nonnegative fixnum")
+  (declare public)
+  (check-count n iota 'nonnegative-fixnum)
   (let loop ((i n) (acc '()))
     (if (eq? i 0)
         acc
         (loop (- i 1) (cons (- i 1) acc)))))
 
 (define (make-list k fill)
-  (declare unsafe public)
-  (check-count k "`make-list` expected a nonnegative fixnum")
+  (declare public)
+  (check-count k make-list 'size)
   (let loop ((k k) (acc '()))
     (if (eq? k 0)
         acc
@@ -500,11 +507,11 @@
   (cond
    ((null? fill) (make-list k undef))
    ((null? (cdr fill)) (make-list k (car fill)))
-   (else (scheme-error "`make-list` expected 1 or 2 arguments" fill))))
+   (else (argument-count-error make-list (+ 1 (length fill))))))
 
 (define (list-head l k)
-  (declare unsafe public)
-  (check-count k "`list-head` expected a nonnegative fixnum")
+  (declare public)
+  (check-count k list-head 'index)
   (if (eq? k 0)
       '()
       (let ((head (cons (car l) '())))

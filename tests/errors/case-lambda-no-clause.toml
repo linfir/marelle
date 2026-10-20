@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: no `case-lambda` clause takes the arguments: (1 2)\n"
+stderr = "Exception: incorrect number of arguments 2 to #<procedure>\n"

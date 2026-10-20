@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `substring` end out of range: 4\n"
+stderr = "Exception in substring: 2 and 4 are not valid start/end indices for \"abc\"\n"

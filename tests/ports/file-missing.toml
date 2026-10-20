@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = '`open-input-file` could not open the file: "missing.txt"'
+stderr_contains = "Exception in open-input-file: failed for missing.txt: no such file or directory"

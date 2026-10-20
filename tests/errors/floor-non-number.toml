@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `floor` expected a number: \"x\"\n"
+stderr = "Exception in floor: \"x\" is not a real number\n"

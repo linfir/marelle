@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in make-eq-hashtable: invalid size argument -1\n"

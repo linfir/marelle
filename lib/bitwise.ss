@@ -89,25 +89,24 @@
 
 (define (and-integers x y)
   (declare unsafe)
-  (check-integer x "`bitwise-and` expected an integer")
-  (check-integer y "`bitwise-and` expected an integer")
+  (check-exact-integer x bitwise-and)
+  (check-exact-integer y bitwise-and)
   (bitwise-bignums (->bignum x) (->bignum y) (raw 0)))
 
 (define (ior-integers x y)
   (declare unsafe)
-  (check-integer x "`bitwise-ior` expected an integer")
-  (check-integer y "`bitwise-ior` expected an integer")
+  (check-exact-integer x bitwise-ior)
+  (check-exact-integer y bitwise-ior)
   (bitwise-bignums (->bignum x) (->bignum y) (raw 1)))
 
 (define (xor-integers x y)
   (declare unsafe)
-  (check-integer x "`bitwise-xor` expected an integer")
-  (check-integer y "`bitwise-xor` expected an integer")
+  (check-exact-integer x bitwise-xor)
+  (check-exact-integer y bitwise-xor)
   (bitwise-bignums (->bignum x) (->bignum y) (raw 2)))
 
 (define (not-integer x)
-  (declare unsafe)
-  (check-integer x "`bitwise-not` expected an integer")
+  (check-exact-integer x bitwise-not)
   (- -1 x))
 
 (define (variadic-bitwise-and . xs)
@@ -168,11 +167,11 @@
             (shift-magnitude-right! r x k)
             (normalize r)))))))
 
-(define (check-shift x k (raw msg))
-  (declare unsafe inline (result void))
-  (check-integer x msg)
+(define (check-shift x k who)
+  (declare inline (result void))
+  (check-exact-integer x who)
   (unless (fixnum? k)
-    (scheme-error msg k)))
+    (argument-error who 'fixnum k)))
 
 (define (shift-integer x k)
   (cond
@@ -181,22 +180,22 @@
    (else x)))
 
 (define (bitwise-arithmetic-shift x k)
-  (declare unsafe public)
-  (check-shift x k "`bitwise-arithmetic-shift` expected an integer and a fixnum")
+  (declare public)
+  (check-shift x k bitwise-arithmetic-shift)
   (shift-integer x k))
 
 (define (bitwise-arithmetic-shift-left x k)
   (declare unsafe public)
-  (check-shift x k "`bitwise-arithmetic-shift-left` expected an integer and a nonnegative fixnum")
+  (check-shift x k bitwise-arithmetic-shift-left)
   (when (< k 0)
-    (scheme-error "`bitwise-arithmetic-shift-left` expected an integer and a nonnegative fixnum" k))
+    (argument-error bitwise-arithmetic-shift-left 'nonnegative-exact-integer k))
   (shift-left x k))
 
 (define (bitwise-arithmetic-shift-right x k)
   (declare unsafe public)
-  (check-shift x k "`bitwise-arithmetic-shift-right` expected an integer and a nonnegative fixnum")
+  (check-shift x k bitwise-arithmetic-shift-right)
   (when (< k 0)
-    (scheme-error "`bitwise-arithmetic-shift-right` expected an integer and a nonnegative fixnum" k))
+    (argument-error bitwise-arithmetic-shift-right 'nonnegative-exact-integer k))
   (shift-integer x (- 0 k)))
 
 ;; x is nonzero
@@ -209,7 +208,7 @@
 ;; The index of the lowest set bit, -1 for 0; -x has the lowest set bit of x
 (define (bitwise-first-bit-set x)
   (declare unsafe public)
-  (check-integer x "`bitwise-first-bit-set` expected an integer")
+  (check-exact-integer x bitwise-first-bit-set)
   (cond
    ((eq? x 0) -1)
    ((fixnum? x) (make-fixnum (trailing-zeros (fixnum-value x))))
@@ -236,8 +235,8 @@
 (define (logbit? k n)
   (declare unsafe public)
   (unless (and (fixnum? k) (>= k 0))
-    (scheme-error "`logbit?` expected a nonnegative fixnum" k))
-  (check-integer n "`logbit?` expected an integer")
+    (argument-error logbit? 'bit-index k))
+  (check-exact-integer n logbit?)
   (if (fixnum? n)
       (raw= (bit-and (raw>> (fixnum-value n)
                             (if (raw<u (fixnum-value k) (raw 64)) (fixnum-value k) (raw 63)))

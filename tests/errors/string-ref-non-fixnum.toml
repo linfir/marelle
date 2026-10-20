@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `string-ref` index out of range: #\\a\n"
+stderr = "Exception in string-ref: #\\a is not a valid index for \"abc\"\n"

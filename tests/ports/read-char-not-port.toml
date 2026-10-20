@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "`read-char` expected an open input port: 5"
+stderr_contains = "Exception in read-char: 5 is not a textual input port"

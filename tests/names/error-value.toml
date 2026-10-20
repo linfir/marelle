@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `car` expected a pair: #<procedure car>\n"
+stderr = "Exception in car: #<procedure car> is not a pair\n"

@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `<` expected a number: ()\n"
+stderr = "Exception in <: () is not a real number\n"

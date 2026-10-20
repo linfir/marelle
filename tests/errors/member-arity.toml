@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `member` expected 2 or 3 arguments: (#<procedure => 4)\n"
+stderr = "Exception: incorrect number of arguments 4 to #<procedure member>\n"

@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `integer->char` expected a Unicode scalar value: 55296\n"
+stderr = "Exception in integer->char: 55296 is not a valid unicode scalar value\n"

@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `truncate-quotient` expected an integer: 1/2\n"
+stderr = "Exception in truncate-quotient: 1/2 is not an integer\n"

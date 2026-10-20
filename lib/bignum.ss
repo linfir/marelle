@@ -67,14 +67,12 @@
                ((raw>u x y) (raw 1))
                (else (limb-next (raw- i (raw 1))))))))))))
 
-;; -1, 0 or 1 as x is below, equal to or above y, normalized integers; 2 when one is a ratnum;
-;; else an error; a bignum is beyond every fixnum, so its sign decides against one
-(define (compare-integers x y (raw msg))
+;; -1, 0 or 1 as x is below, equal to or above y, normalized integers; else 2; a bignum is
+;; beyond every fixnum, so its sign decides against one
+(define (compare-integers x y)
   (declare unsafe noalloc (result raw))
-  (check-number x msg)
-  (check-number y msg)
   (cond
-   ((or (ratnum? x) (ratnum? y)) (raw 2))
+   ((not (and (integer? x) (integer? y))) (raw 2))
    ((and (fixnum? x) (fixnum? y))
     (cond
      ((raw< (as-raw x) (as-raw y)) (raw -1))
@@ -490,47 +488,42 @@
     (divide! r a b quotient?)
     (normalize r)))
 
-(define (check-division x y (raw msg) (raw zero-msg))
-  (declare unsafe inline (result void))
-  (check-integer x msg)
-  (check-integer y msg)
-  (when (raw= (as-raw y) (as-raw 0))
-    (scheme-error zero-msg y)))
+(define (check-division x y who)
+  (declare inline (result void))
+  (check-integer x who)
+  (check-integer y who)
+  (when (eq? y 0)
+    (argument-error who 'undefined y)))
 
 ;; The slow paths, out of line: a bignum or ratnum operand, or a bignum result
 (define (add-numbers x y)
-  (declare unsafe)
-  (check-number x "`+` expected a number")
-  (check-number y "`+` expected a number")
+  (check-number x +)
+  (check-number y +)
   (if (and (integer? x) (integer? y))
       (add-bignums (->bignum x) (->bignum y) #f)
       (add-rationals x y #f)))
 
 (define (subtract-numbers x y)
-  (declare unsafe)
-  (check-number x "`-` expected a number")
-  (check-number y "`-` expected a number")
+  (check-number x -)
+  (check-number y -)
   (if (and (integer? x) (integer? y))
       (add-bignums (->bignum x) (->bignum y) #t)
       (add-rationals x y #t)))
 
 (define (multiply-numbers x y)
-  (declare unsafe)
-  (check-number x "`*` expected a number")
-  (check-number y "`*` expected a number")
+  (check-number x *)
+  (check-number y *)
   (if (and (integer? x) (integer? y))
       (multiply-bignums (->bignum x) (->bignum y))
       (multiply-rationals x y)))
 
 (define (quotient-integers x y)
-  (declare unsafe)
-  (check-division x y "`quotient` expected an integer" "`quotient` expected a nonzero divisor")
+  (check-division x y quotient)
   (divide-bignums (->bignum x) (->bignum y) #t))
 
 ;; The remainder has x's sign; the modulo y's
 (define (modulo-integers x y)
-  (declare unsafe)
-  (check-division x y "`modulo` expected an integer" "`modulo` expected a nonzero divisor")
+  (check-division x y modulo)
   (let ((r (divide-bignums (->bignum x) (->bignum y) #f)))
     (if (or (= r 0) (eq? (< r 0) (< y 0)))
         r

@@ -53,8 +53,16 @@
   (make-rational (* (number-numerator x) (number-denominator y))
                  (* (number-denominator x) (number-numerator y))))
 
-;; -1, 0 or 1, numbers: the denominators are positive, so cross products compare alike
-(define (compare-rationals x y)
+;; -1, 0 or 1, for the comparison who: the denominators are positive, so cross products
+;; compare alike
+(define (compare-rationals x y who)
+  (if (eq? who =)
+      (begin
+        (check-number x who)
+        (check-number y who))
+      (begin
+        (check-real x who)
+        (check-real y who)))
   (let ((a (* (number-numerator x) (number-denominator y)))
         (b (* (number-numerator y) (number-denominator x))))
     (cond
@@ -62,20 +70,20 @@
      ((= a b) 0)
      (else 1))))
 
-;; compare-integers, which says 2 for a ratnum operand, else compare-rationals
-(define (compare-numbers x y (raw msg))
+;; compare-integers, which says 2 for anything but two integers, else compare-rationals
+(define (compare-numbers x y who)
   (declare unsafe inline (result raw))
-  (let ((c (compare-integers x y msg)))
+  (let ((c (compare-integers x y)))
     (if (raw= c (raw 2))
-        (fixnum-value (compare-rationals x y))
+        (fixnum-value (compare-rationals x y who))
         c)))
 
 (define (/ x y)
   (declare unsafe public)
-  (check-number x "`/` expected a number")
-  (check-number y "`/` expected a number")
+  (check-number x /)
+  (check-number y /)
   (when (eq? y 0)
-    (scheme-error "`/` expected a nonzero divisor" y))
+    (argument-error / 'undefined y))
   (if (and (integer? x) (integer? y))
       (make-rational x y)
       (divide-rationals x y)))
@@ -87,12 +95,14 @@
 
 (define (numerator x)
   (declare unsafe public)
-  (check-number x "`numerator` expected a number")
+  (unless (number? x)
+    (argument-error numerator 'rational x))
   (number-numerator x))
 
 (define (denominator x)
   (declare unsafe public)
-  (check-number x "`denominator` expected a number")
+  (unless (number? x)
+    (argument-error denominator 'rational x))
   (number-denominator x))
 
 ;; Integers, m nonzero: the quotient rounded down
@@ -104,22 +114,22 @@
 
 ;; The denominator of a ratnum is above 1, so its quotient is never exact
 (define (floor x)
-  (declare unsafe public)
-  (check-number x "`floor` expected a number")
+  (declare public)
+  (check-real x floor)
   (if (ratnum? x)
       (floor-quotient-integers (number-numerator x) (number-denominator x))
       x))
 
 (define (ceiling x)
-  (declare unsafe public)
-  (check-number x "`ceiling` expected a number")
+  (declare public)
+  (check-real x ceiling)
   (if (ratnum? x)
       (+ (floor-quotient-integers (number-numerator x) (number-denominator x)) 1)
       x))
 
 (define (truncate x)
-  (declare unsafe public)
-  (check-number x "`truncate` expected a number")
+  (declare public)
+  (check-real x truncate)
   (if (ratnum? x)
       (quotient (number-numerator x) (number-denominator x))
       x))
@@ -131,8 +141,8 @@
 
 ;; Ties, a denominator of 2, go to the even neighbor
 (define (round x)
-  (declare unsafe public)
-  (check-number x "`round` expected a number")
+  (declare public)
+  (check-real x round)
   (cond
    ((not (ratnum? x)) x)
    ((eq? (number-denominator x) 2)
@@ -142,21 +152,21 @@
 
 ;; Ties go up, toward positive infinity
 (define (round-half-up x)
-  (declare unsafe public)
-  (check-number x "`round-half-up` expected a number")
+  (declare public)
+  (check-real x round-half-up)
   (if (ratnum? x) (floor-half-up x) x))
 
 (define (gcd . xs)
-  (declare unsafe public)
+  (declare public)
   (fold-left (lambda (g x)
-               (check-integer x "`gcd` expected an integer")
+               (check-integer x gcd)
                (gcd-magnitudes g (abs x)))
              0 xs))
 
 (define (lcm . xs)
-  (declare unsafe public)
+  (declare public)
   (fold-left (lambda (l x)
-               (check-integer x "`lcm` expected an integer")
+               (check-integer x lcm)
                (if (or (eq? l 0) (eq? x 0))
                    0
                    (abs (* (quotient l (gcd-magnitudes l (abs x))) x))))

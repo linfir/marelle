@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `floor/` expected a nonzero divisor: 0\n"
+stderr = "Exception in floor/: undefined for 0\n"

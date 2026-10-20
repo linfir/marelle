@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "no `case-lambda` clause"
+stderr_contains = "Exception: incorrect number of arguments 0 to #<procedure>"

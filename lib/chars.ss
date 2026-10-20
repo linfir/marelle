@@ -15,7 +15,7 @@
 (define (char->integer x)
   (declare unsafe inline public)
   (unless (char? x)
-    (scheme-error "`char->integer` expected a character" x))
+    (argument-error char->integer 'char x))
   (as-val (raw>> (as-raw x) (raw 5))))
 
 (define (integer->char x)
@@ -24,40 +24,40 @@
                (let ((n (raw>> (as-raw x) (raw 3))))
                  (and (raw<=u n (raw 1114111))
                       (not (and (raw>= n (raw 55296)) (raw<= n (raw 57343))))))) ; surrogates
-    (scheme-error "`integer->char` expected a Unicode scalar value" x))
+    (argument-error integer->char 'scalar-value x))
   (as-val (bit-or (raw<< (as-raw x) (raw 5)) (raw 2))))
 
-(define (check-chars x y (raw msg))
-  (declare unsafe inline (result void))
+(define (check-chars x y who)
+  (declare inline (result void))
   (unless (char? x)
-    (scheme-error msg x))
+    (argument-error who 'char x))
   (unless (char? y)
-    (scheme-error msg y)))
+    (argument-error who 'char y)))
 
 ;; Comparing characters compares their codes
 (define (char=? x y)
   (declare unsafe inline public)
-  (check-chars x y "`char=?` expected a character")
+  (check-chars x y char=?)
   (raw= (as-raw x) (as-raw y)))
 
 (define (char<? x y)
   (declare unsafe inline public)
-  (check-chars x y "`char<?` expected a character")
+  (check-chars x y char<?)
   (raw< (as-raw x) (as-raw y)))
 
 (define (char<=? x y)
   (declare unsafe inline public)
-  (check-chars x y "`char<=?` expected a character")
+  (check-chars x y char<=?)
   (raw<= (as-raw x) (as-raw y)))
 
 (define (char>? x y)
   (declare unsafe inline public)
-  (check-chars x y "`char>?` expected a character")
+  (check-chars x y char>?)
   (raw> (as-raw x) (as-raw y)))
 
 (define (char>=? x y)
   (declare unsafe inline public)
-  (check-chars x y "`char>=?` expected a character")
+  (check-chars x y char>=?)
   (raw>= (as-raw x) (as-raw y)))
 
 ;; Characters: ASCII only

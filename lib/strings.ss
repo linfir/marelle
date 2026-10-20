@@ -14,10 +14,10 @@
        (not (raw= (as-raw x) (raw 0)))
        (string-header? (load (as-raw x) (raw 0)))))
 
-(define (check-string s (raw msg))
-  (declare unsafe inline (result void))
+(define (check-string s who)
+  (declare inline (result void))
   (unless (string? s)
-    (scheme-error msg s)))
+    (argument-error who 'string s)))
 
 (define (string-nchars s)
   (declare unsafe inline (result raw))
@@ -114,24 +114,25 @@
           (string-set-code! (as-raw s) j (continue-utf8 p (raw+ i (raw 1)) (raw+ i len) lead))
           (byte-next (raw+ i len) (raw+ j (raw 1)))))))
 
-;; A string literal of nchars chars, from its nbytes UTF-8 bytes at bytes (compile-literal-init)
-(define (literal-string (raw bytes) (raw nbytes) (raw nchars) (raw ascii?))
-  (declare unsafe inline)
-  (let ((s (make-string-object (raw= ascii? (raw 1)) (make-fixnum nchars))))
-    (decode-utf8! s bytes nbytes)
+;; A string literal of nchars chars, from its nbytes UTF-8 bytes at the fixnum address bytes
+;; (compile-literal-init); out of line, since each literal of a compilation calls it
+(define (literal-string bytes nbytes nchars ascii?)
+  (declare unsafe)
+  (let ((s (make-string-object ascii? nchars)))
+    (decode-utf8! s (fixnum-value bytes) (fixnum-value nbytes))
     s))
 
 (define (string-length s)
   (declare unsafe inline public)
-  (check-string s "`string-length` expected a string")
+  (check-string s string-length)
   (make-fixnum (string-nchars s)))
 
 ;; i is a fixnum in [0, length); one unsigned compare also rejects negatives
 (define (string-ref s i)
   (declare unsafe inline public)
-  (check-string s "`string-ref` expected a string")
+  (check-string s string-ref)
   (unless (and (fixnum? i) (raw<u (fixnum-value i) (string-nchars s)))
-    (scheme-error "`string-ref` index out of range" i))
+    (index-error string-ref i s))
   (code->char (string-code s (fixnum-value i))))
 
 ;; Same kind and length, then the units, whose padding is zero
@@ -143,9 +144,9 @@
                 (raw- (string-words (load (as-raw a) (raw 0)) (string-nchars a)) (raw 2)))))
 
 (define (string=? a b)
-  (declare unsafe public)
-  (check-string a "`string=?` expected a string")
-  (check-string b "`string=?` expected a string")
+  (declare public)
+  (check-string a string=?)
+  (check-string b string=?)
   (same-string? a b))
 
 (define (string-append . strings)
@@ -155,7 +156,7 @@
               (ascii? #t))
     (if (pair? l)
         (begin
-          (check-string (car l) "`string-append` expected a string")
+          (check-string (car l) string-append)
           (count (cdr l) (+ n (string-length (car l))) (and ascii? (ascii-string? (car l)))))
         (let ((s (make-string-object ascii? n)))
           (let copy-next ((l strings)
@@ -169,11 +170,10 @@
 ;; ASCII when the chars are, even from a UTF-32 string
 (define (substring s start end)
   (declare unsafe public)
-  (check-string s "`substring` expected a string")
-  (unless (and (fixnum? end) (raw<=u (fixnum-value end) (string-nchars s)))
-    (scheme-error "`substring` end out of range" end))
-  (unless (and (fixnum? start) (raw<=u (fixnum-value start) (fixnum-value end)))
-    (scheme-error "`substring` start out of range" start))
+  (check-string s substring)
+  (unless (and (fixnum? end) (raw<=u (fixnum-value end) (string-nchars s))
+               (fixnum? start) (raw<=u (fixnum-value start) (fixnum-value end)))
+    (substring-error s start end))
   (let ((r (make-string-object (or (ascii-string? s)
                                    (ascii-chars? s (fixnum-value start) (fixnum-value end)))
                                (- end start))))
@@ -187,8 +187,8 @@
                   (i (raw 0)))
     (if (pair? l)
         (begin
-          (string-set-code! (as-raw s) i (char-code (car l)))
-          (char-next (cdr l) (raw+ i (raw 1))))
+          (string-set-code! (as-raw s) i (char-code (pair-car l)))
+          (char-next (pair-cdr l) (raw+ i (raw 1))))
         undef)))
 
 (define (list->string l)
@@ -199,11 +199,11 @@
     (if (pair? x)
         (begin
           (unless (char? (car x))
-            (scheme-error "`list->string` expected a character" (car x)))
+            (argument-error list->string 'char (car x)))
           (count (cdr x) (+ n 1) (and ascii? (raw<u (char-code (car x)) (raw 128)))))
         (begin
           (unless (null? x)
-            (scheme-error "`list->string` expected a list" l))
+            (argument-error list->string 'list l))
           (let ((s (make-string-object ascii? n)))
             (fill-chars! s l)
             s)))))
@@ -232,7 +232,7 @@
      (else (char-next (raw+ i (raw 1)))))))
 
 (define (string<? a b)
-  (declare unsafe public)
-  (check-string a "`string<?` expected a string")
-  (check-string b "`string<?` expected a string")
+  (declare public)
+  (check-string a string<?)
+  (check-string b string<?)
   (string-less? a b))

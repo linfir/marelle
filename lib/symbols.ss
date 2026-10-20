@@ -40,7 +40,7 @@
 (define (symbol->string sym)
   (declare unsafe inline public)
   (unless (symbol? sym)
-    (scheme-error "`symbol->string` expected a symbol" sym))
+    (argument-error symbol->string 'symbol sym))
   (symbol-name sym))
 
 (define (make-symbol s)
@@ -62,8 +62,8 @@
     (as-val p)))
 
 (define (gensym name)
-  (declare unsafe public)
-  (check-string name "`gensym` expected a string")
+  (declare public)
+  (check-string name gensym)
   (make-gensym name))
 
 (define (numbered-name n)
@@ -75,7 +75,7 @@
   (cond
    ((null? name) (make-gensym (numbered-name (make-fixnum (load gensym-count (raw 0))))))
    ((null? (cdr name)) (gensym (car name)))
-   (else (scheme-error "`gensym` expected an optional string" name))))
+   (else (argument-count-error gensym (length name)))))
 
 ;; The hash of the code points of the string s
 (define (string-hash-word s)
@@ -124,7 +124,7 @@
 ;; The symbol named s, made the first time; s is shared, since strings are immutable
 (define (string->symbol s)
   (declare unsafe public)
-  (check-string s "`string->symbol` expected a string")
+  (check-string s string->symbol)
   (when (raw= (load symbol-table (raw 0)) (raw 0))
     (store symbol-shift (raw 0) (raw 58))
     (store symbol-table (raw 0) (make-vector 64 #f)))

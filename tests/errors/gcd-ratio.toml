@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `gcd` expected an integer: 1/2\n"
+stderr = "Exception in gcd: 1/2 is not an integer\n"

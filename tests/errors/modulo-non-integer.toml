@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `modulo` expected an integer: ()\n"
+stderr = "Exception in modulo: () is not an integer\n"

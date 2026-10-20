@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "`read-string` expected a nonnegative fixnum: -1"
+stderr_contains = "Exception in read-string: -1 is not a nonnegative fixnum"

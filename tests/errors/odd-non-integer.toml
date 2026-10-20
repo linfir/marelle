@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `odd?` expected an integer: ()\n"
+stderr = "Exception in odd?: () is not an integer\n"

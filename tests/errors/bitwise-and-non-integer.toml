@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `bitwise-and` expected an integer: #\\a\n"
+stderr = "Exception in bitwise-and: #\\a is not an exact integer\n"

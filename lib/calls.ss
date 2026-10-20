@@ -41,8 +41,8 @@
 
 ;; A case-lambda called with arguments no clause takes
 (define (case-lambda-error args)
-  (declare unsafe noalloc (result never))
-  (scheme-error "no `case-lambda` clause takes the arguments" args))
+  (declare (result never))
+  (argument-count-error #f (length args)))
 
 ;; Stores the elements of the list l as the arguments of the frame f
 (define (store-arguments! (raw f) l)
@@ -51,19 +51,18 @@
              (i (raw 6)))
     (if (pair? l)
         (begin
-          (store f i (car l))
-          (next (cdr l) (raw+ i (raw 1))))
+          (store f i (pair-car l))
+          (next (pair-cdr l) (raw+ i (raw 1))))
         undef)))
 
 ;; The length of the proper list l, else an error
 (define (argument-count l)
-  (declare unsafe)
   (let next ((x l)
              (n 0))
     (cond
      ((null? x) n)
      ((pair? x) (next (cdr x) (+ n 1)))
-     (else (scheme-error "`apply` expected a list" l)))))
+     (else (argument-error apply 'list l)))))
 
 ;; x rest ... last as one list, last shared, and checked
 (define (spread x rest)

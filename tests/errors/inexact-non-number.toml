@@ -1,2 +1,2 @@
 stage = "executable"
-stderr = "Error: `inexact?` expected a number: \"x\"\n"
+stderr = "Exception in inexact?: \"x\" is not a number\n"

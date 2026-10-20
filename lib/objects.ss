@@ -108,7 +108,7 @@
 (define (make-call-frame proc (raw n))
   (declare unsafe inline)
   (unless (procedure? proc)
-    (scheme-error "expected procedure" proc))
+    (non-procedure-error proc))
   (alloc-frame (call-frame-size proc n) proc))
 
 ;; Whether proc is a procedure running the code at code

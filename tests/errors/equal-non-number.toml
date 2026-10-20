@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in =: a is not a number\n"

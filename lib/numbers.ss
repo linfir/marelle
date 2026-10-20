@@ -1,7 +1,13 @@
-(define (check-integer x (raw msg))
+(define (check-integer x who)
   (declare unsafe inline (result void))
   (unless (or (fixnum? x) (bignum? x))
-    (scheme-error msg x)))
+    (argument-error who 'integer x)))
+
+;; For the bitwise operations, whose errors say exact integer
+(define (check-exact-integer x who)
+  (declare unsafe inline (result void))
+  (unless (or (fixnum? x) (bignum? x))
+    (argument-error who 'exact-integer x)))
 
 (define (integer? x)
   (declare unsafe inline public)
@@ -28,24 +34,30 @@
   (declare public)
   (number? x))
 
-(define (check-number x (raw msg))
-  (declare unsafe inline (result void))
+(define (check-number x who)
+  (declare inline (result void))
   (unless (number? x)
-    (scheme-error msg x)))
+    (argument-error who 'number x)))
+
+;; Every number is real, but the errors say real number
+(define (check-real x who)
+  (declare inline (result void))
+  (unless (number? x)
+    (argument-error who 'real x)))
 
 (define (exact? x)
-  (declare unsafe public)
-  (check-number x "`exact?` expected a number")
+  (declare public)
+  (check-number x exact?)
   #t)
 
 (define (inexact? x)
-  (declare unsafe public)
-  (check-number x "`inexact?` expected a number")
+  (declare public)
+  (check-number x inexact?)
   #f)
 
 (define (exact x)
-  (declare unsafe public)
-  (check-number x "`exact` expected a number")
+  (declare public)
+  (check-number x exact)
   x)
 
 (define (fixnum-value x)
@@ -124,31 +136,31 @@
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw= (as-raw x) (as-raw y))
-      (raw= (compare-numbers x y "`=` expected a number") (raw 0))))
+      (raw= (compare-numbers x y =) (raw 0))))
 
 (define (< x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw< (as-raw x) (as-raw y))
-      (raw< (compare-numbers x y "`<` expected a number") (raw 0))))
+      (raw< (compare-numbers x y <) (raw 0))))
 
 (define (<= x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw<= (as-raw x) (as-raw y))
-      (raw<= (compare-numbers x y "`<=` expected a number") (raw 0))))
+      (raw<= (compare-numbers x y <=) (raw 0))))
 
 (define (> x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw> (as-raw x) (as-raw y))
-      (raw> (compare-numbers x y "`>` expected a number") (raw 0))))
+      (raw> (compare-numbers x y >) (raw 0))))
 
 (define (>= x y)
   (declare unsafe inline public)
   (if (and (fixnum? x) (fixnum? y))
       (raw>= (as-raw x) (as-raw y))
-      (raw>= (compare-numbers x y "`>=` expected a number") (raw 0))))
+      (raw>= (compare-numbers x y >=) (raw 0))))
 
 (define (zero? n)
   (declare public)
@@ -185,19 +197,20 @@
 
 (define (even? n)
   (declare unsafe public)
-  (check-integer n "`even?` expected an integer")
+  (check-integer n even?)
   (raw= (integer-bit-0 n) (raw 0)))
 
 (define (odd? n)
   (declare unsafe public)
-  (check-integer n "`odd?` expected an integer")
+  (check-integer n odd?)
   (raw= (integer-bit-0 n) (raw 1)))
 
 ;; By squaring; a negative exponent gives the inverse
 (define (expt b n)
-  (declare unsafe public)
-  (check-number b "`expt` expected a number")
-  (check-integer n "`expt` expected an integer exponent")
+  (declare public)
+  (check-number b expt)
+  (check-number n expt)
+  (check-integer n expt)
   (if (< n 0)
       (/ 1 (expt-by-squaring b (- 0 n)))
       (expt-by-squaring b n)))
@@ -211,37 +224,33 @@
 
 ;; R7RS integer division: floor rounds the quotient down, truncate toward zero
 (define (floor/ n m)
-  (declare unsafe public)
-  (check-division n m "`floor/` expected an integer" "`floor/` expected a nonzero divisor")
+  (declare public)
+  (check-division n m floor/)
   (values (floor-quotient-integers n m) (modulo n m)))
 
 (define (floor-quotient n m)
-  (declare unsafe public)
-  (check-division n m "`floor-quotient` expected an integer"
-                  "`floor-quotient` expected a nonzero divisor")
+  (declare public)
+  (check-division n m floor-quotient)
   (floor-quotient-integers n m))
 
 (define (floor-remainder n m)
-  (declare unsafe public)
-  (check-division n m "`floor-remainder` expected an integer"
-                  "`floor-remainder` expected a nonzero divisor")
+  (declare public)
+  (check-division n m floor-remainder)
   (modulo n m))
 
 (define (truncate/ n m)
-  (declare unsafe public)
-  (check-division n m "`truncate/` expected an integer" "`truncate/` expected a nonzero divisor")
+  (declare public)
+  (check-division n m truncate/)
   (values (quotient n m) (remainder n m)))
 
 (define (truncate-quotient n m)
-  (declare unsafe public)
-  (check-division n m "`truncate-quotient` expected an integer"
-                  "`truncate-quotient` expected a nonzero divisor")
+  (declare public)
+  (check-division n m truncate-quotient)
   (quotient n m))
 
 (define (truncate-remainder n m)
-  (declare unsafe public)
-  (check-division n m "`truncate-remainder` expected an integer"
-                  "`truncate-remainder` expected a nonzero divisor")
+  (declare public)
+  (check-division n m truncate-remainder)
   (remainder n m))
 
 ;; The number of bits of the nonnegative integer n
@@ -258,7 +267,7 @@
 (define (exact-integer-sqrt n)
   (declare unsafe public)
   (unless (and (integer? n) (>= n 0))
-    (scheme-error "`exact-integer-sqrt` expected a nonnegative integer" n))
+    (argument-error exact-integer-sqrt 'nonnegative-exact-integer n))
   (if (< n 2)
       (values n 0)
       (let next ((x (bitwise-arithmetic-shift-left 1 (quotient (+ (bit-length n) 1) 2))))
@@ -313,8 +322,8 @@
 ;; R6RS: q such that x = qy + m, 0 <= m < |y|; the truncated quotient, moved by one
 ;; when the remainder is negative
 (define (div x y)
-  (declare unsafe public)
-  (check-division x y "`div` expected an integer" "`div` expected a nonzero divisor")
+  (declare public)
+  (check-division x y div)
   (let ((q (quotient x y)))
     (cond
      ((>= (remainder x y) 0) q)
@@ -361,12 +370,12 @@
 ;; Radixes 2 to 36, like Chez, uppercase
 (define (variadic-number->string x . radix)
   (declare unsafe)
-  (check-number x "`number->string` expected a number")
+  (check-number x number->string)
   (unless (or (null? radix) (null? (cdr radix)))
-    (scheme-error "`number->string` expected 1 or 2 arguments" radix))
+    (argument-count-error number->string (+ 1 (length radix))))
   (let ((radix (if (null? radix) 10 (car radix))))
     (unless (and (fixnum? radix) (>= radix 2) (<= radix 36))
-      (scheme-error "`number->string` expected a radix from 2 to 36" radix))
+      (argument-error number->string 'radix radix))
     (list->string (signed-digits (number-numerator x) radix
                                  (if (ratnum? x)
                                      (cons #\/ (integer-digits (number-denominator x) radix '()))

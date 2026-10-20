@@ -1,0 +1,1 @@
+(symbol-hash "a")

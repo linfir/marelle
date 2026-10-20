@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in call-with-port: 5 is not a port\n"

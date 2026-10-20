@@ -103,13 +103,13 @@
 (define (display-pair (raw out) (raw write?) x)
   (declare unsafe noalloc (result void))
   (put-string out "(")
-  (put-datum out write? (car x))
-  (let more ((rest (cdr x)))
+  (put-datum out write? (pair-car x))
+  (let more ((rest (pair-cdr x)))
     (if (pair? rest)
         (begin
           (put-string out " ")
-          (put-datum out write? (car rest))
-          (more (cdr rest)))
+          (put-datum out write? (pair-car rest))
+          (more (pair-cdr rest)))
         (begin
           (unless (null? rest)
             (put-string out " . ")
@@ -217,8 +217,8 @@
         (begin
           (unless first
             (put-string out "\n"))
-          (put-datum out write? (car l))
-          (next (cdr l) #f))
+          (put-datum out write? (pair-car l))
+          (next (pair-cdr l) #f))
         undef)))
 
 (define (display-vector (raw out) (raw write?) v)

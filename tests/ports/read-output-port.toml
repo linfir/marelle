@@ -1,3 +1,3 @@
 stage = "executable"
-stderr_contains = "`read-line` expected an open input port"
+stderr_contains = "Exception in read-line: #<output port> is not a textual input port"
 chez = "skip"

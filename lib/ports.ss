@@ -117,12 +117,19 @@
   (declare inline public)
   (port? x))
 
+;; port is not an open port of the direction
+(define (port-error who port output?)
+  (declare unsafe (result never))
+  (if (and (port? port) (port-flag? port (if output? output-flag input-flag)))
+      (argument-error who 'closed-port port)
+      (argument-error who (if output? 'textual-output-port 'textual-input-port) port)))
+
 ;; Checks that port is an open port of the direction flag
-(define (check-port port (raw flag) (raw msg))
+(define (check-port port (raw flag) who)
   (declare unsafe inline (result void))
   (unless (and (port? port)
                (raw= (bit-and (port-flags (as-raw port)) (bit-or flag closed-flag)) flag))
-    (scheme-error msg port)))
+    (port-error who port (raw= flag output-flag))))
 
 ;; The EOF object, the immediate of payload 6
 (define-constant eof-word (raw 50))
@@ -136,14 +143,17 @@
   (raw= (as-raw x) eof-word))
 
 ;; Current port i with no argument, else set to the port, of the direction flag
-(define (current-port args (raw i) (raw flag) (raw msg))
+(define (current-port args (raw i) (raw flag) who)
   (declare unsafe inline)
   (cond
    ((null? args) (as-val (load current-ports i)))
    ((and (null? (cdr args)) (port? (car args)) (port-flag? (car args) flag))
     (store current-ports i (car args))
     undef)
-   (else (scheme-error msg args))))
+   ((null? (cdr args))
+    (argument-error who (if (raw= flag output-flag) 'textual-output-port 'textual-input-port)
+                    (car args)))
+   (else (argument-count-error who (length args)))))
 
 (define (current-input-port)
   (declare unsafe inline public)
@@ -151,7 +161,7 @@
 
 (define (variadic-current-input-port . port)
   (declare unsafe)
-  (current-port port (raw 0) input-flag "`current-input-port` expected an input port"))
+  (current-port port (raw 0) input-flag current-input-port))
 
 (define (current-output-port)
   (declare unsafe inline public)
@@ -159,7 +169,7 @@
 
 (define (variadic-current-output-port . port)
   (declare unsafe)
-  (current-port port (raw 1) output-flag "`current-output-port` expected an output port"))
+  (current-port port (raw 1) output-flag current-output-port))
 
 (define (current-error-port)
   (declare unsafe inline public)
@@ -167,15 +177,15 @@
 
 (define (variadic-current-error-port . port)
   (declare unsafe)
-  (current-port port (raw 2) output-flag "`current-error-port` expected an output port"))
+  (current-port port (raw 2) output-flag current-error-port))
 
-;; The port of the optional arguments rest, else current port i
-(define (optional-port rest (raw i) (raw msg))
+;; The port of the optional arguments rest, after n others, else current port i
+(define (optional-port rest (raw i) who n)
   (declare unsafe inline)
   (cond
    ((null? rest) (as-val (load current-ports i)))
    ((null? (cdr rest)) (car rest))
-   (else (scheme-error msg rest))))
+   (else (argument-count-error who (+ n (length rest))))))
 
 ;; Writes x to the open output port, like write when write? is 1, else like display
 (define (port-put! port x (raw write?))
@@ -214,74 +224,73 @@
 
 (define (display x port)
   (declare unsafe public)
-  (check-port port output-flag "`display` expected an open output port")
+  (check-port port output-flag display)
   (port-put! port x (raw 0))
   undef)
 
 (define (variadic-display x . port)
   (declare unsafe)
-  (display x (optional-port port (raw 1) "`display` expected an optional port")))
+  (display x (optional-port port (raw 1) display 1)))
 
 (define (write x port)
   (declare unsafe public)
-  (check-port port output-flag "`write` expected an open output port")
+  (check-port port output-flag write)
   (port-put! port x (raw 1))
   undef)
 
 (define (variadic-write x . port)
   (declare unsafe)
-  (write x (optional-port port (raw 1) "`write` expected an optional port")))
+  (write x (optional-port port (raw 1) write 1)))
 
 (define (newline port)
   (declare unsafe public)
-  (check-port port output-flag "`newline` expected an open output port")
+  (check-port port output-flag newline)
   (port-put! port #\newline (raw 0))
   undef)
 
 (define (variadic-newline . port)
   (declare unsafe)
-  (newline (optional-port port (raw 1) "`newline` expected an optional port")))
+  (newline (optional-port port (raw 1) newline 0)))
 
 (define (write-char c port)
   (declare unsafe public)
   (unless (char? c)
-    (scheme-error "`write-char` expected a character" c))
-  (check-port port output-flag "`write-char` expected an open output port")
+    (argument-error write-char 'char c))
+  (check-port port output-flag write-char)
   (port-put! port c (raw 0))
   undef)
 
 (define (variadic-write-char c . port)
   (declare unsafe)
-  (write-char c (optional-port port (raw 1) "`write-char` expected an optional port")))
+  (write-char c (optional-port port (raw 1) write-char 1)))
 
 (define (write-string s port)
   (declare unsafe public)
-  (check-string s "`write-string` expected a string")
-  (check-port port output-flag "`write-string` expected an open output port")
+  (check-string s write-string)
+  (check-port port output-flag write-string)
   (port-put! port s (raw 0))
   undef)
 
 ;; (write-string s [port [start [end]]])
 (define (variadic-write-string s . rest)
-  (declare unsafe)
-  (check-string s "`write-string` expected a string")
+  (check-string s write-string)
   (cond
    ((null? rest) (write-string s (current-output-port)))
    ((null? (cdr rest)) (write-string s (car rest)))
    ((null? (cddr rest)) (write-string (substring s (cadr rest) (string-length s)) (car rest)))
    ((null? (cdddr rest)) (write-string (substring s (cadr rest) (caddr rest)) (car rest)))
-   (else (scheme-error "`write-string` expected at most 4 arguments" rest))))
+   (else (argument-count-error write-string (+ 1 (length rest))))))
 
 (define (flush-output-port port)
   (declare unsafe public)
-  (check-port port output-flag "`flush-output-port` expected an open output port")
+  (check-port port output-flag flush-output-port)
   (unless (port-flag? port string-flag)
     (flush-port (as-raw port)))
   undef)
 
 (define (variadic-flush-output-port . port)
   (declare unsafe)
-  (flush-output-port (optional-port port (raw 1) "`flush-output-port` expected an optional port")))
+  (flush-output-port (optional-port port (raw 1) flush-output-port 0)))
 
 ;; Moves the unread bytes of the descriptor input port to the front of its buffer and reads more
 ;; after them, the console flushed first so that a prompt shows; the bytes read, 0 at the end
@@ -373,26 +382,26 @@
 
 (define (read-char port)
   (declare unsafe public)
-  (check-port port input-flag "`read-char` expected an open input port")
+  (check-port port input-flag read-char)
   (port-read-char port (raw 0)))
 
 (define (variadic-read-char . port)
   (declare unsafe)
-  (read-char (optional-port port (raw 0) "`read-char` expected an optional port")))
+  (read-char (optional-port port (raw 0) read-char 0)))
 
 (define (peek-char port)
   (declare unsafe public)
-  (check-port port input-flag "`peek-char` expected an open input port")
+  (check-port port input-flag peek-char)
   (port-read-char port (raw 1)))
 
 (define (variadic-peek-char . port)
   (declare unsafe)
-  (peek-char (optional-port port (raw 0) "`peek-char` expected an optional port")))
+  (peek-char (optional-port port (raw 0) peek-char 0)))
 
 ;; The chars up to the next newline, which is consumed, or to the end; the EOF object at the end
 (define (read-line port)
   (declare unsafe public)
-  (check-port port input-flag "`read-line` expected an open input port")
+  (check-port port input-flag read-line)
   (let ((c (port-read-char port (raw 0))))
     (if (eof-object? c)
         c
@@ -404,13 +413,13 @@
 
 (define (variadic-read-line . port)
   (declare unsafe)
-  (read-line (optional-port port (raw 0) "`read-line` expected an optional port")))
+  (read-line (optional-port port (raw 0) read-line 0)))
 
 ;; The next k chars, fewer at the end; the EOF object at the end
 (define (read-string k port)
   (declare unsafe public)
-  (check-count k "`read-string` expected a nonnegative fixnum")
-  (check-port port input-flag "`read-string` expected an open input port")
+  (check-count k read-string 'nonnegative-fixnum)
+  (check-port port input-flag read-string)
   (let char-next ((k k)
                   (chars '()))
     (if (eq? k 0)
@@ -423,7 +432,7 @@
 
 (define (variadic-read-string k . port)
   (declare unsafe)
-  (read-string k (optional-port port (raw 0) "`read-string` expected an optional port")))
+  (read-string k (optional-port port (raw 0) read-string 1)))
 
 ;; struct pollfd {int fd; short events; short revents;} for char-ready?
 (define-data poll-fd 1)
@@ -441,12 +450,12 @@
 
 (define (char-ready? port)
   (declare unsafe public)
-  (check-port port input-flag "`char-ready?` expected an open input port")
+  (check-port port input-flag char-ready?)
   (port-ready? port))
 
 (define (variadic-char-ready? . port)
   (declare unsafe)
-  (char-ready? (optional-port port (raw 0) "`char-ready?` expected an optional port")))
+  (char-ready? (optional-port port (raw 0) char-ready? 0)))
 
 ;; Files
 
@@ -467,16 +476,31 @@
      (else
       (char-next (raw+ i (raw 1)) (raw+ j (store-utf8! (raw+ path-buffer j) (string-code s i))))))))
 
-;; A descriptor port of the direction flag for the file name, opened with the open(2) flags
-(define (open-file name (raw open-flags) (raw flag) (raw msg))
+;; The file name could not be opened, open(2) failing with errno
+(define (open-error who name errno)
+  (declare (result never))
+  (library-errorf who "failed for ~a: ~a"
+                  (list name
+                        (case errno
+                          ((2) "no such file or directory")
+                          ((13) "permission denied")
+                          ((17) "file exists")
+                          ((20) "not a directory")
+                          ((21) "is a directory")
+                          ((24) "too many open files")
+                          ((36) "file name too long")
+                          (else (format "error ~a" errno))))))
+
+;; A descriptor port of the direction flag for the file name, opened with the open(2) flags;
+;; a name file-name rejects fails like a long one
+(define (open-file name (raw open-flags) (raw flag) who)
   (declare unsafe inline)
-  (unless (string? name)
-    (scheme-error msg name))
+  (check-string name who)
   (let ((path (file-name name)))
-    (let ((fd (if (raw= path (raw 0)) (raw -1) (syscall 2 path open-flags (raw 438))))) ; 0666
-      (when (raw< fd (raw 0))
-        (scheme-error msg name))
-      (make-fd-port (make-fixnum fd) flag))))
+    (let ((fd (make-fixnum (if (raw= path (raw 0)) (raw -36) (syscall 2 path open-flags (raw 438)))))) ; 0666
+      (when (< fd 0)
+        (open-error who name (- 0 fd)))
+      (make-fd-port fd flag))))
 
 ;; A port of the fixnum flags over the buffer, its fd, position and end 0
 (define (make-port buffer flags)
@@ -495,12 +519,11 @@
 
 (define (open-input-file name)
   (declare unsafe public)
-  (open-file name (raw 0) input-flag "`open-input-file` could not open the file")) ; O_RDONLY
+  (open-file name (raw 0) input-flag open-input-file)) ; O_RDONLY
 
 (define (open-output-file name)
   (declare unsafe public)
-  (let ((port (open-file name (raw 577) output-flag ; O_WRONLY | O_CREAT | O_TRUNC
-                         "`open-output-file` could not open the file")))
+  (let ((port (open-file name (raw 577) output-flag open-output-file))) ; O_WRONLY | O_CREAT | O_TRUNC
     (store output-ports (raw 0) (cons port (as-val (load output-ports (raw 0)))))
     port))
 
@@ -519,7 +542,7 @@
 (define (close-port port)
   (declare unsafe public)
   (unless (port? port)
-    (scheme-error "`close-port` expected a port" port))
+    (argument-error close-port 'port port))
   (unless (port-flag? port closed-flag)
     (close-port! port))
   undef)
@@ -527,32 +550,32 @@
 (define (close-input-port port)
   (declare unsafe public)
   (unless (input-port? port)
-    (scheme-error "`close-input-port` expected an input port" port))
+    (argument-error close-input-port 'input-port port))
   (close-port port))
 
 (define (close-output-port port)
   (declare unsafe public)
   (unless (output-port? port)
-    (scheme-error "`close-output-port` expected an output port" port))
+    (argument-error close-output-port 'output-port port))
   (close-port port))
 
 (define (input-port-open? port)
   (declare unsafe public)
   (unless (port? port)
-    (scheme-error "`input-port-open?` expected a port" port))
+    (argument-error input-port-open? 'port port))
   (and (port-flag? port input-flag) (not (port-flag? port closed-flag))))
 
 (define (output-port-open? port)
   (declare unsafe public)
   (unless (port? port)
-    (scheme-error "`output-port-open?` expected a port" port))
+    (argument-error output-port-open? 'port port))
   (and (port-flag? port output-flag) (not (port-flag? port closed-flag))))
 
 ;; proc's value, after closing the port
 (define (call-with-port port proc)
   (declare unsafe public)
   (unless (port? port)
-    (scheme-error "`call-with-port` expected a port" port))
+    (argument-error call-with-port 'port port))
   (let ((result (proc port)))
     (close-port port)
     result))
@@ -585,7 +608,7 @@
 
 (define (open-input-string s)
   (declare unsafe public)
-  (check-string s "`open-input-string` expected a string")
+  (check-string s open-input-string)
   (let ((p (make-port s (make-fixnum (bit-or input-flag string-flag)))))
     (set-port-end! (as-raw p) (string-nchars s))
     p))
@@ -608,7 +631,7 @@
 (define (get-output-string port)
   (declare unsafe public)
   (unless (and (output-port? port) (port-flag? port string-flag))
-    (scheme-error "`get-output-string` expected a string output port" port))
+    (argument-error get-output-string 'string-output-port port))
   (let* ((n (make-fixnum (port-position (as-raw port))))
          (nchars (make-fixnum (utf8-chars (port-bytes (as-raw port)) (fixnum-value n))))
          (s (make-string-object (eq? n nchars) nchars)))

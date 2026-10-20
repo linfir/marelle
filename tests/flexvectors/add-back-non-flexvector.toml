@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "Error: `flexvector-add-back!` expected a flexvector: ()\n"
+stderr_contains = "Exception in flexvector-add-back!: () is not a flexvector\n"

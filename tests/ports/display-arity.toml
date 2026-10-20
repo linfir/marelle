@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "`display` expected an optional port"
+stderr_contains = "Exception: incorrect number of arguments 3 to #<procedure display>"

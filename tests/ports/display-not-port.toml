@@ -1,2 +1,2 @@
 stage = "executable"
-stderr_contains = "`display` expected an open output port: 5"
+stderr_contains = "Exception in display: 5 is not a textual output port"
