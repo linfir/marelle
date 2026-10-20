@@ -84,6 +84,10 @@
             ((index) "invalid index ~s")
             ((size-argument) "invalid size argument ~s")
             ((bit-index) "invalid bit index ~s")
+            ((bytevector) "~s is not a bytevector")
+            ((bytevector-length) "~s is not a valid bytevector length")
+            ((fill-value) "~s is not a valid fill value")
+            ((value) "invalid value ~s")
             ((hashtable) "~s is not a hashtable")
             ((flexvector) "~s is not a flexvector")
             ((nonempty-flexvector) "~s is not a nonempty flexvector")
@@ -104,14 +108,15 @@
   (put-string stderr "\n")
   (exit-process (raw 1)))
 
-;; i out of the range of x, a vector, a string or a flexvector
+;; i out of the range of x, a vector, a string, a bytevector or a flexvector
 (define (index-error who i x)
   (declare (result never))
   (library-errorf who "~s is not a valid index for ~s" (list i x)))
 
-(define (substring-error s start end)
+;; start and end out of the range of x, a string or a bytevector
+(define (range-error who start end x)
   (declare (result never))
-  (library-errorf substring "~s and ~s are not valid start/end indices for ~s" (list start end s)))
+  (library-errorf who "~s and ~s are not valid start/end indices for ~s" (list start end x)))
 
 ;; The procedure who, or an unnamed one for #f, called with n arguments
 (define (argument-count-error who n)

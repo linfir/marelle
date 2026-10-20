@@ -51,7 +51,7 @@
     (and (list? x) (= (length x) 2) (eq? (car x) 'quote)))
 
 
-  ;; A symbol, pair or vector datum after the front pass, loaded from its literal cell; a leaf
+  ;; A symbol, pair, vector or bytevector datum after the front pass, loaded from its literal cell; a leaf
   ;; for the passes after it
   (define-record-type literal
     (fields datum))

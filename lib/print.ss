@@ -21,13 +21,18 @@
   (put-digits out (if (raw< n (raw 0)) (raw- (raw 0) n) n) (raw 10) (raw 1)))
 
 ;; Stores the UTF-8 encoding of the code point n at p; returns its length
+;; The length of the UTF-8 encoding of the code point n
+(define (utf8-nbytes (raw n))
+  (declare unsafe inline (result raw))
+  (cond
+   ((raw<u n (raw 128)) (raw 1))
+   ((raw<u n (raw 2048)) (raw 2))
+   ((raw<u n (raw 65536)) (raw 3))
+   (else (raw 4))))
+
 (define (store-utf8! (raw p) (raw n))
   (declare unsafe noalloc (result raw))
-  (let ((nbytes (cond
-                 ((raw<u n (raw 128)) (raw 1))
-                 ((raw<u n (raw 2048)) (raw 2))
-                 ((raw<u n (raw 65536)) (raw 3))
-                 (else (raw 4)))))
+  (let ((nbytes (utf8-nbytes n)))
     (let byte-next ((m n)
                     (i (raw- nbytes (raw 1))))
       (if (raw= i (raw 0))
@@ -126,6 +131,7 @@
     (put-string out "/")
     (put-datum out write? (as-val (load (as-raw x) (raw 2)))))
    ((raw= (load (as-raw x) (raw 0)) vector-type) (display-vector out write? x))
+   ((raw= (load (as-raw x) (raw 0)) bytevector-type) (display-bytevector out x))
    ((raw= (load (as-raw x) (raw 0)) record-type) (display-record out write? x))
    ((raw= (load (as-raw x) (raw 0)) rtd-type)
     (put-string out "#<record type ")
@@ -234,6 +240,20 @@
             (put-datum out write? (as-val (load (as-raw v) (raw+ i (raw 2)))))
             (elem-next (raw+ i (raw 1))))))
     (put-string out ")")))
+
+;; #vu8(1 2), as in Chez
+(define (display-bytevector (raw out) bv)
+  (declare unsafe noalloc (result void))
+  (put-string out "#vu8(")
+  (let byte-next ((i (raw 0)))
+    (if (raw= i (bytevector-nbytes bv))
+        undef
+        (begin
+          (unless (raw= i (raw 0))
+            (put-string out " "))
+          (put-int out (load8 (byte-address bv i) (raw 0)))
+          (byte-next (raw+ i (raw 1))))))
+  (put-string out ")"))
 
 ;; Like Chez's, without the gensym of the type's name
 (define (display-record (raw out) (raw write?) r)

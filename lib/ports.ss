@@ -28,19 +28,6 @@
 (define-data current-ports 3)
 (define-data output-ports 1)
 
-;; Bytevectors, private for now: [bytevector-type, nbytes, bytes...], all raw
-(define (bytevector-words (raw n))
-  (declare unsafe inline (result raw))
-  (raw+ (raw 2) (raw>>u (raw+ n (raw 7)) (raw 3))))
-
-;; A bytevector of the fixnum n bytes, zero
-(define (alloc-bytevector n)
-  (declare unsafe inline)
-  (let ((p (alloc (bytevector-words (fixnum-value n)))))
-    (store p (raw 0) bytevector-type)
-    (store p (raw 1) (fixnum-value n))
-    (as-val p)))
-
 (define (port-flags (raw p))
   (declare unsafe inline (result raw))
   (load p (raw 1)))
@@ -617,26 +604,12 @@
   (declare unsafe public)
   (make-port (alloc-bytevector 64) (make-fixnum (bit-or output-flag string-flag))))
 
-;; The chars of the n UTF-8 bytes at p: the bytes but the continuation ones
-(define (utf8-chars (raw p) (raw n))
-  (declare unsafe noalloc (result raw))
-  (let byte-next ((i (raw 0))
-                  (nchars (raw 0)))
-    (cond
-     ((raw= i n) nchars)
-     ((raw= (bit-and (load8 p i) (raw 192)) (raw 128)) (byte-next (raw+ i (raw 1)) nchars))
-     (else (byte-next (raw+ i (raw 1)) (raw+ nchars (raw 1)))))))
-
 ;; The chars written so far; the port is not reset (it is in Chez)
 (define (get-output-string port)
   (declare unsafe public)
   (unless (and (output-port? port) (port-flag? port string-flag))
     (argument-error get-output-string 'string-output-port port))
-  (let* ((n (make-fixnum (port-position (as-raw port))))
-         (nchars (make-fixnum (utf8-chars (port-bytes (as-raw port)) (fixnum-value n))))
-         (s (make-string-object (eq? n nchars) nchars)))
-    (decode-utf8! s (port-bytes (as-raw port)) (fixnum-value n))
-    s))
+  (utf8-range->string (as-val (load (as-raw port) (raw 5))) 0 (make-fixnum (port-position (as-raw port)))))
 
 ;; What thunk writes to the current output port, as a string (Chez)
 (define (with-output-to-string thunk)

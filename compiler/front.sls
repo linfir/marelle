@@ -47,7 +47,7 @@
      ((symbol? x)
       (let ((entry (assq x env)))
         (if (and entry (symbol? (cdr entry))) (cdr entry) x)))
-     ((vector? x)
+     ((or (vector? x) (bytevector? x))
       (front-quoted x))
      ((or (immediate? x) (not (non-empty-list? x)))
       x)
@@ -376,7 +376,8 @@
         (cond
          ((pair? y) (check (car y)) (check (cdr y)))
          ((vector? y) (vector-for-each check y))
-         ((not (or (symbol? y) (null? y) (boolean? y) (char? y) (exact-rational? y) (string? y)))
+         ((not (or (symbol? y) (null? y) (boolean? y) (char? y) (exact-rational? y) (string? y)
+                   (bytevector? y)))
           (error 'front-expr "unsupported quoted datum" y))))
       (make-literal x))))
 

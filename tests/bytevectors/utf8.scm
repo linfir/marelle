@@ -1,0 +1,6 @@
+(list (string->utf8 "a\x00E9;\x20AC;\x1F600;")
+      (utf8->string (bytevector 104 195 169 226 130 172))
+      (string->utf8 "abc" 1)
+      (string->utf8 "abc" 1 2)
+      (utf8->string (bytevector 97 98 99) 1 2)
+      (utf8->string (string->utf8 "")))

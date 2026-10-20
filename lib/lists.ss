@@ -340,6 +340,7 @@
    ((eqv? x y) #t)
    ((pair? x) (and (pair? y) (equal? (car x) (car y)) (equal? (cdr x) (cdr y))))
    ((string? x) (and (string? y) (string=? x y)))
+   ((bytevector? x) (and (bytevector? y) (bytevector=? x y)))
    ((vector? x)
     (and (vector? y)
          (= (vector-length x) (vector-length y))

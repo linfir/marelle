@@ -173,7 +173,7 @@
   (check-string s substring)
   (unless (and (fixnum? end) (raw<=u (fixnum-value end) (string-nchars s))
                (fixnum? start) (raw<=u (fixnum-value start) (fixnum-value end)))
-    (substring-error s start end))
+    (range-error substring start end s))
   (let ((r (make-string-object (or (ascii-string? s)
                                    (ascii-chars? s (fixnum-value start) (fixnum-value end)))
                                (- end start))))

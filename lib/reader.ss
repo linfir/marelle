@@ -106,7 +106,7 @@
    ((eq? x (dot-marker)) (read-error "unexpected dot (.)" '()))
    (else x)))
 
-;; The items up to close, ) or ], what "list", with a dotted tail, or "vector"
+;; The items up to close, ) or ], what "list", with a dotted tail, "vector" or "bytevector"
 (define (read-list port close what)
   (define (closes? x)
     (eq? x (if (eq? close #\)) (close-paren-marker) (close-bracket-marker))))
@@ -115,7 +115,7 @@
     (cond
      ((closes? x))
      ((eq? x (end-marker)) (read-error "unexpected end-of-file reading ~a" (list what)))
-     ((equal? what "vector") (read-error "unexpected close bracket" '()))
+     ((not (equal? what "list")) (read-error "unexpected close bracket" '()))
      ((eq? close #\)) (read-error "parenthesized list terminated by bracket" '()))
      (else (read-error "bracketed list terminated by parenthesis" '()))))
 
@@ -124,7 +124,7 @@
       (cond
        ((not (marker? x)) (item-next (cons x items)))
        ((eq? x (dot-marker))
-        (when (or (null? items) (equal? what "vector"))
+        (when (or (null? items) (not (equal? what "list")))
           (read-error "unexpected dot (.)" '()))
         (let ((tail (read-item port)))
           (cond
@@ -163,7 +163,29 @@
            ((number? n) n)
            (else (number-error n chars))))))
      ((eq? c #\!) (read-directive port))
+     ((eq? c #\u) (read-bytevector port "u" '(#\8)))
+     ((eq? c #\v) (read-bytevector port "v" '(#\u #\8)))
      (else (read-error "invalid sharp-sign prefix #~a" (list c))))))
+
+;; #u8( (R7RS) or #vu8( (Chez), after #prefix, the bytes up to )
+(define (read-bytevector port prefix expected)
+  (let char-next ((seen prefix)
+                  (expected expected))
+    (if (pair? expected)
+        (let ((c (next-char port)))
+          (cond
+           ((eof-object? c) (read-error "unexpected end-of-file reading #~a prefix" (list prefix)))
+           ((eq? c (car expected)) (char-next (string-append seen (string c)) (cdr expected)))
+           (else (read-error "invalid syntax #~a~a" (list seen c)))))
+        (begin
+          (unless (eq? (next-char port) #\()
+            (read-error "expected left paren after #~a prefix" (list seen)))
+          (let ((bytes (read-list port #\) "bytevector")))
+            (for-each (lambda (x)
+                        (unless (and (fixnum? x) (<= 0 x 255))
+                          (read-error "invalid value ~s found in bytevector" (list x))))
+                      bytes)
+            (u8-list->bytevector bytes))))))
 
 ;; The chars up to a delimiter, but # when sharp?, for the prefixes of a number
 (define (read-token port sharp?)

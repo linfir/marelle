@@ -474,6 +474,12 @@
           h
           (element-next (raw+ i (raw 1))
                         (mix h (equal-hash-word (as-val (load (as-raw x) (raw+ i (raw 2))))))))))
+   ((bytevector? x)
+    (let word-next ((i (raw 2))
+                    (h (bytevector-nbytes x)))
+      (if (raw= i (bytevector-words (bytevector-nbytes x)))
+          h
+          (word-next (raw+ i (raw 1)) (mix h (load (as-raw x) i))))))
    ((or (bignum? x) (ratnum? x)) (number-hash x))
    (else (load (as-raw x) (raw 0)))))
 

@@ -152,7 +152,7 @@
         name))))
 
 
-  ;; The index of the literal cell of the Scheme string, symbol, pair or vector x; the strings
+  ;; The index of the literal cell of the Scheme string, symbol, pair, vector or bytevector x; the strings
   ;; and symbols it contains, a symbol its name, get their cells first, so they are filled first
   (define (intern-literal! x)
     (cond

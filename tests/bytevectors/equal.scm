@@ -1,0 +1,5 @@
+(list (equal? (bytevector 1 2) (bytevector 1 2))
+      (equal? (bytevector 1 2) (bytevector 1 3))
+      (equal? (list (bytevector 9)) (list (bytevector 9)))
+      (bytevector=? (bytevector) (bytevector 0))
+      (bytevector=? (make-bytevector 9 4) (make-bytevector 9 4)))

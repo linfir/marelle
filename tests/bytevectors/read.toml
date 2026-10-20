@@ -1,0 +1,2 @@
+stdout = "(#vu8(1 255) #vu8(16 0) (#vu8() . #vu8(2)))"
+chez = "skip"

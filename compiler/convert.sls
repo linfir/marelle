@@ -104,7 +104,7 @@
                    (build-datum x store))))))))))
 
 
-  ;; A new pair or vector equal to x, its strings and symbols from their cells; a list is
+  ;; A new pair, vector or bytevector equal to x, its strings and symbols from their cells; a list is
   ;; consed from its end
   (define (build-datum x c)
     (cond
@@ -126,6 +126,17 @@
                                        (call-def (core-def 'vector-set!)
                                                  (list v (immediate-operand i) a) x
                                                  (lambda (ignored) (loop (+ i 1)))))))))))
+     ((bytevector? x)
+      (call-def (core-def 'make-bytevector)
+                (list (immediate-operand (bytevector-length x)) (immediate-operand 0))
+                x
+                (lambda (bv)
+                  (let loop ((i 0))
+                    (if (= i (bytevector-length x))
+                        (c bv)
+                        (call-def (core-def 'bytevector-u8-set!)
+                                  (list bv (immediate-operand i) (immediate-operand (bytevector-u8-ref x i))) x
+                                  (lambda (ignored) (loop (+ i 1)))))))))
      ((null? x) (c (immediate-operand ''())))
      ((immediate? x) (c (immediate-operand x)))
      ((exact-rational? x) (c `(as-val ,(intern-number! x))))

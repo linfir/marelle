@@ -1,0 +1,6 @@
+(let ((a (bytevector 1 2 3 4 5))
+      (b (make-bytevector 4 0)))
+  (bytevector-copy! b 1 a 3)
+  (let ((c (make-bytevector 3 0)))
+    (bytevector-copy! c 0 a 1 4)
+    (list b c)))
