@@ -16,7 +16,7 @@
   0)
 
 (write-bad '(#x61 #xFF #x62 #xC0 #x80 #xED #xA0 #x80 #xF4 #x90 #x80 #x80
-             #xC3 #xA9 #xF0 #x9F #x98 #x80 #x80 #xC3 #x41 #xC3))
+                  #xC3 #xA9 #xF0 #x9F #x98 #x80 #x80 #xC3 #x41 #xC3))
 
 (define (codes p)
   (let ((c (read-char p)))

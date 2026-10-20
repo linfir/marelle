@@ -12,6 +12,6 @@
                                      (raw+ (bit (raw<u m one) (raw 2))
                                            (raw+ (bit (raw<=u one m) (raw 3))
                                                  (bit (raw> m one) (raw 4))))))
-                      (raw 3))
+                         (raw 3))
                   (raw 1)))))
 (entry)
