@@ -6,7 +6,7 @@
           def-core def-core-set! def-core-names def-core-body
           make-data data? data-name data-symbol data-nwords data-extern?
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
-          procedure-type unsafe-bindings
+          procedure-type immutable-bytevector-type unsafe-bindings
           names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
           core-defs inlining unsafe-code? general-def
           fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
@@ -19,6 +19,10 @@
 
   ;; Header of procedure objects, procedure-type in lib/objects.ss
   (define procedure-type (* 42 8))
+
+
+  ;; Header of the embedded files' static bytevectors, immutable-bytevector-type in lib/objects.ss
+  (define immutable-bytevector-type (* 63 8))
 
 
   ;; bignum-type and ratnum-type in lib/objects.ss

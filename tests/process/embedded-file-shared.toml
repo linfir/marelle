@@ -1,0 +1,5 @@
+stdout = '(#t #t #t #t "ab" #vu8(97 98) #vu8(0 97 98) #vu8(97 98))'
+chez = "skip"
+
+[embed]
+a = "ab"

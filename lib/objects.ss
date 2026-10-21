@@ -38,6 +38,8 @@
 (define-constant flexvector-type (raw (ash 59 3)))
 (define-constant port-type (raw (ash 60 3)))
 (define-constant bytevector-type (raw (ash 61 3)))
+;; A static, read-only bytevector's type differs from bytevector-type by bit 4 (lib/bytevectors.ss)
+(define-constant immutable-bytevector-type (raw (ash 63 3)))
 
 (define (fixnum? x)
   (declare unsafe inline public)

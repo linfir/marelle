@@ -1,5 +1,0 @@
-stdout = "(#vu8(66 98) #vu8(97 98))"
-chez = "skip"
-
-[embed]
-a = "ab"

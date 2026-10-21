@@ -212,29 +212,28 @@
         (argument-next (- k 1) (cons (argument-string k) acc)))))
 
 ;; Word j of entry i, a fixnum, of the table of the embedded files (scheme_program's word 5):
-;; a count, then per file the address of its name (a C string), its address and its size
+;; a count, then per file the address of its name (a C string) and its static bytevector
 (define (embedded-word i (raw j))
   (declare unsafe inline (result raw))
   (load (load (address "scheme_program") (raw 5))
-        (raw+ (raw+ (raw* (fixnum-value i) (raw 3)) j) (raw 1))))
+        (raw+ (raw+ (raw* (fixnum-value i) (raw 2)) j) (raw 1))))
 
-;; A fresh bytevector of the n bytes at word j of entry i (a fixnum)
-(define (embedded-bytes i j n)
+;; A fresh bytevector of the name of entry i (a fixnum)
+(define (embedded-name i)
   (declare unsafe)
-  (let ((bv (alloc-bytevector n)))
-    (copy-bytes! (byte-address bv (raw 0)) (embedded-word i (fixnum-value j)) (fixnum-value n))
+  (let ((bv (alloc-bytevector (make-fixnum (c-string-length (embedded-word i (raw 0)))))))
+    (copy-bytes! (byte-address bv (raw 0)) (embedded-word i (raw 0)) (bytevector-nbytes bv))
     bv))
 
-;; The bytes of the file schemec --embed embedded as name, a fresh bytevector, or #f
+;; The bytes of the file schemec --embed embedded as name, a static immutable bytevector, or #f
 (define (embedded-file name)
   (declare unsafe public)
   (check-string name embedded-file)
   (let next ((i 0))
     (cond
      ((= i (make-fixnum (load (load (address "scheme_program") (raw 5)) (raw 0)))) #f)
-     ((string=? name (utf8->string
-                      (embedded-bytes i 0 (make-fixnum (c-string-length (embedded-word i (raw 0)))))))
-      (embedded-bytes i 1 (make-fixnum (embedded-word i (raw 2)))))
+     ((string=? name (utf8->string (embedded-name i)))
+      (as-val (embedded-word i (raw 1))))
      (else (next (+ i 1))))))
 
 ;; Called from _start with the value of scheme_main, which it prints when the program was

@@ -1,0 +1,5 @@
+(let ((a (embedded-file "a")))
+  (let loop ((i 0) (l '()))
+    (if (< i 10000)
+        (loop (+ i 1) (cons (bytevector-copy a) l))
+        (list a (car l) (length l)))))

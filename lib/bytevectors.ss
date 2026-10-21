@@ -1,5 +1,6 @@
 ;; Bytevectors (R7RS, with Chez's bytevector=?, bytevector->u8-list and u8-list->bytevector):
-;; [bytevector-type, nbytes, bytes...], all raw, the bytes padded with zeros to a whole word
+;; [bytevector-type, nbytes, bytes...], all raw, the bytes padded with zeros to a whole word;
+;; immutable-bytevector-type for the static ones of embedded-file, which only the readers take
 
 (define (bytevector-words (raw n))
   (declare unsafe inline (result raw))
@@ -13,16 +14,27 @@
     (store p (raw 1) (fixnum-value n))
     (as-val p)))
 
+(define (bytevector-header? (raw h))
+  (declare unsafe inline)
+  (raw= (bit-and h (raw -17)) bytevector-type))
+
 (define (bytevector? x)
   (declare unsafe inline public)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) bytevector-type)))
+       (bytevector-header? (load (as-raw x) (raw 0)))))
 
 (define (check-bytevector bv who)
   (declare inline (result void))
   (unless (bytevector? bv)
     (argument-error who 'bytevector bv)))
+
+(define (check-mutable-bytevector bv who)
+  (declare unsafe inline (result void))
+  (unless (and (tag=? bv (raw 0))
+               (not (raw= (as-raw bv) (raw 0)))
+               (raw= (load (as-raw bv) (raw 0)) bytevector-type))
+    (argument-error who 'mutable-bytevector bv)))
 
 (define (bytevector-nbytes bv)
   (declare unsafe inline (result raw))
@@ -63,7 +75,7 @@
 
 (define (bytevector-u8-set! bv i b)
   (declare unsafe inline public)
-  (check-bytevector bv bytevector-u8-set!)
+  (check-mutable-bytevector bv bytevector-u8-set!)
   (unless (and (fixnum? i) (raw<u (fixnum-value i) (bytevector-nbytes bv)))
     (index-error bytevector-u8-set! i bv))
   (check-byte b bytevector-u8-set!)
@@ -187,7 +199,7 @@
 ;; (bytevector-copy! to at from [start [end]])
 (define (variadic-bytevector-copy! to at from . rest)
   (declare unsafe)
-  (check-bytevector to bytevector-copy!)
+  (check-mutable-bytevector to bytevector-copy!)
   (check-bytevector from bytevector-copy!)
   (optional-range from (bytevector-length from) rest bytevector-copy!
                   (lambda (start end)

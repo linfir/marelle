@@ -582,12 +582,15 @@
          (balign 8)
          (label ,(cadr x))
          (quad ,@(map cadr (cddr x)))))
-      ;; (bytes name path bv): the bytes of the file at path, bv
+      ;; (bytes name (word ...) path bv): the words, then the bytes of the file at path, bv,
+      ;; padded with zeros to a whole word
       ((bytes)
        `((section ".rodata")
          (balign 8)
          (label ,(cadr x))
-         (incbin ,(caddr x) ,(cadddr x))))
+         (quad ,@(caddr x))
+         (incbin ,(cadddr x) ,(list-ref x 4))
+         (balign 8)))
       ((string)
        `((section ".rodata")
          (label ,(cadr x))

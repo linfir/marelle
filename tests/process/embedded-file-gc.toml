@@ -1,0 +1,6 @@
+stdout = "(#vu8(97 98 99) #vu8(97 98 99) 10000)"
+env = { SCHEME_GC_STRESS = "100" }
+chez = "skip"
+
+[embed]
+a = "abc"

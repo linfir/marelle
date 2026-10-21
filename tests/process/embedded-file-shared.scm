@@ -1,0 +1,5 @@
+(let ((a (embedded-file "a"))
+      (b (make-bytevector 3 0)))
+  (bytevector-copy! b 1 a)
+  (list (eq? a (embedded-file "a")) (bytevector? a) (bytevector=? a (bytevector 97 98))
+        (equal? a #vu8(97 98)) (utf8->string a) (bytevector-copy a) b a))

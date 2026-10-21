@@ -85,6 +85,7 @@
                     ((size-argument) "invalid size argument ~s")
                     ((bit-index) "invalid bit index ~s")
                     ((bytevector) "~s is not a bytevector")
+                    ((mutable-bytevector) "~s is not a mutable bytevector")
                     ((bytevector-length) "~s is not a valid bytevector length")
                     ((fill-value) "~s is not a valid fill value")
                     ((value) "invalid value ~s")
