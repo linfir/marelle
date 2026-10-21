@@ -42,8 +42,10 @@
       (do ((i 0 (+ i 1)))
           ((= i (vector-length sections)))
         (let ((s (vector-ref sections i)))
+          ;; An unknown section must be empty and hold no label, having no address
           (unless (or (assoc (section-name s) section-segments)
-                      (= (bytevector-length (section-bytes s)) 0))
+                      (and (= (bytevector-length (section-bytes s)) 0)
+                           (not (exists (lambda (l) (= (unit-label-section l) i)) (unit-labels unit)))))
             (error 'place-unit "unknown section" (section-name s)))))
       (let loop ((l section-segments) (ends starts))
         (if (null? l)
