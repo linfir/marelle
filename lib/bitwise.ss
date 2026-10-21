@@ -244,22 +244,34 @@
             (raw 1))
       (bignum-bit-set? n (fixnum-value k))))
 
-;; Chez's names, which the compiler uses
-(define (logand . xs)
-  (declare public)
-  (apply bitwise-and xs))
+;; Chez's names, which the compiler uses: inline 2-operand defs like the bitwise ones
+(define (logand x y)
+  (declare inline public)
+  (bitwise-and x y))
 
-(define (logior . xs)
-  (declare public)
-  (apply bitwise-ior xs))
+(define (logior x y)
+  (declare inline public)
+  (bitwise-ior x y))
 
-(define (logor . xs)
-  (declare public)
-  (apply bitwise-ior xs))
+(define (logor x y)
+  (declare inline public)
+  (bitwise-ior x y))
 
-(define (logxor . xs)
-  (declare public)
-  (apply bitwise-xor xs))
+(define (logxor x y)
+  (declare inline public)
+  (bitwise-xor x y))
+
+(define (variadic-logand . xs)
+  (fold-left (lambda (a b) (bitwise-and a b)) -1 xs))
+
+(define (variadic-logior . xs)
+  (fold-left (lambda (a b) (bitwise-ior a b)) 0 xs))
+
+(define (variadic-logor . xs)
+  (fold-left (lambda (a b) (bitwise-ior a b)) 0 xs))
+
+(define (variadic-logxor . xs)
+  (fold-left (lambda (a b) (bitwise-xor a b)) 0 xs))
 
 (define (lognot x)
   (declare public)
