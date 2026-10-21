@@ -12,16 +12,16 @@ all: chez prebuild
 
 chez: $(CHEZ_OBJS)
 
-prebuild: build/lib.o build/lib.scm
+prebuild: build/lib.img build/lib.scm
 
 # All recompiled when one changes, since a library is compiled against those it imports
 $(CHEZ_OBJS) &: $(CHEZ_LIBS)
 	rm -rf build/chez
 	mkdir -p build/chez
-	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm) (encode) (object) (layout))\n' | \
+	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm) (encode) (object) (layout) (elf))\n' | \
 	  $(CHEZ) -q --compile-imported-libraries
 
-# The precompiled library, linked with every program
+# The library as an object, for as and ld (tests.py --as, asmcheck.py, bench.py)
 build/lib.o: build/lib.s
 	as -o $@ $<
 
@@ -31,7 +31,7 @@ build/lib.s build/lib.img build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
 	$(CHEZ) --program schemec --lib build $(sort $(wildcard lib/*.ss))
 
 # Self-hosting: the compiler as one program, compiled by schemec under Chez (stage 1), then by
-# stage 1 (stage 2)
+# stage 1 (stage 2); only Chez is needed
 stage1: build/stage1
 
 stage2: build/stage2
@@ -40,19 +40,11 @@ build/flat.ss: flatten schemec $(CHEZ_LIBS)
 	mkdir -p build
 	./flatten > $@
 
-build/stage1.s: build/flat.ss $(CHEZ_OBJS) build/lib.scm
-	$(CHEZ) --program schemec < $< > $@
+build/stage1: build/flat.ss $(CHEZ_OBJS) build/lib.img build/lib.scm
+	$(CHEZ) --program schemec -o $@ < $<
 
-build/stage2.s: build/flat.ss build/stage1 build/lib.scm
-	build/stage1 < $< > $@
-
-build/stage1.o build/stage2.o: build/%.o: build/%.s
-	as -o $@ $<
-
-# Stripped: ld's symbol table names the inputs (stage1.o), so the two stages would differ
-build/stage1 build/stage2: build/%: build/%.o build/lib.o
-	ld -o $@ $^
-	strip $@
+build/stage2: build/flat.ss build/stage1 build/lib.img build/lib.scm
+	build/stage1 -o $@ < $<
 
 # The fixed point: stage 1 compiles the library and the compiler as Chez did
 fixpoint: build/stage2
@@ -61,21 +53,24 @@ fixpoint: build/stage2
 	cmp build/lib.s build/stage1-lib/lib.s
 	cmp build/lib.img build/stage1-lib/lib.img
 	cmp build/lib.scm build/stage1-lib/lib.scm
-	cmp build/stage1.s build/stage2.s
 	cmp build/stage1 build/stage2
 
-test: all
+test: all build/stage1
 	time ./tests.py
 
+# Through as and ld
+test-as: all build/stage1 build/lib.o
+	time ./tests.py --as
+
 # The benchmarks, against Chez Scheme
-bench: all
+bench: all build/stage1 build/lib.o
 	./bench.py --chez
 
 test-chez:
 	time ./tests.py --chez
 
 # The encoder against GNU as: the cases, the library and the compiler
-test-asm: all build/flat.ss
+test-asm: all build/stage1 build/lib.o build/flat.ss
 	time ./asmcheck.py
 	./asmcheck.py --lib --image --program build/flat.ss
 
@@ -89,4 +84,4 @@ clean:
 # A failed recipe leaves no partial output
 .DELETE_ON_ERROR:
 
-.PHONY: all chez prebuild stage1 stage2 fixpoint test bench test-chez test-asm fmt clean
+.PHONY: all chez prebuild stage1 stage2 fixpoint test test-as bench test-chez test-asm fmt clean

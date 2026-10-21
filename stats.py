@@ -42,7 +42,7 @@ def counts(asm):
 
 def compile_counts(path):
     try:
-        return counts(compile_source(path.read_text()))
+        return counts(compile_source(path.read_text(), "-S"))
     except PipelineFailure:
         return None
 

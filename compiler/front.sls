@@ -377,6 +377,9 @@
         (cond
          ((pair? y) (check (car y)) (check (cdr y)))
          ((vector? y) (vector-for-each check y))
+         ;; As the reader of stage1 reports it
+         ((and (number? y) (not (exact-rational? y)))
+          (compile-error 'front-expr "inexact numbers are not supported" y))
          ((not (or (symbol? y) (null? y) (boolean? y) (char? y) (exact-rational? y) (string? y)
                    (bytevector? y)))
           (compile-error 'front-expr "unsupported quoted datum" y))))

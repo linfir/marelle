@@ -12,15 +12,24 @@ ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
 LIB = BUILD / "lib.o"
 STAGE1 = BUILD / "stage1"
+CHEZ_HOST = ["scheme", "--libdirs", "compiler::build/chez", "--program", ROOT / "schemec"]
 
-# The compiler: schemec under Chez, loading the compiled compiler libraries in build/chez instead
-# of the .sls, or the self-compiled build/stage1 (use_stage1)
-compiler = ["scheme", "--libdirs", "compiler::build/chez", "--program", ROOT / "schemec"]
+# The compiler: the self-compiled build/stage1, or schemec under Chez (use_chez_host), loading the
+# compiled compiler libraries in build/chez instead of the .sls
+compiler = [STAGE1]
+
+# Whether programs go through as and ld with build/lib.o (use_as), instead of the compiler's -o
+assemble = False
 
 
-def use_stage1():
+def use_chez_host():
     global compiler
-    compiler = [STAGE1]
+    compiler = CHEZ_HOST
+
+
+def use_as():
+    global assemble
+    assemble = True
 
 
 class PipelineFailure(Exception):
@@ -43,35 +52,39 @@ def run_stage(stage, command, **kwargs):
 
 
 def lib_missing():
-    """The message when make's output is missing: the precompiled library, and the
-    compiled compiler libraries or build/stage1, else None."""
-    if compiler == [STAGE1] and not STAGE1.exists():
+    """The message when make's output is missing: the library's image and interface, build/lib.o
+    with as, and build/stage1 or the compiled compiler libraries, else None."""
+    needed = [BUILD / "lib.img", BUILD / "lib.scm"]
+    if assemble:
+        needed.append(LIB)
+    if compiler == CHEZ_HOST:
+        needed.append(BUILD / "chez")
+    elif not STAGE1.exists():
         return "missing build/stage1: run make stage1 first"
-    missing = [p for p in (LIB, BUILD / "lib.scm", BUILD / "chez") if not p.exists()]
+    missing = [p for p in needed if not p.exists()]
     if missing:
         return f"missing {', '.join(str(p.relative_to(ROOT)) for p in missing)}: run make first"
     return None
 
 
-def compile_source(source, dump=None):
-    command = list(compiler)
-    if dump:
-        command += ["--dump", dump]
-    return run_stage("compiler", command, input=source, cwd=ROOT).stdout
+def compile_source(source, *options):
+    """=> the compiler's output for source with options, e.g. -S or --dump PASS."""
+    return run_stage("compiler", [*compiler, *options], input=source, cwd=ROOT).stdout
 
 
 # The executable runs in the temporary directory, so programs may create files there
 def run_pipeline(source, *, env=None, stdin=None):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
-        assembly = work / "out.s"
-        obj = work / "out.o"
         executable = work / "out"
-
-        assembly.write_text(compile_source(source))
-
-        run_stage("as", ["as", "-o", obj, assembly])
-        run_stage("ld", ["ld", "-o", executable, obj, LIB])
+        if assemble:
+            assembly = work / "out.s"
+            obj = work / "out.o"
+            assembly.write_text(compile_source(source, "-S"))
+            run_stage("as", ["as", "-o", obj, assembly])
+            run_stage("ld", ["ld", "-o", executable, obj, LIB])
+        else:
+            compile_source(source, "-o", executable)
         return run_stage("executable", [executable], input=stdin, cwd=work, env=os.environ | (env or {}))
 
 
@@ -90,14 +103,17 @@ def parse_args():
     source.add_argument("-e", metavar="STRING")
     source.add_argument("file", nargs="?", type=Path)
     parser.add_argument("--dump", metavar="PASS", help="print the IR after PASS instead of running")
-    parser.add_argument("--stage1", action="store_true", help="compile with build/stage1")
+    parser.add_argument("--chez-host", action="store_true", help="run the compiler under Chez")
+    parser.add_argument("--as", dest="assemble", action="store_true", help="assemble and link with as and ld")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    if args.stage1:
-        use_stage1()
+    if args.chez_host:
+        use_chez_host()
+    if args.assemble:
+        use_as()
     source = args.e if args.e is not None else args.file.read_text()
 
     missing = lib_missing()
@@ -107,7 +123,7 @@ def main():
 
     try:
         if args.dump:
-            sys.stdout.write(compile_source(source, args.dump))
+            sys.stdout.write(compile_source(source, "--dump", args.dump))
             return
         result = run_pipeline(source)
     except PipelineFailure as error:

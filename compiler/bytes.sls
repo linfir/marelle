@@ -2,7 +2,7 @@
 
 (library (bytes)
   (export new-byte-buffer buffer-size buffer-u8! buffer-le! buffer-bytevector! buffer-zeros!
-          buffer->bytevector buffer-copy! bytevector-le-set! align-up)
+          buffer->bytevector buffer-copy! bytevector-le-set! align-up pack!)
   (import (chezscheme))
 
 
@@ -70,6 +70,14 @@
   (define (buffer-zeros! b n)
     (reserve! b n)
     (byte-buffer-size-set! b (+ (byte-buffer-size b) n)))
+
+
+  ;; Writes the fields to b: size n ..., n taken modulo 2^(8 size)
+  (define (pack! b . fields)
+    (let loop ((l fields))
+      (unless (null? l)
+        (buffer-le! b (cadr l) (car l))
+        (loop (cddr l)))))
 
 
   ;; n rounded up to a multiple of a

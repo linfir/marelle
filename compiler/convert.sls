@@ -307,7 +307,7 @@
       (c `(as-val ,(intern-number! x))))
 
      ((number? x)
-      (compile-error 'compile-value "unsupported number" x))
+      (compile-error 'compile-value "inexact numbers are not supported" x))
 
      ;; Outside unsafe code, a Scheme string, loaded from its literal cell
      ((string? x)

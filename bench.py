@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from subprocess import run
 
-from run import PipelineFailure, compile_source, lib_missing, run_stage, use_stage1
+from run import PipelineFailure, compile_source, lib_missing, run_stage, use_as, use_chez_host
 
 ROOT = Path(__file__).resolve().parent
 BENCH = ROOT / "bench"
@@ -84,10 +84,12 @@ def main():
     parser.add_argument("-n", type=int, default=5, metavar="RUNS", help="runs of each program (5)")
     parser.add_argument("--offsets", type=int, default=1, metavar="K", help="library code offsets (1)")
     parser.add_argument("--chez", action="store_true", help="also time Chez Scheme")
-    parser.add_argument("--stage1", action="store_true", help="compile with build/stage1")
+    parser.add_argument("--chez-host", action="store_true", help="run the compiler under Chez")
     args = parser.parse_args()
-    if args.stage1:
-        use_stage1()
+    if args.chez_host:
+        use_chez_host()
+    # The library's code is moved in its assembly
+    use_as()
 
     missing = lib_missing()
     if missing:
@@ -101,7 +103,7 @@ def main():
         for path in paths:
             try:
                 obj = work / "out.o"
-                assemble(compile_source(path.read_text()), obj)
+                assemble(compile_source(path.read_text(), "-S"), obj)
                 times = []
                 for lib in libs:
                     executable = work / "out"

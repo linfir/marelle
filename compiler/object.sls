@@ -99,14 +99,6 @@
     (fields name type flags link info align entsize bytes))
 
 
-  ;; Writes the fields to b: size n ..., n taken modulo 2^(8 size)
-  (define (pack! b . fields)
-    (let loop ((l fields))
-      (unless (null? l)
-        (buffer-le! b (cadr l) (car l))
-        (loop (cddr l)))))
-
-
   ;; The file offset of each section, then the end of the last
   (define (section-offsets sections)
     (let loop ((l sections) (end 64))

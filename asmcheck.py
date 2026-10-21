@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import run
-from run import PipelineFailure, compile_source, lib_missing, run_stage, use_stage1
+from run import PipelineFailure, compile_source, lib_missing, run_stage, use_as, use_chez_host
 from tests import TEST_ROOT, selected_cases
 
 
@@ -79,7 +79,7 @@ def check_case(path):
     """=> None, SKIP when the compiler rejects the case, or (stage, details)."""
     source = path.read_text()
     try:
-        assembly = compile_source(source)
+        assembly = compile_source(source, "-S")
     except PipelineFailure:
         return SKIP
     with tempfile.TemporaryDirectory() as directory:
@@ -191,13 +191,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("patterns", nargs="*", help="test name patterns")
     parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("--stage1", action="store_true", help="compile with build/stage1")
+    parser.add_argument("--chez-host", action="store_true", help="run the compiler under Chez")
     parser.add_argument("--lib", action="store_true", help="check the library")
     parser.add_argument("--program", metavar="FILE", help="check the program in FILE")
     parser.add_argument("--image", action="store_true", help="check build/lib.img against ld")
     args = parser.parse_args()
-    if args.stage1:
-        use_stage1()
+    if args.chez_host:
+        use_chez_host()
+    # check_image links build/lib.o
+    use_as()
     if args.lib or args.program or args.image:
         missing = lib_missing()
         if missing:
