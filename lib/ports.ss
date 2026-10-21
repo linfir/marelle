@@ -1,6 +1,6 @@
 ;; Ports: [port-type, flags, fd, position, end, buffer], all raw but the buffer, last so the
 ;; collector scans only it; a descriptor port's buffer is a bytevector, holding position bytes
-;; for an output port, its unread bytes [position, end) for an input port. A string output
+;; for an output port, its unread bytes [position, end) for an input port, textual or binary. A string output
 ;; port's is a bytevector of position UTF-8 bytes, doubled when full; a string input port's is
 ;; the string, read from char position to end.
 
@@ -8,6 +8,10 @@
 (define-constant output-flag (raw 2))
 (define-constant string-flag (raw 4))
 (define-constant closed-flag (raw 8))
+(define-constant binary-flag (raw 16))
+;; The flags of the binary ports, constants so that the checks fold
+(define-constant binary-input-flags (raw 17))
+(define-constant binary-output-flags (raw 18))
 
 ;; The bytes of a descriptor port's buffer
 (define-constant port-buffer-size (raw 8192))
@@ -101,22 +105,35 @@
   (and (port? x) (port-flag? x output-flag)))
 
 (define (textual-port? x)
-  (declare inline public)
-  (port? x))
+  (declare unsafe inline public)
+  (and (port? x) (not (port-flag? x binary-flag))))
 
-;; port is not an open port of the direction
-(define (port-error who port output?)
+(define (binary-port? x)
+  (declare unsafe inline public)
+  (and (port? x) (port-flag? x binary-flag)))
+
+;; port is not an open port of the direction and kind
+(define (port-error who port output? binary?)
   (declare unsafe (result never))
-  (if (and (port? port) (port-flag? port (if output? output-flag input-flag)))
+  (if (and (port? port)
+           (port-flag? port (if output? output-flag input-flag))
+           (eq? (port-flag? port binary-flag) binary?))
       (argument-error who 'closed-port port)
-      (argument-error who (if output? 'textual-output-port 'textual-input-port) port)))
+      (argument-error who
+                      (if output?
+                          (if binary? 'binary-output-port 'textual-output-port)
+                          (if binary? 'binary-input-port 'textual-input-port))
+                      port)))
 
-;; Checks that port is an open port of the direction flag
+;; Checks that port is an open port of the direction flag, also binary-flag for a binary port
 (define (check-port port (raw flag) who)
   (declare unsafe inline (result void))
   (unless (and (port? port)
-               (raw= (bit-and (port-flags (as-raw port)) (bit-or flag closed-flag)) flag))
-    (port-error who port (raw= flag output-flag))))
+               (raw= (bit-and (port-flags (as-raw port)) (bit-or flag (bit-or closed-flag binary-flag)))
+                     flag))
+    (port-error who port
+                (not (raw= (bit-and flag output-flag) (raw 0)))
+                (not (raw= (bit-and flag binary-flag) (raw 0))))))
 
 ;; The EOF object, the immediate of payload 6
 (define-constant eof-word (raw 50))
@@ -304,7 +321,9 @@
 
 (define (flush-output-port port)
   (declare unsafe public)
-  (check-port port output-flag flush-output-port)
+  (if (binary-port? port)
+      (check-port port binary-output-flags flush-output-port)
+      (check-port port output-flag flush-output-port))
   (unless (port-flag? port string-flag)
     (flush-port (as-raw port)))
   undef)
@@ -497,20 +516,22 @@
      (else
       (char-next (raw+ i (raw 1)) (raw+ j (store-utf8! (raw+ path-buffer j) (string-code s i))))))))
 
+;; The text of the errno
+(define (errno-message errno)
+  (case errno
+    ((2) "no such file or directory")
+    ((13) "permission denied")
+    ((17) "file exists")
+    ((20) "not a directory")
+    ((21) "is a directory")
+    ((24) "too many open files")
+    ((36) "file name too long")
+    (else (format "error ~a" errno))))
+
 ;; The file name could not be opened, open(2) failing with errno
 (define (open-error who name errno)
   (declare (result never))
-  (library-errorf who "failed for ~a: ~a"
-                  (list name
-                        (case errno
-                          ((2) "no such file or directory")
-                          ((13) "permission denied")
-                          ((17) "file exists")
-                          ((20) "not a directory")
-                          ((21) "is a directory")
-                          ((24) "too many open files")
-                          ((36) "file name too long")
-                          (else (format "error ~a" errno))))))
+  (library-errorf who "failed for ~a: ~a" (list name (errno-message errno))))
 
 ;; A descriptor port of the direction flag for the file name, opened with the open(2) flags;
 ;; a name file-name rejects fails like a long one
@@ -562,11 +583,41 @@
   (declare unsafe public)
   (open-file name (raw 0) input-flag open-input-file)) ; O_RDONLY
 
-(define (open-output-file name)
+(define (open-file-input-port name)
   (declare unsafe public)
-  (let ((port (open-file name (raw 577) output-flag open-output-file))) ; O_WRONLY | O_CREAT | O_TRUNC
+  (open-file name (raw 0) binary-input-flags open-file-input-port))
+
+;; An output port of the flag, replacing the file (Chez fails on an existing file), flushed at
+;; exit
+(define (open-output-port name (raw flag) who)
+  (declare unsafe inline)
+  (let ((port (open-file name (raw 577) flag who))) ; O_WRONLY | O_CREAT | O_TRUNC
     (store output-ports (raw 0) (cons port (as-val (load output-ports (raw 0)))))
     port))
+
+(define (open-output-file name)
+  (declare unsafe public)
+  (open-output-port name output-flag open-output-file))
+
+(define (open-file-output-port name)
+  (declare unsafe public)
+  (open-output-port name binary-output-flags open-file-output-port))
+
+;; chmod(2) failed with errno
+(define (chmod-error name errno)
+  (declare (result never))
+  (library-errorf chmod "cannot modify ~s: ~a" (list name (errno-message errno))))
+
+;; chmod(2)
+(define (chmod name mode)
+  (declare unsafe public)
+  (let ((path (checked-file-name name chmod)))
+    (unless (fixnum? mode)
+      (argument-error chmod 'fixnum mode))
+    (let ((result (make-fixnum (if (raw= path (raw 0)) (raw -36) (syscall 90 path (fixnum-value mode))))))
+      (when (< result 0)
+        (chmod-error name (- 0 result)))
+      (void))))
 
 ;; Flushes a descriptor output port; a console port keeps its descriptor, for the runtime's
 ;; messages
@@ -644,6 +695,95 @@
                    (thunk))))
     (close-port port)
     result))
+
+;; Binary ports
+
+(define (put-u8 port b)
+  (declare unsafe public)
+  (check-port port binary-output-flags put-u8)
+  (unless (byte? b)
+    (argument-error put-u8 'octet b))
+  (let ((p (as-raw port)))
+    (when (raw= (port-position p) port-buffer-size)
+      (flush-port p))
+    (store8 (port-bytes p) (port-position p) (fixnum-value b))
+    (set-port-position! p (raw+ (port-position p) (raw 1))))
+  undef)
+
+;; A bad start or count of put-bytevector; count #f when only start was given
+(define (put-bytevector-error bv start count)
+  (declare (result never))
+  (cond
+   ((not (and count (fixnum? start) (>= start 0)))
+    (library-errorf put-bytevector "invalid start value ~s" (list start)))
+   ((not (and (fixnum? count) (>= count 0)))
+    (library-errorf put-bytevector "invalid count ~s" (list count)))
+   (else
+    (library-errorf put-bytevector "index ~s + count ~s is beyond the end of ~s"
+                    (list start count bv)))))
+
+;; The count bytes of bv from start
+(define (put-bytevector port bv start count)
+  (declare unsafe public)
+  (check-port port binary-output-flags put-bytevector)
+  (check-bytevector bv put-bytevector)
+  (unless (and (fixnum? start) (fixnum? count) (>= start 0) (>= count 0)
+               (<= (+ start count) (bytevector-length bv)))
+    (put-bytevector-error bv start count))
+  (write-bytes (as-raw port) (byte-address bv (fixnum-value start)) (fixnum-value count))
+  undef)
+
+;; (put-bytevector port bv [start [count]])
+(define (variadic-put-bytevector port bv . rest)
+  (declare unsafe)
+  (check-port port binary-output-flags put-bytevector)
+  (check-bytevector bv put-bytevector)
+  (cond
+   ((null? rest) (put-bytevector port bv 0 (bytevector-length bv)))
+   ((null? (cdr rest))
+    (let ((start (car rest)))
+      (unless (and (fixnum? start) (>= start 0) (<= start (bytevector-length bv)))
+        (put-bytevector-error bv start #f))
+      (put-bytevector port bv start (- (bytevector-length bv) start))))
+   ((null? (cddr rest)) (put-bytevector port bv (car rest) (cadr rest)))
+   (else (argument-count-error put-bytevector (+ 2 (length rest))))))
+
+(define (get-u8 port)
+  (declare unsafe public)
+  (check-port port binary-input-flags get-u8)
+  (let ((p (as-raw port)))
+    (if (port-holds? p (raw 1))
+        (let ((b (load8 (port-bytes p) (port-position p))))
+          (set-port-position! p (raw+ (port-position p) (raw 1)))
+          (make-fixnum b))
+        (eof-object))))
+
+;; The bytes up to the end, or the EOF object when there are none
+(define (get-bytevector-all port)
+  (declare unsafe public)
+  (check-port port binary-input-flags get-bytevector-all)
+  (let chunk-next ((chunks '())
+                   (total 0))
+    (if (port-holds? (as-raw port) (raw 1))
+        (let ((chunk (alloc-bytevector (make-fixnum (raw- (port-end (as-raw port))
+                                                          (port-position (as-raw port)))))))
+          (copy-bytes! (byte-address chunk (raw 0))
+                       (raw+ (port-bytes (as-raw port)) (port-position (as-raw port)))
+                       (bytevector-nbytes chunk))
+          (set-port-position! (as-raw port) (port-end (as-raw port)))
+          (chunk-next (cons chunk chunks) (+ total (bytevector-length chunk))))
+        (cond
+         ((null? chunks) (eof-object))
+         ((null? (cdr chunks)) (car chunks))
+         (else
+          (let ((all (alloc-bytevector total)))
+            (let chunk-next ((chunks chunks)
+                             (end total))
+              (if (null? chunks)
+                  all
+                  (let ((start (- end (bytevector-length (car chunks)))))
+                    (bytevector-copy! all start (car chunks))
+                    (chunk-next (cdr chunks) start))))))))))
 
 ;; String ports
 

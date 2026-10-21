@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = 'is not a binary output port'

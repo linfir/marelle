@@ -1,0 +1,2 @@
+stdout = "(#<binary output port> #<binary input port>)"
+chez = "skip"

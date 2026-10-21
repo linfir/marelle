@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = 'Exception in put-bytevector: x is not a bytevector'

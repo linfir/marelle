@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = 'Exception in put-bytevector: index 1 + count 2 is beyond the end of #vu8(1 2)'
