@@ -408,7 +408,7 @@
       (buffer-u8! b 0)))
 
 
-  ;; GNU as's NOPs for padding code, by length
+  ;; GNU as's NOPs for padding code, by length; a longer gap is 11-byte ones, then the rest
   (define nops
     '#((#x90)
        (#x66 #x90)
@@ -417,17 +417,20 @@
        (#x0f #x1f #x44 #x00 #x00)
        (#x66 #x0f #x1f #x44 #x00 #x00)
        (#x0f #x1f #x80 #x00 #x00 #x00 #x00)
-       (#x0f #x1f #x84 #x00 #x00 #x00 #x00 #x00)))
+       (#x0f #x1f #x84 #x00 #x00 #x00 #x00 #x00)
+       (#x66 #x0f #x1f #x84 #x00 #x00 #x00 #x00 #x00)
+       (#x66 #x2e #x0f #x1f #x84 #x00 #x00 #x00 #x00 #x00)
+       (#x66 #x66 #x2e #x0f #x1f #x84 #x00 #x00 #x00 #x00 #x00)))
 
 
   (define (padding! b n text?)
     (cond
      ((= n 0))
      ((not text?) (buffer-zeros! b n))
-     ((<= n 8) (for-each (lambda (x) (buffer-u8! b x)) (vector-ref nops (- n 1))))
+     ((<= n 11) (for-each (lambda (x) (buffer-u8! b x)) (vector-ref nops (- n 1))))
      (else
-      (for-each (lambda (x) (buffer-u8! b x)) (vector-ref nops 7))
-      (padding! b (- n 8) text?))))
+      (for-each (lambda (x) (buffer-u8! b x)) (vector-ref nops 10))
+      (padding! b (- n 11) text?))))
 
 
   ;; The size of the item at offset
