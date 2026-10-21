@@ -12,8 +12,9 @@
     #f)
 
 
-  ;; Runs the executable bv from a temporary file, then exits with its status; Chez has no
-  ;; execve, so the program's name is the file's, not name
+  ;; Runs the executable bv from a temporary file, then exits with its status,
+  ;; 128 + n when signal n killed it, as a shell reports it;
+  ;; Chez has no execve, so the program's name is the file's, not name
   (define (execute-bytevector bv name)
     (let* ((ports (process "mktemp"))
            (path (get-line (car ports))))
@@ -28,7 +29,7 @@
       (flush-output-port (current-error-port))
       (let ((status (system path)))
         (delete-file path)
-        (exit status))))
+        (exit (if (< status 0) (- 128 status) status)))))
 
 
   ;; The bytes [start, end) of from to to at at, in R7RS's order, not R6RS's
