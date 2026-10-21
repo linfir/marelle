@@ -18,7 +18,7 @@
 ;; The library: the image and the interface embedded as lib.img and lib.scm, else build/lib.img
 ;; and build/lib.scm, from the project root; --libdir DIR forces DIR's files.
 
-(import (chezscheme)
+(import (except (chezscheme) bytevector-copy!)
         (utils)
         (library)
         (asm)

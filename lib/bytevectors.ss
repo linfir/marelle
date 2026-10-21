@@ -147,10 +147,10 @@
         acc
         (loop (- i 1) (cons (bytevector-u8-ref bv (- i 1)) acc)))))
 
-;; Copies the n bytes at src to dst, backwards when dst is after src, so they may overlap
+;; Copies the n bytes at src to dst, backwards when dst is inside them, so they may overlap
 (define (move-bytes! (raw dst) (raw src) (raw n))
   (declare unsafe noalloc (result void))
-  (if (raw>u dst src)
+  (if (and (raw>u dst src) (raw<u dst (raw+ src n)))
       (let copy-next ((i n))
         (if (raw= i (raw 0))
             undef

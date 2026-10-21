@@ -3,7 +3,7 @@
 ;; ./flatten > FLAT, run from the project root: schemec and the libraries of compiler/ as one
 ;; program, the library bodies in dependency order, then schemec's body, without library, import
 ;; and the #! line.
-;; (host), Chez's side, is left out: the program gets the library's embedded-file.
+;; (host), Chez's side, is left out: the program gets the library's own definitions.
 ;; Stops on a name defined in two files, or on a Chez name one file defines and another uses.
 
 (import (chezscheme))
@@ -33,9 +33,14 @@
     (car forms)))
 
 
-;; (path imports exports body), imports the library names but (chezscheme)
+(define (chez-import? x)
+  (or (equal? x '(chezscheme))
+      (and (pair? x) (eq? (car x) 'except) (equal? (cadr x) '(chezscheme)))))
+
+
+;; (path imports exports body), imports the library names but Chez's
 (define (unit path imports exports body)
-  (list path (remove '(chezscheme) imports) exports body))
+  (list path (remp chez-import? imports) exports body))
 
 (define unit-path car)
 (define unit-imports cadr)

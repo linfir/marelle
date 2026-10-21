@@ -15,14 +15,18 @@
               (write-next (raw+ done written))))
         undef)))
 
+;; Copies the n bytes at src to dst, the whole words, then the last bytes; forward, so dst may
+;; overlap src from below (move-bytes!)
 (define (copy-bytes! (raw dst) (raw src) (raw n))
   (declare unsafe inline (result void))
-  (let copy-next ((i (raw 0)))
-    (if (raw<u i n)
-        (begin
-          (store8 dst i (load8 src i))
-          (copy-next (raw+ i (raw 1))))
-        undef)))
+  (let ((words (raw>>u n (raw 3))))
+    (copy-words dst src words)
+    (let copy-next ((i (raw<< words (raw 3))))
+      (if (raw<u i n)
+          (begin
+            (store8 dst i (load8 src i))
+            (copy-next (raw+ i (raw 1))))
+          undef))))
 
 ;; Writes the buffered bytes of the descriptor output port
 (define (flush-port (raw port))

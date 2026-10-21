@@ -68,7 +68,7 @@
           (make-op 'store8 '(raw raw raw) 'void 'writes 'store8)
           (make-op 'load32 '(raw raw) 'raw 'reads 'load32)
           (make-op 'store32 '(raw raw raw) 'void 'writes 'store32)
-          ;; (copy-words dst src n), not overlapping
+          ;; (copy-words dst src n), forward: dst may overlap src from below
           (make-op 'copy-words '(raw raw raw) 'void 'writes 'copy)
           ;; (fill-words address n x)
           (make-op 'fill-words '(raw raw raw) 'void 'writes 'fill)

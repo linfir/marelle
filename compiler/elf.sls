@@ -23,7 +23,8 @@
            (rodata-size (+ headers-size (car sizes)))
            (data-offset (align-up rodata-size 4096))
            (text-offset (align-up (+ data-offset (cadr sizes)) 4096))
-           (b (new-byte-buffer)))
+           (b (new-byte-buffer))
+           (file (make-bytevector (+ text-offset (caddr sizes)) 0)))
       ;; Magic, 64-bit, little-endian, version 1, System V ABI, padding; type ET_EXEC, machine
       ;; EM_X86_64, version, entry, program header offset, section header offset (none), flags,
       ;; header size, program header entry size and count, section header entry size, count and
@@ -38,9 +39,9 @@
       (pack! b 4 1 4 5 8 text-offset 8 (caddr segment-bases) 8 (caddr segment-bases)
              8 (caddr sizes) 8 (caddr sizes) 8 4096)
       (pack! b 4 #x6474e551 4 6 8 0 8 0 8 0 8 0 8 0 8 16)
+      (copy-bytes! file 0 (buffer->bytevector b) 0 (buffer-size b))
       (for-each (lambda (offset l p)
-                  (buffer-zeros! b (- offset (buffer-size b)))
-                  (buffer-bytevector! b l)
-                  (buffer-bytevector! b p))
+                  (copy-bytes! file offset l 0 (bytevector-length l))
+                  (copy-bytes! file (+ offset (bytevector-length l)) p 0 (bytevector-length p)))
                 (list headers-size data-offset text-offset) library program)
-      (buffer->bytevector b))))
+      file)))

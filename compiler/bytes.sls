@@ -2,8 +2,9 @@
 
 (library (bytes)
   (export new-byte-buffer buffer-size buffer-u8! buffer-le! buffer-bytevector! buffer-zeros!
-          buffer->bytevector buffer-copy! bytevector-le-set! align-up pack!)
-  (import (chezscheme))
+          buffer->bytevector buffer-copy! copy-bytes! bytevector-le-set! align-up pack!)
+  (import (except (chezscheme) bytevector-copy!)
+          (host))
 
 
   ;; The first size bytes of data are written
@@ -29,11 +30,14 @@
           (byte-buffer-data-set! b new)))))
 
 
-  ;; Copies the n bytes of from at start to to at at
+  ;; Copies the n bytes of from at start to to at at; byte by byte when short, since a
+  ;; bytevector-copy! call costs as much as about 10 bytes in stage1
   (define (copy-bytes! to at from start n)
-    (do ((i 0 (+ i 1)))
-        ((= i n))
-      (bytevector-u8-set! to (+ at i) (bytevector-u8-ref from (+ start i)))))
+    (if (< n 16)
+        (do ((i 0 (+ i 1)))
+            ((= i n))
+          (bytevector-u8-set! to (+ at i) (bytevector-u8-ref from (+ start i))))
+        (bytevector-copy! to at from start (+ start n))))
 
 
   (define (buffer-u8! b x)

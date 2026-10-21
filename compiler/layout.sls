@@ -199,9 +199,9 @@
 
 
   (define (bytevector-slice bv start n)
-    (let ((b (new-byte-buffer)))
-      (buffer-copy! b bv start n)
-      (buffer->bytevector b)))
+    (let ((s (make-bytevector n 0)))
+      (copy-bytes! s 0 bv start n)
+      s))
 
 
   ;; Where the program's segments start
