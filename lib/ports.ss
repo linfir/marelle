@@ -628,12 +628,13 @@
   (library-errorf execute-bytevector "cannot run ~a: ~a" (list name (errno-message errno))))
 
 ;; Replaces the process with the executable bv, named name in its arguments: its bytes in a
-;; memfd, run by execveat(2) after flushing the output ports
+;; memfd, run by execveat(2) after flushing the output ports.
+;; The memfd is named marelle, since memfd_create(2) rejects names over 249 bytes.
 (define (execute-bytevector bv name)
   (declare unsafe public)
   (check-bytevector bv execute-bytevector)
   (let* ((path (checked-file-name name execute-bytevector))
-         (fd (make-fixnum (if (raw= path (raw 0)) (raw -36) (syscall 319 path (raw 1)))))) ; memfd_create, MFD_CLOEXEC
+         (fd (make-fixnum (if (raw= path (raw 0)) (raw -36) (syscall 319 "marelle" (raw 1)))))) ; memfd_create, MFD_CLOEXEC
     (when (< fd 0)
       (execute-error name (- 0 fd)))
     (write-all (fixnum-value fd) (byte-address bv (raw 0)) (bytevector-nbytes bv))
