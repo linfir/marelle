@@ -146,12 +146,13 @@
   (declare unsafe inline public)
   (raw= (as-raw x) eof-word))
 
-;; Current port i with no argument, else set to the port, of the direction flag
+;; Current port i with no argument, else set to the port, textual and of the direction flag
 (define (current-port args (raw i) (raw flag) who)
   (declare unsafe inline)
   (cond
    ((null? args) (as-val (load current-ports i)))
-   ((and (null? (cdr args)) (port? (car args)) (port-flag? (car args) flag))
+   ((and (null? (cdr args)) (port? (car args)) (port-flag? (car args) flag)
+         (not (port-flag? (car args) binary-flag)))
     (store current-ports i (car args))
     undef)
    ((null? (cdr args))
