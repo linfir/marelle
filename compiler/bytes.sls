@@ -53,9 +53,10 @@
     (byte-buffer-size-set! b (+ (byte-buffer-size b) size)))
 
 
+  ;; n less its low byte divides exactly, so quotient shifts right on the inline fixnum paths
   (define (bytevector-le-set! bv offset n size)
     (do ((i 0 (+ i 1))
-         (n n (ash n -8)))
+         (n n (quotient (- n (logand n 255)) 256)))
         ((= i size))
       (bytevector-u8-set! bv (+ offset i) (logand n 255))))
 

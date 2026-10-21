@@ -40,36 +40,24 @@
   ;; a number, the REX prefix the fourth.
 
 
-  (define registers
-    '((rax . 0) (rcx . 1) (rdx . 2) (rbx . 3) (rsp . 4) (rbp . 5) (rsi . 6) (rdi . 7)
-      (r8 . 8) (r9 . 9) (r10 . 10) (r11 . 11) (r12 . 12) (r13 . 13) (r14 . 14) (r15 . 15)))
-
-
-  (define registers32
-    '((eax . 0) (ecx . 1) (edx . 2) (ebx . 3) (esp . 4) (ebp . 5) (esi . 6) (edi . 7)
-      (r8d . 8) (r9d . 9) (r10d . 10) (r11d . 11) (r12d . 12) (r13d . 13) (r14d . 14) (r15d . 15)))
-
-
-  ;; Only those encoded the same with or without a REX prefix: 4 to 7 are ah to
-  ;; bh without one, spl to dil with one
-  (define registers8
-    '((al . 0) (cl . 1) (dl . 2) (bl . 3)))
-
-
-  ;; The size of register x in bits, or #f
+  ;; The size of register x in bits, or #f.
+  ;; The 8-bit ones are only those encoded the same with or without a REX prefix: 4 to 7 are
+  ;; ah to bh without one, spl to dil with one.
   (define (reg-size x)
-    (cond
-     ((not (symbol? x)) #f)
-     ((assq x registers) 64)
-     ((assq x registers32) 32)
-     ((assq x registers8) 8)
-     (else #f)))
+    (case x
+      ((rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15) 64)
+      ((eax ecx edx ebx esp ebp esi edi r8d r9d r10d r11d r12d r13d r14d r15d) 32)
+      ((al cl dl bl) 8)
+      (else #f)))
 
 
   (define (reg-num r)
-    (cond
-     ((or (assq r registers) (assq r registers32) (assq r registers8)) => cdr)
-     (else (error 'encode-asm "not a register" r))))
+    (case r
+      ((rax eax al) 0) ((rcx ecx cl) 1) ((rdx edx dl) 2) ((rbx ebx bl) 3)
+      ((rsp esp) 4) ((rbp ebp) 5) ((rsi esi) 6) ((rdi edi) 7)
+      ((r8 r8d) 8) ((r9 r9d) 9) ((r10 r10d) 10) ((r11 r11d) 11)
+      ((r12 r12d) 12) ((r13 r13d) 13) ((r14 r14d) 14) ((r15 r15d) 15)
+      (else (error 'encode-asm "not a register" r))))
 
 
   (define (reg? x)
