@@ -15,8 +15,8 @@
               (write-next (raw+ done written))))
         undef)))
 
-;; Copies the n bytes at src to dst, the whole words, then the last bytes; forward, so dst may
-;; overlap src from below (move-bytes!)
+;; Copies the n bytes at src to dst, the whole words, then the last bytes;
+;; forward, so dst may overlap src from below (move-bytes!)
 (define (copy-bytes! (raw dst) (raw src) (raw n))
   (declare unsafe inline (result void))
   (let ((words (raw>>u n (raw 3))))

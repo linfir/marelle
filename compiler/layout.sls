@@ -6,8 +6,8 @@
 ;; | text    | 0x20000000 | .text                                            |
 ;;
 ;; Everything is within 2 GiB of everything else, so a rel32 always reaches.
-;; The library image (lib.img) is its three segments, after a stamp, the hash of the image and of
-;; the interface, which must come from the same library build.
+;; The library image (lib.img) is its three segments after a stamp,
+;; the hash of the image and of the interface, which must come from the same library build.
 
 (library (layout)
   (export segment-bases headers-size place-unit placement-ends link-unit

@@ -324,8 +324,8 @@
         (loop (cdr forms) (cons (list (gensym "expression") (car forms)) bindings))))))
 
 
-  ;; The table of the embedded files, ((name path bytes) ...): their count, then per file its
-  ;; name (a C string) and its static bytevector; then the bytevectors
+  ;; The table of the embedded files, ((name path bytes) ...):
+  ;; their count, then per file its name (a C string) and its static bytevector; then the bytevectors
   (define (embedded-entries embedded)
     (let loop ((l embedded) (i 1) (table '()) (files '()))
       (if (null? l)

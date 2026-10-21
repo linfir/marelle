@@ -30,8 +30,8 @@
           (byte-buffer-data-set! b new)))))
 
 
-  ;; Copies the n bytes of from at start to to at at; byte by byte when short, since a
-  ;; bytevector-copy! call costs as much as about 10 bytes in stage1
+  ;; Copies the n bytes of from at start to to at at;
+  ;; byte by byte when short, since a bytevector-copy! call costs as much as 10 bytes in stage1
   (define (copy-bytes! to at from start n)
     (if (< n 16)
         (do ((i 0 (+ i 1)))

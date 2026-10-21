@@ -1,13 +1,14 @@
-;; A static ELF64 executable for x86-64 of the library image and a program linked after it
-;; (layout.sls): no section headers, 4 program headers.
+;; A static ELF64 executable for x86-64, of the library image and a program after it (layout.sls):
+;; no section headers, 4 program headers.
 ;;
-;; The file is the ELF header (64 bytes) and the program headers (56 bytes each) at the start of
-;; the read-only segment, then each segment from a new page of the file, its offset congruent to
-;; its address modulo 4096: the library's bytes, then the program's.
-;; A program header: type, flags (4 read, 2 write, 1 execute), file offset, address, physical
-;; address (the same), size in the file, size in memory and alignment.
-;; PT_LOAD (1) maps a segment; PT_GNU_STACK (#x6474e551), without execute, makes the stack
-;; not executable.
+;; The file is the ELF header (64 bytes) and the program headers (56 bytes each),
+;; at the start of the read-only segment,
+;; then each segment from a new page of the file, its offset congruent to its address modulo 4096:
+;; the library's bytes, then the program's.
+;; A program header: type, flags (4 read, 2 write, 1 execute), file offset, address,
+;; physical address (the same), size in the file, size in memory and alignment.
+;; PT_LOAD (1) maps a segment;
+;; PT_GNU_STACK (#x6474e551), without execute, makes the stack not executable.
 
 (library (elf)
   (export executable-file)

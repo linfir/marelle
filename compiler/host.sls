@@ -1,6 +1,7 @@
-;; Under Chez, what stage1 has and Chez lacks: the files schemec --embed embedded, none
-;; (embedded-file of lib/system.ss), execute-bytevector (lib/ports.ss) and R7RS's
-;; bytevector-copy! (lib/bytevectors.ss); not flattened
+;; Under Chez, what stage1 has and Chez lacks:
+;; the files schemec --embed embedded, none (embedded-file of lib/system.ss),
+;; execute-bytevector (lib/ports.ss) and R7RS's bytevector-copy! (lib/bytevectors.ss);
+;; not flattened
 
 (library (host)
   (export embedded-file execute-bytevector bytevector-copy!)

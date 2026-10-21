@@ -1,22 +1,23 @@
-;; The x86-64 encoder: the asm s-expressions of asm.sls to a unit, its sections' bytes, its labels
-;; and its fixups, the references left to resolve (object.sls writes a unit as an ELF object).
+;; The x86-64 encoder: the asm s-expressions of asm.sls to a unit,
+;; its sections' bytes, its labels and its fixups, the references left to resolve
+;; (object.sls writes a unit as an ELF object).
 ;;
 ;; The encoding is GNU as's, byte for byte:
-;; - jumps to a label of the same section, even a global one, start short (rel8)
-;;   and grow to rel32 until all fit (relaxation);
+;; - jumps to a label of the same section, even a global one,
+;;   start short (rel8) and grow to rel32 until all fit (relaxation);
 ;; - disp8 when the displacement fits, none for 0 (but from rbp or r13);
-;; - sign-extended imm8 when it fits, the short rax form for imm32, movabs
-;;   only for a 64-bit immediate, immediates taken modulo 2^64 (so
-;;   2^64 - 1 is -1);
+;; - sign-extended imm8 when it fits, the short rax form for imm32,
+;;   movabs only for a 64-bit immediate,
+;;   immediates taken modulo 2^64 (so 2^64 - 1 is -1);
 ;; - .balign in .text pads with GNU as's NOPs, zeros elsewhere.
 ;;
-;; Fixups: abs64 (a quad), pc32 (a RIP-relative operand), plt32 (a call to a symbol), jmp32 (a jmp
-;; to a symbol of another section); the field holds symbol + addend, less its own address but
-;; for abs64.
+;; Fixups: abs64 (a quad), pc32 (a RIP-relative operand), plt32 (a call to a symbol),
+;; jmp32 (a jmp to a symbol of another section);
+;; the field holds symbol + addend, less its own address but for abs64.
 ;;
-;; A section's bytes are encoded into one buffer as they come; only its labels, alignments and
-;; relaxable jumps are items, at their position in the buffer, so relaxation works on them
-;; alone.
+;; A section's bytes are encoded into one buffer as they come;
+;; only its labels, alignments and relaxable jumps are items, at their position in the buffer,
+;; so relaxation works on them alone.
 
 (library (encode)
   (export encode-asm s32?
