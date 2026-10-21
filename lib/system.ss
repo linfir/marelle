@@ -64,12 +64,9 @@
   (declare unsafe noalloc (result void))
   (write-bytes out s (c-string-length s)))
 
-;; Prints the statistics on stderr when SCHEME_GC_STATS is set, flushes the output ports, then
-;; exits
-(define (exit-process (raw status))
-  (declare unsafe noalloc (result never))
-  (unless (raw= (load gc-stats (raw 0)) (raw 0))
-    (print-gc-stats))
+;; Flushes the console ports and the open descriptor output ports
+(define (flush-output-ports)
+  (declare unsafe noalloc (result void))
   (flush-port stdout)
   (flush-port stderr)
   (let port-next ((l (as-val (load output-ports (raw 0)))))
@@ -77,7 +74,15 @@
         (begin
           (flush-port (as-raw (pair-car l)))
           (port-next (pair-cdr l)))
-        undef))
+        undef)))
+
+;; Prints the statistics on stderr when SCHEME_GC_STATS is set, flushes the output ports, then
+;; exits
+(define (exit-process (raw status))
+  (declare unsafe noalloc (result never))
+  (unless (raw= (load gc-stats (raw 0)) (raw 0))
+    (print-gc-stats))
+  (flush-output-ports)
   (syscall 231 status)) ; exit_group
 
 ;; Flushes the ports and exits with status 0 with no argument, a fixnum's low byte, else 1, as in
@@ -232,10 +237,12 @@
       (embedded-bytes i 1 (make-fixnum (embedded-word i (raw 2)))))
      (else (next (+ i 1))))))
 
-;; Called from _start with the value of scheme_main
+;; Called from _start with the value of scheme_main, which it prints when the program was
+;; compiled with --display (scheme_program's word 6)
 (define (finish-program v)
   (declare unsafe noalloc (result never))
-  (put-datum stdout (raw 1) v)
+  (unless (raw= (load (address "scheme_program") (raw 6)) (raw 0))
+    (put-datum stdout (raw 1) v))
   (exit-process (raw 0)))
 
 ;; A letrec variable used or assigned before its init

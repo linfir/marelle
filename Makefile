@@ -43,10 +43,10 @@ build/flat.ss: flatten schemec $(CHEZ_LIBS)
 	./flatten > $@
 
 build/stage1: build/flat.ss $(CHEZ_OBJS) build/lib.img build/lib.scm
-	$(CHEZ) --program schemec $(EMBED_LIB) -o $@ < $<
+	$(CHEZ) --program schemec $(EMBED_LIB) -o $@ $<
 
 build/stage2: build/flat.ss build/stage1 build/lib.img build/lib.scm
-	build/stage1 $(EMBED_LIB) -o $@ < $<
+	build/stage1 $(EMBED_LIB) -o $@ $<
 
 # The compiler, as marelle
 PREFIX ?= $(HOME)/.local

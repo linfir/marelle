@@ -85,7 +85,7 @@ def check_case(path):
     with tempfile.TemporaryDirectory() as directory:
         obj = Path(directory) / "ours.o"
         try:
-            run_stage("compiler", [*run.compiler, "--obj", obj], input=source, cwd=ROOT)
+            run_stage("compiler", [*run.compiler, "--obj", obj, "-"], input=source, cwd=ROOT)
         except PipelineFailure as error:
             return "encoder", [error.result.stderr.strip()]
         return check_object(assembly, obj)

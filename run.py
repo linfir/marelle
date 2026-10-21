@@ -68,8 +68,8 @@ def lib_missing():
 
 
 def compile_source(source, *options):
-    """=> the compiler's output for source with options, e.g. -S or --dump PASS."""
-    return run_stage("compiler", [*compiler, *options], input=source, cwd=ROOT).stdout
+    """=> the compiler's output for source, on its stdin, with options, e.g. -S or --pass PASS."""
+    return run_stage("compiler", [*compiler, *options, "-"], input=source, cwd=ROOT).stdout
 
 
 # The executable runs in the temporary directory, so programs may create files there; embed maps
@@ -78,7 +78,7 @@ def run_pipeline(source, *, env=None, stdin=None, embed=None):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         executable = work / "out"
-        options = []
+        options = ["--display"]
         for k, (name, contents) in enumerate((embed or {}).items()):
             path = work / f"embedded{k}"
             path.write_text(contents)
@@ -108,7 +108,7 @@ def parse_args():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("-e", metavar="STRING")
     source.add_argument("file", nargs="?", type=Path)
-    parser.add_argument("--dump", metavar="PASS", help="print the IR after PASS instead of running")
+    parser.add_argument("--pass", dest="dump", metavar="PASS", help="print the IR after PASS instead of running")
     parser.add_argument("--chez-host", action="store_true", help="run the compiler under Chez")
     parser.add_argument("--as", dest="assemble", action="store_true", help="assemble and link with as and ld")
     return parser.parse_args()
@@ -129,7 +129,7 @@ def main():
 
     try:
         if args.dump:
-            sys.stdout.write(compile_source(source, "--dump", args.dump))
+            sys.stdout.write(compile_source(source, "--pass", args.dump))
             return
         result = run_pipeline(source)
     except PipelineFailure as error:

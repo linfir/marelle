@@ -103,7 +103,7 @@ def main():
         for path in paths:
             try:
                 obj = work / "out.o"
-                assemble(compile_source(path.read_text(), "-S"), obj)
+                assemble(compile_source(path.read_text(), "-S", "--display"), obj)
                 times = []
                 for lib in libs:
                     executable = work / "out"

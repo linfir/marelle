@@ -147,7 +147,7 @@
     (store gc-free (raw 0) to)
     (forward-words roots nroots)
     ;; scheme_program: main, the globals and their count, the literals and their count, the
-    ;; embedded files
+    ;; embedded files, the display flag
     (forward-words (load (address "scheme_program") (raw 1)) (load (address "scheme_program") (raw 2)))
     (forward-words (load (address "scheme_program") (raw 3)) (load (address "scheme_program") (raw 4)))
     (forward-words (address "scheme_library_literals")

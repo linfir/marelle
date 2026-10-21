@@ -1,16 +1,18 @@
 #!/usr/bin/env -S scheme --libdirs compiler::build/chez --program
 
 ;; The compiler: every stage in one process.
+;; schemec [--run] [-S | --pass PASS] [--display] [-o FILE] SOURCE: the program SOURCE, - for
+;; stdin, linked with the library into the executable FILE (elf.sls), by default SOURCE without
+;; its .scm or .ss extension; --map MAP also writes the address of every symbol to MAP
+;; --run: then replaces the process with the executable, which is written only with -o
+;; --display: the executable prints the value of the program's last form
+;; -S: the program's asm instead, for as and ld with build/lib.o; --pass PASS: its IR after PASS
+;; (see dump-passes); both to the standard output, or to FILE with -o
 ;; schemec --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s, the
 ;; image DIR/lib.img (layout.sls) and the interface DIR/lib.scm, with the image's stamp and
-;; addresses
-;; schemec -o FILE < SOURCE: a program, linked with the library into the executable FILE
-;; (elf.sls); --map MAP also writes the address of every symbol to MAP
-;; schemec -S < SOURCE > ASM: the program's asm, for as and ld with build/lib.o
-;; schemec --dump PASS < SOURCE: the program's IR after PASS (see dump-passes); with --lib, the
-;; library's, the files written too
-;; --obj FILE: also with --lib, writes the ELF object of the asm (encode.sls, object.sls), for
-;; asmcheck.py
+;; addresses; with --pass, the library's IR too
+;; --obj FILE: also writes the ELF object of the asm (encode.sls, object.sls), for asmcheck.py;
+;; without -o, no executable
 ;; --embed NAME=FILE, any number of times: the program's (embedded-file NAME) gives the bytes of
 ;; FILE
 ;; The library: the image and the interface embedded as lib.img and lib.scm, else build/lib.img
@@ -30,6 +32,10 @@
 
 ;; Locals and the markers are gensyms: errors print their names
 (print-gensym #f)
+
+
+;; The name in the errors: the self-contained compiler carries the library
+(define compiler-name (if (embedded-file "lib.img") 'marelle 'schemec))
 
 
 ;; The forms of the files, in order
@@ -92,7 +98,7 @@
                                 (with-input-from-file (string-append dir "/lib.scm") read-all)))))))
     (let ((image (read-image image)))
       (unless (eqv? (image-stamp image) (cadr (or (assq 'stamp interface) '(stamp #f))))
-        (errorf 'schemec "the library's image and interface come from different builds"))
+        (errorf compiler-name "the library's image and interface come from different builds"))
       (values image interface))))
 
 
@@ -104,7 +110,7 @@
     (let* ((spec (cadr args))
            (i (let loop ((i 0))
                 (cond
-                 ((= i (string-length spec)) (errorf 'schemec "--embed expects NAME=FILE"))
+                 ((= i (string-length spec)) (errorf compiler-name "--embed expects NAME=FILE"))
                  ((char=? (string-ref spec i) #\=) i)
                  (else (loop (+ i 1))))))
            (path (substring spec (+ i 1) (string-length spec))))
@@ -116,7 +122,7 @@
 ;; The address of the library's global symbol name
 (define (library-symbol interface name)
   (let ((x (find (lambda (x) (and (eq? (car x) 'symbol) (string=? (cadr x) name))) interface)))
-    (if x (caddr x) (errorf 'schemec "no symbol ~a in the library" name))))
+    (if x (caddr x) (errorf compiler-name "no symbol ~a in the library" name))))
 
 
 ;; The program's unit linked after the library
@@ -131,7 +137,7 @@
     (let ((linked (link-unit unit p known)))
       (unless (eqv? (cdr (assoc "scheme_program" (linked-symbols linked)))
                     (align-up (cadr (image-ends image)) 8))
-        (errorf 'schemec "scheme_program is not the program's first data"))
+        (errorf compiler-name "scheme_program is not the program's first data"))
       linked)))
 
 
@@ -169,31 +175,60 @@
     (and tail
          (if (pair? (cdr tail))
              (cadr tail)
-             (errorf 'schemec "~a expects an argument" name)))))
+             (errorf compiler-name "~a expects an argument" name)))))
 
 
-;; args without the options and their values
+(define valued-options '("--lib" "--pass" "--obj" "-o" "--map" "--embed" "--libdir"))
+
+(define flag-options '("-S" "--display" "--run"))
+
+
+;; args without the options and their values; an unknown option is an error
 (define (operands args)
   (cond
    ((null? args) '())
-   ((member (car args) '("--lib" "--dump" "--obj" "-o" "--map" "--embed" "--libdir"))
-    (operands (cddr args)))
-   ((member (car args) '("-S")) (operands (cdr args)))
+   ((member (car args) valued-options)
+    (if (pair? (cdr args))
+        (operands (cddr args))
+        (errorf compiler-name "~a expects an argument" (car args))))
+   ((member (car args) flag-options) (operands (cdr args)))
+   ((and (> (string-length (car args)) 1) (char=? (string-ref (car args) 0) #\-))
+    (errorf compiler-name "unknown option ~a" (car args)))
    (else (cons (car args) (operands (cdr args))))))
 
 
+;; The executable's default name: source without its .scm or .ss extension
+(define (default-output source)
+  (let* ((n (string-length source))
+         (ext (find (lambda (ext)
+                      (let ((k (string-length ext)))
+                        (and (> n k) (string=? (substring source (- n k) n) ext))))
+                    '(".scm" ".ss"))))
+    (if ext
+        (substring source 0 (- n (string-length ext)))
+        (errorf compiler-name "cannot name the executable after ~a, expected -o FILE" source))))
+
+
+;; Calls thunk with the current output port writing to the file path, or as it is without path
+(define (with-output path thunk)
+  (if path (write-file path thunk) (thunk)))
+
+
 (let* ((args (cdr (command-line)))
+       (files (operands args))
        (lib (option "--lib" args))
        (obj (option "--obj" args))
        (out (option "-o" args))
        (map-file (option "--map" args))
-       (pass (let ((name (option "--dump" args)))
+       (asm? (member "-S" args))
+       (run? (member "--run" args))
+       (pass (let ((name (option "--pass" args)))
                (and name (string->symbol name)))))
   (when (and pass (not (memq pass dump-passes)))
-    (errorf 'schemec "unknown pass ~a, expected one of ~a" pass dump-passes))
+    (errorf compiler-name "unknown pass ~a, expected one of ~a" pass dump-passes))
   (parameterize ((dump-pass pass))
     (if lib
-        (let*-values (((entries interface) (compile-scheme-library (library-forms (operands args))))
+        (let*-values (((entries interface) (compile-scheme-library (library-forms files)))
                       ((asm) (program-asm entries)))
           (write-file (string-append lib "/lib.s") (lambda () (print-program asm)))
           (when obj
@@ -206,22 +241,49 @@
                             (write `(stamp ,stamp))
                             (newline)
                             (display text))))))
-        (let-values (((image interface) (read-library (option "--libdir" args))))
-          (unless (or out obj pass (member "-S" args))
-            (errorf 'schemec "expected -o FILE, -S, --obj FILE or --dump PASS"))
-          (let ((asm (program-asm (compile-scheme-program interface (read-all) (embedded-files args)))))
-            (when (member "-S" args)
-              (print-program asm))
-            (when obj
-              (write-binary-file obj (object-file (encode-asm asm))))
-            (when out
-              (let ((linked (link-program asm image interface)))
-                (write-binary-file out (executable-file (image-segments image) (linked-segments linked)
-                                                        (library-symbol interface "_start")))
-                (chmod out #o755)
-                (when map-file
-                  (write-map map-file interface linked)))))))))
-
-
-;; Compiled by itself, the value of the last form would be printed
-(exit)
+        (begin
+          (unless (= (length files) 1)
+            (errorf compiler-name "expected one source file, - for the standard input"))
+          (when (and run? (or asm? pass))
+            (errorf compiler-name "--run does not go with -S or --pass"))
+          (let*-values (((source) (car files))
+                        ;; The executable's name, #f for none
+                        ((name) (cond
+                                 ((or asm? pass) #f)
+                                 (out out)
+                                 (run? source)
+                                 (obj #f)
+                                 (else (default-output source))))
+                        ((program) (if (string=? source "-")
+                                       (read-all)
+                                       (with-input-from-file source read-all)))
+                        ((image interface) (read-library (option "--libdir" args))))
+            (let ((compile
+                   (lambda ()
+                     (let ((asm (program-asm
+                                 (compile-scheme-program interface program (embedded-files args)
+                                                         (and (member "--display" args) #t)))))
+                       (when obj
+                         (write-binary-file obj (object-file (encode-asm asm))))
+                       asm))))
+              (cond
+               ((or asm? pass)
+                (with-output out
+                             (lambda ()
+                               (let ((asm (compile)))
+                                 (when asm?
+                                   (print-program asm))))))
+               ((not name)
+                (compile))
+               (else
+                (let* ((asm (compile))
+                       (linked (link-program asm image interface))
+                       (bytes (executable-file (image-segments image) (linked-segments linked)
+                                               (library-symbol interface "_start"))))
+                  (when map-file
+                    (write-map map-file interface linked))
+                  (when (or out (not run?))
+                    (write-binary-file name bytes)
+                    (chmod name #o755))
+                  (when run?
+                    (execute-bytevector bytes name)))))))))))
