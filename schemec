@@ -1,16 +1,20 @@
 #!/usr/bin/env -S scheme --libdirs compiler::build/chez --program
 
-;; The compiler, run from the project root: every stage in one process.
-;; ./schemec --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s, the
+;; The compiler: every stage in one process.
+;; schemec --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s, the
 ;; image DIR/lib.img (layout.sls) and the interface DIR/lib.scm, with the image's stamp and
 ;; addresses
-;; ./schemec -o FILE < SOURCE: a program, against build/lib.scm, linked with build/lib.img into
-;; the executable FILE (elf.sls); --map MAP also writes the address of every symbol to MAP
-;; ./schemec -S < SOURCE > ASM: the program's asm, for as and ld with build/lib.o
-;; ./schemec --dump PASS < SOURCE: the program's IR after PASS (see dump-passes); with --lib, the
+;; schemec -o FILE < SOURCE: a program, linked with the library into the executable FILE
+;; (elf.sls); --map MAP also writes the address of every symbol to MAP
+;; schemec -S < SOURCE > ASM: the program's asm, for as and ld with build/lib.o
+;; schemec --dump PASS < SOURCE: the program's IR after PASS (see dump-passes); with --lib, the
 ;; library's, the files written too
 ;; --obj FILE: also with --lib, writes the ELF object of the asm (encode.sls, object.sls), for
 ;; asmcheck.py
+;; --embed NAME=FILE, any number of times: the program's (embedded-file NAME) gives the bytes of
+;; FILE
+;; The library: the image and the interface embedded as lib.img and lib.scm, else build/lib.img
+;; and build/lib.scm, from the project root; --libdir DIR forces DIR's files.
 
 (import (chezscheme)
         (utils)
@@ -20,7 +24,8 @@
         (object)
         (layout)
         (elf)
-        (bytes))
+        (bytes)
+        (host))
 
 
 ;; Locals and the markers are gensyms: errors print their names
@@ -74,13 +79,38 @@
     (if (eof-object? bv) (make-bytevector 0) bv)))
 
 
-;; The library's image and interface, which must come from the same build
-(define (read-library)
-  (let ((image (read-image (read-binary-file "build/lib.img")))
-        (interface (with-input-from-file "build/lib.scm" read-all)))
-    (unless (eqv? (image-stamp image) (cadr (or (assq 'stamp interface) '(stamp #f))))
-      (errorf 'schemec "build/lib.img and build/lib.scm come from different builds"))
-    (values image interface)))
+;; The library's image and interface, which must come from the same build: those embedded,
+;; unless dir is given, else dir's files, build's by default
+(define (read-library dir)
+  (let-values (((image interface)
+                (let ((image (and (not dir) (embedded-file "lib.img")))
+                      (text (and (not dir) (embedded-file "lib.scm"))))
+                  (if (and image text)
+                      (values image (with-input-from-string (utf8->string text) read-all))
+                      (let ((dir (or dir "build")))
+                        (values (read-binary-file (string-append dir "/lib.img"))
+                                (with-input-from-file (string-append dir "/lib.scm") read-all)))))))
+    (let ((image (read-image image)))
+      (unless (eqv? (image-stamp image) (cadr (or (assq 'stamp interface) '(stamp #f))))
+        (errorf 'schemec "the library's image and interface come from different builds"))
+      (values image interface))))
+
+
+;; The files of the --embed NAME=FILE options, ((name path bytes) ...)
+(define (embedded-files args)
+  (cond
+   ((null? args) '())
+   ((and (string=? (car args) "--embed") (pair? (cdr args)))
+    (let* ((spec (cadr args))
+           (i (let loop ((i 0))
+                (cond
+                 ((= i (string-length spec)) (errorf 'schemec "--embed expects NAME=FILE"))
+                 ((char=? (string-ref spec i) #\=) i)
+                 (else (loop (+ i 1))))))
+           (path (substring spec (+ i 1) (string-length spec))))
+      (cons (list (substring spec 0 i) path (read-binary-file path))
+            (embedded-files (cddr args)))))
+   (else (embedded-files (cdr args)))))
 
 
 ;; The address of the library's global symbol name
@@ -146,7 +176,8 @@
 (define (operands args)
   (cond
    ((null? args) '())
-   ((member (car args) '("--lib" "--dump" "--obj" "-o" "--map")) (operands (cddr args)))
+   ((member (car args) '("--lib" "--dump" "--obj" "-o" "--map" "--embed" "--libdir"))
+    (operands (cddr args)))
    ((member (car args) '("-S")) (operands (cdr args)))
    (else (cons (car args) (operands (cdr args))))))
 
@@ -175,10 +206,10 @@
                             (write `(stamp ,stamp))
                             (newline)
                             (display text))))))
-        (let-values (((image interface) (read-library)))
+        (let-values (((image interface) (read-library (option "--libdir" args))))
           (unless (or out obj pass (member "-S" args))
             (errorf 'schemec "expected -o FILE, -S, --obj FILE or --dump PASS"))
-          (let ((asm (program-asm (compile-scheme-program interface (read-all)))))
+          (let ((asm (program-asm (compile-scheme-program interface (read-all) (embedded-files args)))))
             (when (member "-S" args)
               (print-program asm))
             (when obj

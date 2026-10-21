@@ -18,7 +18,7 @@ prebuild: build/lib.img build/lib.scm
 $(CHEZ_OBJS) &: $(CHEZ_LIBS)
 	rm -rf build/chez
 	mkdir -p build/chez
-	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm) (encode) (object) (layout) (elf))\n' | \
+	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm) (encode) (object) (layout) (elf) (host))\n' | \
 	  $(CHEZ) -q --compile-imported-libraries
 
 # The library as an object, for as and ld (tests.py --as, asmcheck.py, bench.py)
@@ -31,20 +31,29 @@ build/lib.s build/lib.img build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
 	$(CHEZ) --program schemec --lib build $(sort $(wildcard lib/*.ss))
 
 # Self-hosting: the compiler as one program, compiled by schemec under Chez (stage 1), then by
-# stage 1 (stage 2); only Chez is needed
+# stage 1 (stage 2); only Chez is needed. Each embeds the library's image and interface.
 stage1: build/stage1
 
 stage2: build/stage2
+
+EMBED_LIB = --embed lib.img=build/lib.img --embed lib.scm=build/lib.scm
 
 build/flat.ss: flatten schemec $(CHEZ_LIBS)
 	mkdir -p build
 	./flatten > $@
 
 build/stage1: build/flat.ss $(CHEZ_OBJS) build/lib.img build/lib.scm
-	$(CHEZ) --program schemec -o $@ < $<
+	$(CHEZ) --program schemec $(EMBED_LIB) -o $@ < $<
 
 build/stage2: build/flat.ss build/stage1 build/lib.img build/lib.scm
-	build/stage1 -o $@ < $<
+	build/stage1 $(EMBED_LIB) -o $@ < $<
+
+# The compiler, as marelle
+PREFIX ?= $(HOME)/.local
+
+install: build/stage1
+	mkdir -p $(PREFIX)/bin
+	cp build/stage1 $(PREFIX)/bin/marelle
 
 # The fixed point: stage 1 compiles the library and the compiler as Chez did
 fixpoint: build/stage2
@@ -84,4 +93,4 @@ clean:
 # A failed recipe leaves no partial output
 .DELETE_ON_ERROR:
 
-.PHONY: all chez prebuild stage1 stage2 fixpoint test test-as bench test-chez test-asm fmt clean
+.PHONY: all chez prebuild stage1 stage2 install fixpoint test test-as bench test-chez test-asm fmt clean

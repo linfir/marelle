@@ -582,6 +582,12 @@
          (balign 8)
          (label ,(cadr x))
          (quad ,@(map cadr (cddr x)))))
+      ;; (bytes name path bv): the bytes of the file at path, bv
+      ((bytes)
+       `((section ".rodata")
+         (balign 8)
+         (label ,(cadr x))
+         (incbin ,(caddr x) ,(cadddr x))))
       ((string)
        `((section ".rodata")
          (label ,(cadr x))
@@ -712,7 +718,7 @@
             '((section ".note.GNU-stack" "" %progbits))))
 
 
-  (define *directives* '(intel_syntax globl text section balign quad asciz))
+  (define *directives* '(intel_syntax globl text section balign quad asciz incbin))
 
 
   ;; Writes s as a GNU as string: printable ASCII as is, other bytes in octal
@@ -753,17 +759,23 @@
 
 
   (define (print-asm x)
-    (if (eq? (car x) 'label)
-        (printf "~s:\n" (cadr x))
-        (begin
-          (printf "    ~a~a" (if (memq (car x) *directives*) "." "") (car x))
-          (let loop ((ops (cdr x))
-                     (sep " "))
-            (unless (null? ops)
-              (display sep)
-              (print-operand (car ops))
-              (loop (cdr ops) ", ")))
-          (newline))))
+    (cond
+     ((eq? (car x) 'label)
+      (printf "~s:\n" (cadr x)))
+     ;; The bytes from the file
+     ((eq? (car x) 'incbin)
+      (display "    .incbin ")
+      (write-gas-string (cadr x))
+      (newline))
+     (else
+      (printf "    ~a~a" (if (memq (car x) *directives*) "." "") (car x))
+      (let loop ((ops (cdr x))
+                 (sep " "))
+        (unless (null? ops)
+          (display sep)
+          (print-operand (car ops))
+          (loop (cdr ops) ", ")))
+      (newline))))
 
 
   ;; The asm of the IR entries tops

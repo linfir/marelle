@@ -576,6 +576,7 @@
                 (section-state-align-set! s (max (cadr x) (section-state-align s)))))
              ((quad) (quad! (state) (cdr x)))
              ((asciz) (asciz! (state) (cadr x)))
+             ((incbin) (buffer-bytevector! (section-state-buffer (state)) (caddr x)))
              (else
               (let ((s (state)))
                 (encode! s x (lambda (name)

@@ -1,7 +1,9 @@
 # marelle
 
-Marelle is a Scheme compiler to x86-64 Linux, written in Chez Scheme.
-It emits assembly and links static executables against its own runtime, with no libc.
+Marelle is a Scheme compiler to x86-64 Linux, written in Scheme, running under Chez Scheme or
+compiled by itself.
+It writes static executables of its own runtime and the program, with no libc, no assembler and
+no linker.
 
 - Closures, tail calls, `letrec`, named `let`, `do`, `case`, `define-values`
 - Copying garbage collector
@@ -14,18 +16,22 @@ defines (`declare unsafe`) for raw words, memory and syscalls.
 
 ## Requirements
 
-- Chez Scheme (`scheme`)
-- GNU binutils (`as`, `ld`)
+- Chez Scheme (`scheme`), to bootstrap the compiler
 - Python 3, for `run.py` and the tests
+- GNU binutils (`as`, `ld`), only to check the compiler against them (`make test-as`,
+  `make test-asm`) and for `bench.py`
 
 ## Usage
 
 ```sh
-make                      # compile the compiler and the runtime library
+make stage1               # the runtime library, then the compiler compiled by itself
+make install              # build/stage1 as ~/.local/bin/marelle (PREFIX=...)
+marelle -o prog < prog.scm  # a program to an executable, from any directory
 ./run.py -e '(/ 6 4)'     # prints 3/2
 ./run.py program.scm      # compile, link and run a file
 ./run.py --dump closure -e '(car (list 1))'  # the IR after a pass, without running
 make test                 # the test suite, tests/
+make fixpoint             # the compiler compiled by itself gives itself again
 ./bench.py                # the best of 5 runs of each program of bench/
 ./bench.py --offsets 8    # the mean over 8 positions of the library's code
 make bench                # the benchmarks against Chez Scheme
@@ -37,8 +43,8 @@ The value of the last form is printed.
 ## Layout
 
 - `compiler/`: the compiler, as Chez libraries
-- `lib/`: the runtime library, compiled once into `build/lib.o`
-- `schemec`: the compiler's entry point, Scheme to assembly; `run.py` drives the whole pipeline
+- `lib/`: the runtime library, compiled once into `build/lib.img`, at fixed addresses
+- `schemec`: the compiler's entry point, Scheme to executables; `run.py` drives the whole pipeline
 - `flatten`: `schemec` and `compiler/` as one program, for self-hosting
 - `tests/`: per test, the program `NAME.scm` and its expected outcome `NAME.toml`
 - `bench/`: benchmark programs, timed by `bench.py`

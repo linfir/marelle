@@ -16,7 +16,7 @@ TEST_ROOT = ROOT / "tests"
 STAGES = {"compiler", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 INPUT_FIELDS = {"stdin"}
-EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", *OUTPUT_FIELDS, *INPUT_FIELDS}
+EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", "embed", *OUTPUT_FIELDS, *INPUT_FIELDS}
 SKIP = "skip"
 
 
@@ -47,9 +47,10 @@ def read_case(path):
     if not ((isinstance(exit_status, int) and not isinstance(exit_status, bool)) or exit_status == "nonzero"):
         raise TestFormatError('exit must be an integer or "nonzero"')
 
-    env = expected.get("env", {})
-    if not isinstance(env, dict) or not all(isinstance(v, str) for v in env.values()):
-        raise TestFormatError("env must be a table of strings")
+    for field in ("env", "embed"):
+        table = expected.get(field, {})
+        if not isinstance(table, dict) or not all(isinstance(v, str) for v in table.values()):
+            raise TestFormatError(f"{field} must be a table of strings")
 
     for field in ("chez", "gc_stress"):
         if expected.get(field, SKIP) != SKIP:
@@ -85,7 +86,10 @@ def check_case(path, chez=False, gc_stress=None):
 
     try:
         stdin = expected.get("stdin", "")
-        result = run_chez(source, stdin=stdin) if chez else run_pipeline(source, env=env, stdin=stdin)
+        if chez:
+            result = run_chez(source, stdin=stdin)
+        else:
+            result = run_pipeline(source, env=env, stdin=stdin, embed=expected.get("embed"))
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result

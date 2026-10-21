@@ -189,8 +189,8 @@
             (map cddr (reverse (current-numbers)))))
 
 
-  ;; The cells of the literals, 0 until the init function fills them, and their count
-  ;; The literal cells, and their count when count-symbol is not #f
+  ;; The cells of the literals, 0 until the init function fills them, and their count when
+  ;; count-symbol is not #f
   (define (literal-entries symbol count-symbol)
     (let ((n (length (current-literals))))
       (cons `(data ,symbol ,n 0)
@@ -324,11 +324,27 @@
         (loop (cdr forms) (cons (list (gensym "expression") (car forms)) bindings))))))
 
 
+  ;; The table of the embedded files, ((name path bytes) ...): their count, then per file its
+  ;; name (a C string), its address and its size; then their bytes
+  (define (embedded-entries embedded)
+    (let loop ((l embedded) (i 1) (table '()) (files '()))
+      (if (null? l)
+          (cons `(rodata "scheme_embedded" (quad ,(length embedded)) ,@(reverse table))
+                (reverse files))
+          (let ((symbol (format "scheme_embedded_~a" i))
+                (name (intern-string! (caar l))))
+            (add-symbol! symbol symbol)
+            (loop (cdr l) (+ i 1)
+                  (append (reverse `((quad ,name) (quad ,symbol) (quad ,(bytevector-length (caddr (car l))))))
+                          table)
+                  (cons `(bytes ,symbol ,(cadr (car l)) ,(caddr (car l))) files))))))
+
+
   ;; The IR entries of the program, its top-level forms with begins spliced: a define with a declare
   ;; define-data and define-constant are static, like the library's; the others are the letrec* body of main
   ;; (main-body), whose variables, but the procedures, are global cells; the last form gives the
-  ;; result
-  (define (compile-scheme-program interface program)
+  ;; result; embedded, ((name path bytes) ...), the files embedded-file returns
+  (define (compile-scheme-program interface program embedded)
     (when (null? (splice-begins program))
       (compile-error 'compile-scheme-program "empty program"))
     (new-compilation
@@ -378,11 +394,14 @@
                             (make-main-core env body))
                   '())))
              (compile-literal-init init)
-             `((export "scheme_program")
-               (words "scheme_program" "scheme_main" "scheme_globals" ,(hashtable-size (top-globals))
-                      "scheme_literals" ,(length (current-literals)))
-               ,@(global-entries (hashtable-size (top-globals)))
-               ,@(data-entries items)
-               ,@(literal-entries "scheme_literals" #f)
-               ,@(constant-entries)
-               ,@(reverse (current-entries))))))))))
+             ;; Before constant-entries, since it interns the names
+             (let ((files (embedded-entries embedded)))
+               `((export "scheme_program")
+                 (words "scheme_program" "scheme_main" "scheme_globals" ,(hashtable-size (top-globals))
+                        "scheme_literals" ,(length (current-literals)) "scheme_embedded")
+                 ,@files
+                 ,@(global-entries (hashtable-size (top-globals)))
+                 ,@(data-entries items)
+                 ,@(literal-entries "scheme_literals" #f)
+                 ,@(constant-entries)
+                 ,@(reverse (current-entries)))))))))))

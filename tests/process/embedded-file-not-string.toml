@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "Exception in embedded-file: a is not a string"
+chez = "skip"

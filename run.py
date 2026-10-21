@@ -52,18 +52,18 @@ def run_stage(stage, command, **kwargs):
 
 
 def lib_missing():
-    """The message when make's output is missing: the library's image and interface, build/lib.o
-    with as, and build/stage1 or the compiled compiler libraries, else None."""
-    needed = [BUILD / "lib.img", BUILD / "lib.scm"]
-    if assemble:
-        needed.append(LIB)
+    """The message when make's output is missing: build/stage1, which carries the library, or the
+    compiled compiler libraries and the library's image and interface; build/lib.o with as; else
+    None."""
+    needed = [LIB] if assemble else []
     if compiler == CHEZ_HOST:
-        needed.append(BUILD / "chez")
+        needed += [BUILD / "chez", BUILD / "lib.img", BUILD / "lib.scm"]
     elif not STAGE1.exists():
         return "missing build/stage1: run make stage1 first"
     missing = [p for p in needed if not p.exists()]
     if missing:
-        return f"missing {', '.join(str(p.relative_to(ROOT)) for p in missing)}: run make first"
+        command = "make build/lib.o" if LIB in missing else "make"
+        return f"missing {', '.join(str(p.relative_to(ROOT)) for p in missing)}: run {command} first"
     return None
 
 
@@ -72,19 +72,25 @@ def compile_source(source, *options):
     return run_stage("compiler", [*compiler, *options], input=source, cwd=ROOT).stdout
 
 
-# The executable runs in the temporary directory, so programs may create files there
-def run_pipeline(source, *, env=None, stdin=None):
+# The executable runs in the temporary directory, so programs may create files there; embed maps
+# the names of the files to embed to their contents
+def run_pipeline(source, *, env=None, stdin=None, embed=None):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         executable = work / "out"
+        options = []
+        for k, (name, contents) in enumerate((embed or {}).items()):
+            path = work / f"embedded{k}"
+            path.write_text(contents)
+            options += ["--embed", f"{name}={path}"]
         if assemble:
             assembly = work / "out.s"
             obj = work / "out.o"
-            assembly.write_text(compile_source(source, "-S"))
+            assembly.write_text(compile_source(source, "-S", *options))
             run_stage("as", ["as", "-o", obj, assembly])
             run_stage("ld", ["ld", "-o", executable, obj, LIB])
         else:
-            compile_source(source, "-o", executable)
+            compile_source(source, "-o", executable, *options)
         return run_stage("executable", [executable], input=stdin, cwd=work, env=os.environ | (env or {}))
 
 

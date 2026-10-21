@@ -1,0 +1,6 @@
+stdout = '("hello\n" #f 0)'
+chez = "skip"
+
+[embed]
+greeting = "hello\n"
+empty = ""
