@@ -40,7 +40,7 @@
 (define-constant bytevector-type (raw (ash 61 3)))
 
 (define (fixnum? x)
-  (declare unsafe inline)
+  (declare unsafe inline public)
   (tag=? x (raw 1)))
 
 (define (null? x)

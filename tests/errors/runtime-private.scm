@@ -1,1 +1,1 @@
-(fixnum? 1)
+(pair-car 1)

@@ -4,12 +4,17 @@
 ;; ./schemec --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s and the
 ;; interface DIR/lib.scm
 ;; ./schemec < SOURCE > ASM: a program, against build/lib.scm
-;; ./schemec --dump PASS < SOURCE: the program's IR after PASS (see dump-passes), instead of the asm
+;; ./schemec --dump PASS < SOURCE: the program's IR after PASS (see dump-passes), instead of the asm;
+;; with --lib, the library's, the files written too
+;; --obj FILE: also with --lib, writes the ELF object of the asm (encode.sls, object.sls) instead of
+;; printing it, for asmcheck.py
 
 (import (chezscheme)
         (utils)
         (library)
-        (asm))
+        (asm)
+        (encode)
+        (object))
 
 
 ;; Locals and the markers are gensyms: errors print their names
@@ -29,23 +34,54 @@
   (with-output-to-file path thunk))
 
 
-(let ((args (cdr (command-line))))
-  (if (and (pair? args) (string=? (car args) "--lib"))
-      (let-values (((entries interface) (compile-scheme-library (library-forms (cddr args)))))
-        (write-file (string-append (cadr args) "/lib.scm")
-                    (lambda ()
-                      (for-each (lambda (x) (write x) (newline)) interface)))
-        (write-file (string-append (cadr args) "/lib.s")
-                    (lambda () (print-program (program-asm entries)))))
-      (let ((pass (and (pair? args) (string=? (car args) "--dump") (pair? (cdr args))
-                       (string->symbol (cadr args)))))
-        (when (and pass (not (memq pass dump-passes)))
-          (errorf 'schemec "unknown pass ~a, expected one of ~a" pass dump-passes))
-        (parameterize ((dump-pass pass))
-          (let* ((interface (with-input-from-file "build/lib.scm" read-all))
-                 (asm (program-asm (compile-scheme-program interface (read-all)))))
-            (unless pass
-              (print-program asm)))))))
+;; Writes the bytevector bv to the file, replacing it
+(define (write-binary-file path bv)
+  (when (file-exists? path)
+    (delete-file path))
+  (let ((port (open-file-output-port path)))
+    (put-bytevector port bv)
+    (close-port port)))
+
+
+;; The value of option name in args, or #f
+(define (option name args)
+  (let ((tail (member name args)))
+    (and tail
+         (if (pair? (cdr tail))
+             (cadr tail)
+             (errorf 'schemec "~a expects an argument" name)))))
+
+
+;; args without the options and their values
+(define (operands args)
+  (cond
+   ((null? args) '())
+   ((member (car args) '("--lib" "--dump" "--obj")) (operands (cddr args)))
+   (else (cons (car args) (operands (cdr args))))))
+
+
+(let* ((args (cdr (command-line)))
+       (lib (option "--lib" args))
+       (obj (option "--obj" args))
+       (pass (let ((name (option "--dump" args)))
+               (and name (string->symbol name)))))
+  (when (and pass (not (memq pass dump-passes)))
+    (errorf 'schemec "unknown pass ~a, expected one of ~a" pass dump-passes))
+  (parameterize ((dump-pass pass))
+    (if lib
+        (let-values (((entries interface) (compile-scheme-library (library-forms (operands args)))))
+          (write-file (string-append lib "/lib.scm")
+                      (lambda ()
+                        (for-each (lambda (x) (write x) (newline)) interface)))
+          (let ((asm (program-asm entries)))
+            (write-file (string-append lib "/lib.s") (lambda () (print-program asm)))
+            (when obj
+              (write-binary-file obj (object-file (encode-asm asm))))))
+        (let* ((interface (with-input-from-file "build/lib.scm" read-all))
+               (asm (program-asm (compile-scheme-program interface (read-all)))))
+          (cond
+           (obj (write-binary-file obj (object-file (encode-asm asm))))
+           ((not pass) (print-program asm)))))))
 
 
 ;; Compiled by itself, the value of the last form would be printed

@@ -250,21 +250,21 @@
               ,@entries
               (stubs)))
           `((names ,((names)))
-           ,@(map (lambda (x)
-                    (cond
-                     ((library-constant? x)
-                      `(constant ,(library-constant-name x) ,(library-constant-kind x)
-                                 ,(library-constant-value x)))
-                     ((data? x)
-                      `(data ,(data-name x) ,(data-symbol x) ,(data-nwords x)))
-                     (else
-                      `(def ,(def-name x) ,(def-symbol x) ,(def-params x) ,(def-result x)
-                            (,@(if (def-inline? x) '(inline) '())
-                             ,@(if (def-public? x) '(public) '())
-                             ,@(if (def-noalloc? x) '(noalloc) '()))
-                            ,(def-unsafe? x) ,(def-procedure? x)
-                            ,@(if (def-inline? x) (def-body x) '())))))
-                  items)))))))
+            ,@(map (lambda (x)
+                     (cond
+                      ((library-constant? x)
+                       `(constant ,(library-constant-name x) ,(library-constant-kind x)
+                                  ,(library-constant-value x)))
+                      ((data? x)
+                       `(data ,(data-name x) ,(data-symbol x) ,(data-nwords x)))
+                      (else
+                       `(def ,(def-name x) ,(def-symbol x) ,(def-params x) ,(def-result x)
+                             (,@(if (def-inline? x) '(inline) '())
+                              ,@(if (def-public? x) '(public) '())
+                              ,@(if (def-noalloc? x) '(noalloc) '()))
+                             ,(def-unsafe? x) ,(def-procedure? x)
+                             ,@(if (def-inline? x) (def-body x) '())))))
+                   items)))))))
 
 
   ;; The def, data or constant of an interface entry, extern

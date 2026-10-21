@@ -18,7 +18,7 @@ prebuild: build/lib.o build/lib.scm
 $(CHEZ_OBJS) &: $(CHEZ_LIBS)
 	rm -rf build/chez
 	mkdir -p build/chez
-	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm))\n' | \
+	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm) (encode) (object))\n' | \
 	  $(CHEZ) -q --compile-imported-libraries
 
 # The precompiled library, linked with every program
@@ -73,6 +73,11 @@ bench: all
 test-chez:
 	time ./tests.py --chez
 
+# The encoder against GNU as: the cases, the library and the compiler
+test-asm: all build/flat.ss
+	time ./asmcheck.py
+	./asmcheck.py --lib --program build/flat.ss
+
 fmt:
 	black -q --line-length 120 *.py
 	emacs -Q --batch --eval '(let ((inhibit-message t)) (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' *.ss lib/*.ss compiler/*.sls schemec flatten $$(find tests -name '*.scm')
@@ -83,4 +88,4 @@ clean:
 # A failed recipe leaves no partial output
 .DELETE_ON_ERROR:
 
-.PHONY: all chez prebuild stage1 stage2 fixpoint test bench test-chez fmt clean
+.PHONY: all chez prebuild stage1 stage2 fixpoint test bench test-chez test-asm fmt clean

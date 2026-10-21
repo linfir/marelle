@@ -1,2 +1,2 @@
-(define (f x) (fixnum? x))
+(define (f x) (pair-car x))
 (f 1)
