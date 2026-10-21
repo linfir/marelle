@@ -736,12 +736,16 @@
     (set-port-position! p (raw+ (port-position p) (raw 1))))
   undef)
 
-;; A bad start or count of put-bytevector; count #f when only start was given
+(define (put-bytevector-start-error start)
+  (declare (result never))
+  (library-errorf put-bytevector "invalid start value ~s" (list start)))
+
+;; A bad start or count of put-bytevector
 (define (put-bytevector-error bv start count)
   (declare (result never))
   (cond
-   ((not (and count (fixnum? start) (>= start 0)))
-    (library-errorf put-bytevector "invalid start value ~s" (list start)))
+   ((not (and (fixnum? start) (>= start 0)))
+    (put-bytevector-start-error start))
    ((not (and (fixnum? count) (>= count 0)))
     (library-errorf put-bytevector "invalid count ~s" (list count)))
    (else
@@ -769,7 +773,7 @@
    ((null? (cdr rest))
     (let ((start (car rest)))
       (unless (and (fixnum? start) (>= start 0) (<= start (bytevector-length bv)))
-        (put-bytevector-error bv start #f))
+        (put-bytevector-start-error start))
       (put-bytevector port bv start (- (bytevector-length bv) start))))
    ((null? (cddr rest)) (put-bytevector port bv (car rest) (cadr rest)))
    (else (argument-count-error put-bytevector (+ 2 (length rest))))))
