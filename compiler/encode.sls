@@ -19,7 +19,7 @@
 ;; alone.
 
 (library (encode)
-  (export encode-asm
+  (export encode-asm s32?
           unit-sections unit-labels unit-globals unit-fixups
           section-name section-align section-bytes
           unit-label-name unit-label-section unit-label-offset

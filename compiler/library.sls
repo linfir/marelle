@@ -190,10 +190,11 @@
 
 
   ;; The cells of the literals, 0 until the init function fills them, and their count
+  ;; The literal cells, and their count when count-symbol is not #f
   (define (literal-entries symbol count-symbol)
     (let ((n (length (current-literals))))
-      (list `(data ,symbol ,n 0)
-            `(rodata ,count-symbol (quad ,n)))))
+      (cons `(data ,symbol ,n 0)
+            (if count-symbol (list `(rodata ,count-symbol (quad ,n))) '()))))
 
 
   ;; The def of the function filling a unit's literal cells, called by main
@@ -377,10 +378,11 @@
                             (make-main-core env body))
                   '())))
              (compile-literal-init init)
-             `((export "scheme_main" "scheme_globals" "scheme_nglobals" "scheme_literals"
-                       "scheme_nliterals")
+             `((export "scheme_program")
+               (words "scheme_program" "scheme_main" "scheme_globals" ,(hashtable-size (top-globals))
+                      "scheme_literals" ,(length (current-literals)))
                ,@(global-entries (hashtable-size (top-globals)))
                ,@(data-entries items)
-               ,@(literal-entries "scheme_literals" "scheme_nliterals")
+               ,@(literal-entries "scheme_literals" #f)
                ,@(constant-entries)
                ,@(reverse (current-entries))))))))))

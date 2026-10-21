@@ -2,7 +2,7 @@
 
 (library (bytes)
   (export new-byte-buffer buffer-size buffer-u8! buffer-le! buffer-bytevector! buffer-zeros!
-          buffer->bytevector buffer-copy! bytevector-le-set!)
+          buffer->bytevector buffer-copy! bytevector-le-set! align-up)
   (import (chezscheme))
 
 
@@ -70,6 +70,11 @@
   (define (buffer-zeros! b n)
     (reserve! b n)
     (byte-buffer-size-set! b (+ (byte-buffer-size b) n)))
+
+
+  ;; n rounded up to a multiple of a
+  (define (align-up n a)
+    (* a (quotient (+ n a -1) a)))
 
 
   (define (buffer->bytevector b)

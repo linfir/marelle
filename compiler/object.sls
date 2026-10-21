@@ -99,10 +99,6 @@
     (fields name type flags link info align entsize bytes))
 
 
-  (define (align-up n a)
-    (* a (quotient (+ n a -1) a)))
-
-
   ;; Writes the fields to b: size n ..., n taken modulo 2^(8 size)
   (define (pack! b . fields)
     (let loop ((l fields))

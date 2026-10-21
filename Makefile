@@ -18,15 +18,15 @@ prebuild: build/lib.o build/lib.scm
 $(CHEZ_OBJS) &: $(CHEZ_LIBS)
 	rm -rf build/chez
 	mkdir -p build/chez
-	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm) (encode) (object))\n' | \
+	printf '(reset-handler (lambda () (exit 1)))\n(import (utils) (library) (asm) (encode) (object) (layout))\n' | \
 	  $(CHEZ) -q --compile-imported-libraries
 
 # The precompiled library, linked with every program
 build/lib.o: build/lib.s
 	as -o $@ $<
 
-# One recipe writes both
-build/lib.s build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
+# One recipe writes all three
+build/lib.s build/lib.img build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
 	mkdir -p build
 	$(CHEZ) --program schemec --lib build $(sort $(wildcard lib/*.ss))
 
@@ -59,6 +59,7 @@ fixpoint: build/stage2
 	mkdir -p build/stage1-lib
 	build/stage1 --lib build/stage1-lib $(sort $(wildcard lib/*.ss))
 	cmp build/lib.s build/stage1-lib/lib.s
+	cmp build/lib.img build/stage1-lib/lib.img
 	cmp build/lib.scm build/stage1-lib/lib.scm
 	cmp build/stage1.s build/stage2.s
 	cmp build/stage1 build/stage2
@@ -76,7 +77,7 @@ test-chez:
 # The encoder against GNU as: the cases, the library and the compiler
 test-asm: all build/flat.ss
 	time ./asmcheck.py
-	./asmcheck.py --lib --program build/flat.ss
+	./asmcheck.py --lib --image --program build/flat.ss
 
 fmt:
 	black -q --line-length 120 *.py

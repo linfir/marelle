@@ -586,6 +586,12 @@
        `((section ".rodata")
          (label ,(cadr x))
          (asciz ,(caddr x))))
+      ;; (words name x ...): writable words, x an integer or a symbol's address
+      ((words)
+       `((section ".data")
+         (balign 8)
+         (label ,(cadr x))
+         (quad ,@(cddr x))))
       ;; (data name n word): n words, each initialized to word
       ((data)
        (let ((n (caddr x)))
@@ -605,19 +611,22 @@
   (define runtime-asm
     `((text)
       ;; The process entry: rsp points to argc; it allocates the frame
-      ;; of scheme_main, which runs in the Scheme calling convention, and nothing returns here
+      ;; of scheme_main, which runs in the Scheme calling convention, and nothing returns here.
+      ;; scheme_program, the program's first data, starts with the address of scheme_main
       (globl "_start")
       (label "_start")
       (push rsp)
       (call "init_runtime_code")
       (xor ebp ebp)
-      (mov rax (rip "scheme_main" -8))
+      (mov rcx (rip "scheme_program"))
+      (mov rax (mem rcx -8))
       (xor edx edx)
       (call "alloc_frame")
       (lea r11 (rip ".L_start_finish"))
       (mov (mem rax ,frame-ret) r11)
       (mov rbp rax)
-      (jmp "scheme_main")
+      (mov rcx (rip "scheme_program"))
+      (jmp rcx)
       (label ".L_start_finish")
       (push rax)
       (call "finish_program_code")

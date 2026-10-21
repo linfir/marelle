@@ -47,5 +47,4 @@
 
   ;; The global cells, initialized to undef, each set by main before it is read
   (define (global-entries n)
-    (list `(data "scheme_globals" ,n ,(immediate-word 'undef))
-          `(rodata "scheme_nglobals" (quad ,n)))))
+    (list `(data "scheme_globals" ,n ,(immediate-word 'undef)))))

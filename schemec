@@ -1,8 +1,9 @@
 #!/usr/bin/env -S scheme --libdirs compiler::build/chez --program
 
 ;; The compiler, run from the project root: every stage in one process.
-;; ./schemec --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s and the
-;; interface DIR/lib.scm
+;; ./schemec --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s, the
+;; image DIR/lib.img (layout.sls) and the interface DIR/lib.scm, with the image's stamp and
+;; addresses
 ;; ./schemec < SOURCE > ASM: a program, against build/lib.scm
 ;; ./schemec --dump PASS < SOURCE: the program's IR after PASS (see dump-passes), instead of the asm;
 ;; with --lib, the library's, the files written too
@@ -14,7 +15,9 @@
         (library)
         (asm)
         (encode)
-        (object))
+        (object)
+        (layout)
+        (bytes))
 
 
 ;; Locals and the markers are gensyms: errors print their names
@@ -43,6 +46,23 @@
     (close-port port)))
 
 
+;; The library's segments at the bases, scheme_program at the end of its data, and the text of the
+;; interface with the address of each global symbol
+(define (library-image asm interface)
+  (let* ((unit (encode-asm asm))
+         (p (place-unit unit segment-bases))
+         (known (make-hashtable string-hash string=?)))
+    (hashtable-set! known "scheme_program" (align-up (cadr (placement-ends p)) 8))
+    (let ((linked (link-unit unit p known)))
+      (values (linked-segments linked)
+              (with-output-to-string
+                (lambda ()
+                  (for-each (lambda (x) (write x) (newline))
+                            (append interface
+                                    (map (lambda (s) `(symbol ,(car s) ,(cdr s)))
+                                         (linked-globals linked))))))))))
+
+
 ;; The value of option name in args, or #f
 (define (option name args)
   (let ((tail (member name args)))
@@ -69,14 +89,19 @@
     (errorf 'schemec "unknown pass ~a, expected one of ~a" pass dump-passes))
   (parameterize ((dump-pass pass))
     (if lib
-        (let-values (((entries interface) (compile-scheme-library (library-forms (operands args)))))
-          (write-file (string-append lib "/lib.scm")
-                      (lambda ()
-                        (for-each (lambda (x) (write x) (newline)) interface)))
-          (let ((asm (program-asm entries)))
-            (write-file (string-append lib "/lib.s") (lambda () (print-program asm)))
-            (when obj
-              (write-binary-file obj (object-file (encode-asm asm))))))
+        (let*-values (((entries interface) (compile-scheme-library (library-forms (operands args))))
+                      ((asm) (program-asm entries)))
+          (write-file (string-append lib "/lib.s") (lambda () (print-program asm)))
+          (when obj
+            (write-binary-file obj (object-file (encode-asm asm))))
+          (let-values (((segments text) (library-image asm interface)))
+            (let ((stamp (stamp (append segments (list (string->utf8 text))))))
+              (write-binary-file (string-append lib "/lib.img") (image-bytes stamp segments))
+              (write-file (string-append lib "/lib.scm")
+                          (lambda ()
+                            (write `(stamp ,stamp))
+                            (newline)
+                            (display text))))))
         (let* ((interface (with-input-from-file "build/lib.scm" read-all))
                (asm (program-asm (compile-scheme-program interface (read-all)))))
           (cond

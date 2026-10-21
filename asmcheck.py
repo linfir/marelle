@@ -4,7 +4,9 @@
 produces from its assembly, for each test case the compiler accepts, or for the library (--lib)
 or a program file (--program, e.g. build/flat.ss).
 The objects are compared through binutils listings: the disassembly of .text with its relocations,
-the other sections' contents and relocations, and the symbols."""
+the other sections' contents and relocations, and the symbols.
+With --image, compare the library image build/lib.img and the addresses of build/lib.scm with
+build/lib.o linked by ld at the same bases."""
 
 import argparse
 import difflib
@@ -118,6 +120,73 @@ def check_object(assembly, obj):
     return ("encoding", diffs) if diffs else None
 
 
+# The layout of layout.sls: the library's rodata after the ELF and program headers
+LINKER_SCRIPT = """SECTIONS {
+  .rodata 0x400120 : { *(.data.rel.ro) *(.rodata) }
+  .data 0x10000000 : { *(.data) }
+  .text 0x20000000 : { *(.text) }
+}
+"""
+
+SEGMENTS = [".rodata", ".data", ".text"]
+
+
+def read_image(path):
+    """=> the stamp and the segments of the library image at path."""
+    data = path.read_bytes()
+    words = [int.from_bytes(data[i : i + 8], "little") for i in range(0, 32, 8)]
+    segments, offset = [], 32
+    for size in words[1:]:
+        segments.append(data[offset : offset + size])
+        offset += size
+    return words[0], segments
+
+
+def read_symbols(path):
+    """=> the (symbol name address) entries of the interface at path, and its stamp."""
+    symbols, stamp = {}, None
+    for line in path.read_text().splitlines():
+        match = re.fullmatch(r'\(symbol "([^"]*)" (\d+)\)', line)
+        if match:
+            symbols[match[1]] = int(match[2])
+        match = re.fullmatch(r"\(stamp (\d+)\)", line)
+        if match:
+            stamp = int(match[1])
+    return symbols, stamp
+
+
+def check_image():
+    """=> None or (stage, details): build/lib.img and build/lib.scm against ld's placement of
+    build/lib.o, scheme_program at the end of the library's data."""
+    stamp, segments = read_image(ROOT / "build" / "lib.img")
+    symbols, interface_stamp = read_symbols(ROOT / "build" / "lib.scm")
+    details = []
+    if stamp != interface_stamp:
+        details.append(f"stamps differ: image {stamp}, interface {interface_stamp}")
+    program = 0x10000000 + (len(segments[1]) + 7) // 8 * 8
+    with tempfile.TemporaryDirectory() as directory:
+        work = Path(directory)
+        (work / "lib.ld").write_text(LINKER_SCRIPT)
+        command = ["ld", "-T", work / "lib.ld", "--defsym", f"scheme_program={program}", "-e", "_start"]
+        run_stage("ld", [*command, "-o", work / "lib", ROOT / "build" / "lib.o"])
+        for name, ours in zip(SEGMENTS, segments):
+            out = work / f"{name[1:]}.bin"
+            run_stage("objcopy", ["objcopy", "-O", "binary", f"--only-section={name}", work / "lib", out])
+            theirs = out.read_bytes()
+            if theirs != ours:
+                at = next((i for i, (a, b) in enumerate(zip(ours, theirs)) if a != b), min(len(ours), len(theirs)))
+                details.append(f"{name}: {len(ours)} bytes, ld's {len(theirs)}, first difference at {at:#x}")
+        theirs = {}
+        for line in tool("nm", work / "lib"):
+            address, kind, name = line.split()
+            if kind.isupper() and name != "scheme_program":
+                theirs[name] = int(address, 16)
+    if theirs != symbols:
+        wrong = sorted(n for n in theirs.keys() | symbols.keys() if theirs.get(n) != symbols.get(n))
+        details.append(f"{len(wrong)} symbol addresses differ: {', '.join(wrong[:10])}")
+    return ("image", details) if details else None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("patterns", nargs="*", help="test name patterns")
@@ -125,10 +194,11 @@ def main():
     parser.add_argument("--stage1", action="store_true", help="compile with build/stage1")
     parser.add_argument("--lib", action="store_true", help="check the library")
     parser.add_argument("--program", metavar="FILE", help="check the program in FILE")
+    parser.add_argument("--image", action="store_true", help="check build/lib.img against ld")
     args = parser.parse_args()
     if args.stage1:
         use_stage1()
-    if args.lib or args.program:
+    if args.lib or args.program or args.image:
         missing = lib_missing()
         if missing:
             sys.stderr.write(f"asmcheck.py: {missing}\n")
@@ -136,6 +206,7 @@ def main():
         failed = False
         for name, check in [
             ("library", args.lib and check_lib),
+            ("image", args.image and check_image),
             (args.program, args.program and (lambda: check_case(Path(args.program)))),
         ]:
             if not check:
