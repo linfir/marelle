@@ -183,19 +183,17 @@
         '()))
 
 
-  (define (print-constants)
-    (for-each (lambda (s)
-                (print-entry `(string ,(cdr s) ,(car s))))
-              (reverse (current-strings)))
-    (for-each (lambda (n) (print-entry (cddr n)))
-              (reverse (current-numbers))))
+  (define (constant-entries)
+    (append (map (lambda (s) `(string ,(cdr s) ,(car s)))
+                 (reverse (current-strings)))
+            (map cddr (reverse (current-numbers)))))
 
 
   ;; The cells of the literals, 0 until the init function fills them, and their count
-  (define (print-literals symbol count-symbol)
+  (define (literal-entries symbol count-symbol)
     (let ((n (length (current-literals))))
-      (print-entry `(data ,symbol ,n 0))
-      (print-entry `(rodata ,count-symbol (quad ,n)))))
+      (list `(data ,symbol ,n 0)
+            `(rodata ,count-symbol (quad ,n)))))
 
 
   ;; The def of the function filling a unit's literal cells, called by main
@@ -203,10 +201,9 @@
     (make-def 'literal-init symbol '() 'val #f #f #f #f #t 0 #t extern? '() #f #f))
 
 
-  (define (print-data items)
-    (for-each (lambda (d)
-                (print-entry `(data ,(data-symbol d) ,(data-nwords d) 0)))
-              (filter (lambda (x) (and (data? x) (not (data-extern? x)))) items)))
+  (define (data-entries items)
+    (map (lambda (d) `(data ,(data-symbol d) ,(data-nwords d) 0))
+         (filter (lambda (x) (and (data? x) (not (data-extern? x)))) items)))
 
 
   (define (new-compilation first-name literals thunk)
@@ -227,9 +224,9 @@
       (thunk)))
 
 
-  ;; Prints the IR of the library, its forms (the files of lib/), and returns the interface a
-  ;; program compiles against: (names n), where a program's fresh names start, then each def,
-  ;; inline ones with their body, and each data
+  ;; The IR entries of the library, its forms (the files of lib/), and the interface a program
+  ;; compiles against: (names n), where a program's fresh names start, then each def, inline
+  ;; ones with their body, and each data
   (define (compile-scheme-library forms)
     (new-compilation
      0 "scheme_library_literals"
@@ -243,15 +240,16 @@
            (set-envs! items safe (append safe unsafe unsafe-bindings)))
          (compile-defs! items)
          (compile-literal-init init)
-         (let ((entries (reverse (current-entries))))
-           (print-entry `(export ,@(apply append (map entry-symbols entries))
-                                 ,@(map data-symbol (filter data? items))))
-           (print-data items)
-           (print-literals "scheme_library_literals" "scheme_library_nliterals")
-           (print-constants)
-           (for-each print-entry entries)
-           (print-entry '(stubs)))
-         `((names ,((names)))
+         (values
+          (let ((entries (reverse (current-entries))))
+            `((export ,@(apply append (map entry-symbols entries))
+                      ,@(map data-symbol (filter data? items)))
+              ,@(data-entries items)
+              ,@(literal-entries "scheme_library_literals" "scheme_library_nliterals")
+              ,@(constant-entries)
+              ,@entries
+              (stubs)))
+          `((names ,((names)))
            ,@(map (lambda (x)
                     (cond
                      ((library-constant? x)
@@ -266,7 +264,7 @@
                              ,@(if (def-noalloc? x) '(noalloc) '()))
                             ,(def-unsafe? x) ,(def-procedure? x)
                             ,@(if (def-inline? x) (def-body x) '())))))
-                  items))))))
+                  items)))))))
 
 
   ;; The def, data or constant of an interface entry, extern
@@ -325,7 +323,7 @@
         (loop (cdr forms) (cons (list (gensym "expression") (car forms)) bindings))))))
 
 
-  ;; Prints the IR of the program, its top-level forms with begins spliced: a define with a declare
+  ;; The IR entries of the program, its top-level forms with begins spliced: a define with a declare
   ;; define-data and define-constant are static, like the library's; the others are the letrec* body of main
   ;; (main-body), whose variables, but the procedures, are global cells; the last form gives the
   ;; result
@@ -379,10 +377,10 @@
                             (make-main-core env body))
                   '())))
              (compile-literal-init init)
-             (print-entry '(export "scheme_main" "scheme_globals" "scheme_nglobals"
-                                   "scheme_literals" "scheme_nliterals"))
-             (emit-globals (hashtable-size (top-globals)))
-             (print-data items)
-             (print-literals "scheme_literals" "scheme_nliterals")
-             (print-constants)
-             (for-each print-entry (reverse (current-entries))))))))))
+             `((export "scheme_main" "scheme_globals" "scheme_nglobals" "scheme_literals"
+                       "scheme_nliterals")
+               ,@(global-entries (hashtable-size (top-globals)))
+               ,@(data-entries items)
+               ,@(literal-entries "scheme_literals" "scheme_nliterals")
+               ,@(constant-entries)
+               ,@(reverse (current-entries))))))))))

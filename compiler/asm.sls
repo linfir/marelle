@@ -53,7 +53,7 @@
 ;;   - the arity is checked by the caller, not the callee
 
 (library (asm)
-  (export compile-asm)
+  (export program-asm print-program)
   (import (chezscheme)
           (utils)
           (reg-alloc)
@@ -757,6 +757,12 @@
           (newline))))
 
 
-  (define (compile-asm tops)
+  ;; The asm of the IR entries tops
+  (define (program-asm tops)
     (let-values (((exports tops) (partition (lambda (x) (eq? (car x) 'export)) tops)))
-      (for-each print-asm (dumped 'program '(program) (program->asm tops (apply append (map cdr exports))))))))
+      (dumped 'program '(program) (program->asm tops (apply append (map cdr exports))))))
+
+
+  ;; Prints the asm as GNU as text
+  (define (print-program asm)
+    (for-each print-asm asm)))

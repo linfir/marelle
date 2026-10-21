@@ -21,43 +21,31 @@
   (apply append (map (lambda (file) (with-input-from-file file read-all)) files)))
 
 
-(define (stage f input)
-  (with-input-from-string input
-    (lambda ()
-      (with-output-to-string
-        (lambda () (f (read-all)))))))
-
-
-;; Replacing the file, which Chez's call-with-output-file does not
-(define (write-file path text)
+;; What thunk writes to the current output port, replacing the file, which Chez's
+;; with-output-to-file does not
+(define (write-file path thunk)
   (when (file-exists? path)
     (delete-file path))
-  (call-with-output-file path
-    (lambda (port) (display text port))))
+  (with-output-to-file path thunk))
 
 
 (let ((args (cdr (command-line))))
   (if (and (pair? args) (string=? (car args) "--lib"))
-      (let* ((interface #f)
-             (ir (with-output-to-string
-                   (lambda ()
-                     (set! interface (compile-scheme-library (library-forms (cddr args))))))))
+      (let-values (((entries interface) (compile-scheme-library (library-forms (cddr args)))))
         (write-file (string-append (cadr args) "/lib.scm")
-                    (with-output-to-string
-                      (lambda ()
-                        (for-each (lambda (x) (write x) (newline)) interface))))
-        (write-file (string-append (cadr args) "/lib.s") (stage compile-asm ir)))
+                    (lambda ()
+                      (for-each (lambda (x) (write x) (newline)) interface)))
+        (write-file (string-append (cadr args) "/lib.s")
+                    (lambda () (print-program (program-asm entries)))))
       (let ((pass (and (pair? args) (string=? (car args) "--dump") (pair? (cdr args))
                        (string->symbol (cadr args)))))
         (when (and pass (not (memq pass dump-passes)))
           (errorf 'schemec "unknown pass ~a, expected one of ~a" pass dump-passes))
         (parameterize ((dump-pass pass))
           (let* ((interface (with-input-from-file "build/lib.scm" read-all))
-                 (ir (with-output-to-string
-                       (lambda () (compile-scheme-program interface (read-all)))))
-                 (asm (stage compile-asm ir)))
+                 (asm (program-asm (compile-scheme-program interface (read-all)))))
             (unless pass
-              (display asm)))))))
+              (print-program asm)))))))
 
 
 ;; Compiled by itself, the value of the last form would be printed

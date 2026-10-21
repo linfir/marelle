@@ -1,5 +1,5 @@
 (library (output)
-  (export immediate lower-block print-entry emit-globals)
+  (export immediate lower-block global-entries)
   (import (chezscheme))
 
 
@@ -17,19 +17,6 @@
     (define (lower-instr instr)
       (cons (car instr) (map lower-operand (cdr instr))))
     `(block ,(cadr block) ,@(map lower-instr (cddr block))))
-
-
-  (define (print-entry x)
-    (if (memq (car x) '(function noalloc))
-        (begin
-          (printf "(~s ~s ~s" (car x) (cadr x) (caddr x))
-          (for-each (lambda (b)
-                      (printf "\n  (block ~s" (cadr b))
-                      (for-each (lambda (i) (printf "\n    ~s" i)) (cddr b))
-                      (display ")"))
-                    (cdddr x))
-          (display ")\n\n"))
-        (printf "~s\n\n" x)))
 
 
   ;; The operand for x, or #f when x is not an immediate
@@ -59,6 +46,6 @@
 
 
   ;; The global cells, initialized to undef, each set by main before it is read
-  (define (emit-globals n)
-    (print-entry `(data "scheme_globals" ,n ,(immediate-word 'undef)))
-    (print-entry `(rodata "scheme_nglobals" (quad ,n)))))
+  (define (global-entries n)
+    (list `(data "scheme_globals" ,n ,(immediate-word 'undef))
+          `(rodata "scheme_nglobals" (quad ,n)))))
