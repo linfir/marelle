@@ -60,11 +60,10 @@
     (close-port port)))
 
 
-;; The library's segments at the bases, scheme_program at the end of its data, and the text of the
-;; interface with the address of each global symbol
-(define (library-image asm interface)
-  (let* ((unit (encode-asm asm))
-         (p (place-unit unit segment-bases))
+;; The library's segments, its unit placed at the bases, scheme_program at the end of its data,
+;; and the text of the interface with the address of each global symbol
+(define (library-image unit interface)
+  (let* ((p (place-unit unit segment-bases))
          (known (make-hashtable string-hash string=?)))
     (hashtable-set! known "scheme_program" (align-up (cadr (placement-ends p)) 8))
     (let ((linked (link-unit unit p known)))
@@ -125,10 +124,16 @@
     (if x (caddr x) (errorf compiler-name "no symbol ~a in the library" name))))
 
 
+;; The unit as an ELF object to the file obj, unless obj is #f;
+;; last, since it resolves the unit's fixups in place
+(define (write-object obj unit)
+  (when obj
+    (write-binary-file obj (object-file unit))))
+
+
 ;; The program's unit linked after the library
-(define (link-program asm image interface)
-  (let* ((unit (encode-asm asm))
-         (p (place-unit unit (image-ends image)))
+(define (link-program unit image interface)
+  (let* ((p (place-unit unit (image-ends image)))
          (known (make-hashtable string-hash string=?)))
     (for-each (lambda (x)
                 (when (eq? (car x) 'symbol)
@@ -231,16 +236,16 @@
         (let*-values (((entries interface) (compile-scheme-library (library-forms files)))
                       ((asm) (program-asm entries)))
           (write-file (string-append lib "/lib.s") (lambda () (print-program asm)))
-          (when obj
-            (write-binary-file obj (object-file (encode-asm asm))))
-          (let-values (((segments text) (library-image asm interface)))
-            (let ((stamp (stamp (append segments (list (string->utf8 text))))))
-              (write-binary-file (string-append lib "/lib.img") (image-bytes stamp segments))
-              (write-file (string-append lib "/lib.scm")
-                          (lambda ()
-                            (write `(stamp ,stamp))
-                            (newline)
-                            (display text))))))
+          (let ((unit (encode-asm asm)))
+            (let-values (((segments text) (library-image unit interface)))
+              (let ((stamp (stamp (append segments (list (string->utf8 text))))))
+                (write-binary-file (string-append lib "/lib.img") (image-bytes stamp segments))
+                (write-file (string-append lib "/lib.scm")
+                            (lambda ()
+                              (write `(stamp ,stamp))
+                              (newline)
+                              (display text)))))
+            (write-object obj unit)))
         (begin
           (unless (= (length files) 1)
             (errorf compiler-name "expected one source file, - for the standard input"))
@@ -260,26 +265,26 @@
                         ((image interface) (read-library (option "--libdir" args))))
             (let ((compile
                    (lambda ()
-                     (let ((asm (program-asm
-                                 (compile-scheme-program interface program (embedded-files args)
-                                                         (and (member "--display" args) #t)))))
-                       (when obj
-                         (write-binary-file obj (object-file (encode-asm asm))))
-                       asm))))
+                     (program-asm
+                      (compile-scheme-program interface program (embedded-files args)
+                                              (and (member "--display" args) #t))))))
               (cond
                ((or asm? pass)
                 (with-output out
                              (lambda ()
                                (let ((asm (compile)))
                                  (when asm?
-                                   (print-program asm))))))
+                                   (print-program asm))
+                                 (when obj
+                                   (write-object obj (encode-asm asm)))))))
                ((not name)
-                (compile))
+                (write-object obj (encode-asm (compile))))
                (else
-                (let* ((asm (compile))
-                       (linked (link-program asm image interface))
+                (let* ((unit (encode-asm (compile)))
+                       (linked (link-program unit image interface))
                        (bytes (executable-file (image-segments image) (linked-segments linked)
                                                (library-symbol interface "_start"))))
+                  (write-object obj unit)
                   (when map-file
                     (write-map map-file interface linked))
                   (when (or out (not run?))
