@@ -1,22 +1,38 @@
-;; Vectors: [vector-type, length, elem 0, ..., elem n-1], the length a raw word
+;; Vectors: [vector-type, length, elem 0, ..., elem n-1], the length a raw word;
+;; immutable-vector-type for the static ones of embedded-datum, which only the readers take
+
+(define (vector-header? (raw h))
+  (declare unsafe inline)
+  (raw= (bit-and h (raw -513)) vector-type))
 
 (define (vector? x)
   (declare unsafe inline public)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) vector-type)))
+       (vector-header? (load (as-raw x) (raw 0)))))
 
 (define (check-vector v who)
   (declare inline (result void))
   (unless (vector? v)
     (argument-error who 'vector v)))
 
-;; i is a fixnum in [0, length); one unsigned compare also rejects negatives
+(define (check-mutable-vector v who)
+  (declare unsafe inline (result void))
+  (unless (and (tag=? v (raw 0))
+               (not (raw= (as-raw v) (raw 0)))
+               (raw= (load (as-raw v) (raw 0)) vector-type))
+    (argument-error who 'mutable-vector v)))
+
+;; i is a fixnum in [0, length) of the vector v; one unsigned compare also rejects negatives
+(define (check-bounds v i who)
+  (declare unsafe inline (result void))
+  (unless (and (fixnum? i) (raw<u (fixnum-value i) (load (as-raw v) (raw 1))))
+    (index-error who i v)))
+
 (define (check-index v i who)
   (declare unsafe inline (result void))
   (check-vector v who)
-  (unless (and (fixnum? i) (raw<u (fixnum-value i) (load (as-raw v) (raw 1))))
-    (index-error who i v)))
+  (check-bounds v i who))
 
 (define (vector-length v)
   (declare unsafe inline public)
@@ -30,7 +46,8 @@
 
 (define (vector-set! v i x)
   (declare unsafe inline public)
-  (check-index v i vector-set!)
+  (check-mutable-vector v vector-set!)
+  (check-bounds v i vector-set!)
   (store (as-raw v) (raw+ (fixnum-value i) (raw 2)) x)
   undef)
 
@@ -46,8 +63,7 @@
 
 (define (vector-fill! v x)
   (declare unsafe public)
-  (unless (vector? v)
-    (argument-error vector-fill! 'mutable-vector v))
+  (check-mutable-vector v vector-fill!)
   (fill-words (raw+ (as-raw v) (raw 16)) (load (as-raw v) (raw 1)) (as-raw x))
   undef)
 

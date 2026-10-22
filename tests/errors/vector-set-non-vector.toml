@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "Exception in vector-set!: 5 is not a mutable vector\n"

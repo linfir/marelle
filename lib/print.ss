@@ -130,7 +130,7 @@
     (put-datum out write? (as-val (load (as-raw x) (raw 1))))
     (put-string out "/")
     (put-datum out write? (as-val (load (as-raw x) (raw 2)))))
-   ((raw= (load (as-raw x) (raw 0)) vector-type) (display-vector out write? x))
+   ((vector-header? (load (as-raw x) (raw 0))) (display-vector out write? x))
    ((bytevector-header? (load (as-raw x) (raw 0))) (display-bytevector out x))
    ((raw= (load (as-raw x) (raw 0)) record-type) (display-record out write? x))
    ((raw= (load (as-raw x) (raw 0)) rtd-type)

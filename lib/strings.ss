@@ -1,12 +1,20 @@
 ;; Strings, immutable: [header, nchars, units...], nchars a raw word, the units
 ;; padded to a whole word; the header is the kind, chosen by content: ASCII, a byte per char,
 ;; when every char is below 128, else UTF-32, 4 bytes per char, so equal strings have the same
-;; kind; 50 and 51 are kept for later kinds
+;; kind; 50 and 51 are kept for later kinds. The static strings of embedded-datum have the
+;; immutable types, 64 more (header bit 9): every test of the kind masks that bit, and a future
+;; mutator must check the mutable types exactly
 
-;; Exactly the four words (48 to 51) << 3: the GC also reads a pair's car as a header
+;; Exactly the eight words (48 to 51 and 112 to 115) << 3: the GC also reads a pair's car as a
+;; header
 (define (string-header? (raw h))
   (declare unsafe inline)
-  (raw= (bit-and h (raw -25)) ascii-string-type))
+  (raw= (bit-and h (raw -537)) ascii-string-type))
+
+;; The kind of the string header h, mutable or not
+(define (ascii-header? (raw h))
+  (declare unsafe inline)
+  (raw= (bit-and h (raw -513)) ascii-string-type))
 
 (define (string? x)
   (declare unsafe inline public)
@@ -25,7 +33,7 @@
 
 (define (ascii-string? s)
   (declare unsafe inline)
-  (raw= (load (as-raw s) (raw 0)) ascii-string-type))
+  (ascii-header? (load (as-raw s) (raw 0))))
 
 (define (string-type ascii?)
   (declare unsafe inline (result raw))
@@ -34,7 +42,7 @@
 ;; The words of a string of n chars with the header h
 (define (string-words (raw h) (raw n))
   (declare unsafe inline (result raw))
-  (raw+ (raw 2) (if (raw= h ascii-string-type)
+  (raw+ (raw 2) (if (ascii-header? h)
                     (raw>>u (raw+ n (raw 7)) (raw 3))
                     (raw>>u (raw+ n (raw 1)) (raw 1)))))
 
@@ -56,7 +64,7 @@
 ;; Sets char i of the string at p to the code n, which fits its kind
 (define (string-set-code! (raw p) (raw i) (raw n))
   (declare unsafe inline (result void))
-  (if (raw= (load p (raw 0)) ascii-string-type)
+  (if (ascii-header? (load p (raw 0)))
       (store8 p (raw+ i (raw 16)) n)
       (store32 p (raw+ (raw<< i (raw 2)) (raw 16)) n)))
 
@@ -138,7 +146,8 @@
 ;; Same kind and length, then the units, whose padding is zero
 (define (same-string? a b)
   (declare unsafe noalloc)
-  (and (raw= (load (as-raw a) (raw 0)) (load (as-raw b) (raw 0)))
+  (and (raw= (bit-and (load (as-raw a) (raw 0)) (raw -513))
+             (bit-and (load (as-raw b) (raw 0)) (raw -513)))
        (raw= (string-nchars a) (string-nchars b))
        (words=? (raw+ (as-raw a) (raw 16)) (raw+ (as-raw b) (raw 16))
                 (raw- (string-words (load (as-raw a) (raw 0)) (string-nchars a)) (raw 2)))))
