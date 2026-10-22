@@ -570,6 +570,29 @@
                       (copy-chars! b (fixnum-value at) (resolve from) (fixnum-value start) (fixnum-value end))
                       undef))))
 
+;; The chars of the n UTF-8 bytes at p: the bytes that are not continuation bytes
+(define (utf8-nchars (raw p) (raw n))
+  (declare unsafe noalloc (result raw))
+  (let byte-next ((i (raw 0))
+                  (k (raw 0)))
+    (cond
+     ((raw= i n) k)
+     ((raw= (bit-and (load8 p i) (raw 192)) (raw 128)) (byte-next (raw+ i (raw 1)) k))
+     (else (byte-next (raw+ i (raw 1)) (raw+ k (raw 1)))))))
+
+;; Appends the chars of the n valid UTF-8 bytes at p to the UTF-32 string s, which has room
+;; for them (string output ports)
+(define (append-utf8! s (raw p) (raw n))
+  (declare unsafe noalloc (result void))
+  (let ((b (resolve s)))
+    (let byte-next ((i (raw 0))
+                    (k (string-nchars b)))
+      (if (raw= i n)
+          (store (as-raw b) (raw 1) k)
+          (begin
+            (store32 (as-raw b) (raw+ (raw<< k (raw 2)) (raw 24)) (decode-at (raw+ p i)))
+            (byte-next (raw+ i (lead-length (load8 p i))) (raw+ k (raw 1))))))))
+
 ;; Growable strings, as Rust's String: a UTF-32 body appends in place while its capacity
 ;; allows, else relocates to one of twice the capacity; an ASCII or UTF-8 body is relocated to
 ;; UTF-32 with room first, so later appends are amortized O(1)

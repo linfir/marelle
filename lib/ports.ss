@@ -61,10 +61,6 @@
   (declare unsafe inline (result raw))
   (raw+ (load p (raw 5)) (raw 16)))
 
-(define (port-capacity (raw p))
-  (declare unsafe inline (result raw))
-  (load (load p (raw 5)) (raw 1)))
-
 (define (init-port! (raw p) (raw flags) (raw fd) (raw buffer))
   (declare unsafe noalloc (result void))
   (store buffer (raw 0) bytevector-type)
@@ -206,8 +202,8 @@
         (put-datum (as-raw port) write? x)
         undef)))
 
-;; The bytes of x as written by put-datum
-(define (datum-bytes (raw write?) x)
+;; The chars of x as written by put-datum
+(define (datum-chars (raw write?) x)
   (declare unsafe noalloc (result raw))
   (set-port-position! counting-port (raw 0))
   (put-datum counting-port write? x)
@@ -216,20 +212,16 @@
 ;; Measures x, makes room for it, then writes it
 (define (string-port-put! port x write?)
   (declare unsafe)
-  (reserve! port (make-fixnum (datum-bytes (if write? (raw 1) (raw 0)) x)))
+  (reserve! port (make-fixnum (datum-chars (if write? (raw 1) (raw 0)) x)))
   (put-datum (as-raw port) (if write? (raw 1) (raw 0)) x)
   undef)
 
-;; Makes room for n more bytes in the string output port, doubling its buffer
+;; Makes room for n more chars in the string of the string output port, a growable string
+;; (room-body), kept as its new body
 (define (reserve! port n)
   (declare unsafe)
-  (let ((need (+ (make-fixnum (port-position (as-raw port))) n))
-        (capacity (make-fixnum (port-capacity (as-raw port)))))
-    (when (> need capacity)
-      (let ((new (alloc-bytevector (max need (* 2 capacity)))))
-        (copy-words (raw+ (as-raw new) (raw 16)) (port-bytes (as-raw port))
-                    (raw>>u (raw+ (port-position (as-raw port)) (raw 7)) (raw 3)))
-        (store (as-raw port) (raw 5) new)))
+  (let ((b (resolve (as-val (load (as-raw port) (raw 5))))))
+    (store (as-raw port) (raw 5) (room-body b (+ (make-fixnum (string-nchars b)) n)))
     undef))
 
 (define (display x port)
@@ -816,14 +808,14 @@
 
 (define (open-output-string)
   (declare unsafe public)
-  (make-port (alloc-bytevector 64) (make-fixnum (bit-or output-flag string-flag))))
+  (make-port (string-with-capacity 64) (make-fixnum (bit-or output-flag string-flag))))
 
 ;; The chars written so far; the port is not reset (it is in Chez)
 (define (get-output-string port)
   (declare unsafe public)
   (unless (and (output-port? port) (port-flag? port string-flag))
     (argument-error get-output-string 'string-output-port port))
-  (utf8-range->string (as-val (load (as-raw port) (raw 5))) 0 (make-fixnum (port-position (as-raw port)))))
+  (string-copy (as-val (load (as-raw port) (raw 5)))))
 
 ;; What thunk writes to the current output port, as a string (Chez)
 (define (with-output-to-string thunk)

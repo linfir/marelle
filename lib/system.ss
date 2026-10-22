@@ -28,9 +28,10 @@
   (write-all (port-fd port) (port-bytes port) (port-position port))
   (set-port-position! port (raw 0)))
 
-;; Writes the n bytes at buf to the output port; a descriptor port's go through its buffer, and
-;; a write to stdout or stderr flushes the other first, so the console keeps the order of the
-;; writes; a string port has room for them (reserve!), the counting port only counts them
+;; Writes the n bytes at buf, whole UTF-8 sequences for a string port, to the output port; a
+;; descriptor port's go through its buffer, and a write to stdout or stderr flushes the other
+;; first, so the console keeps the order of the writes; a string port appends their chars to its
+;; string, which has room for them (reserve!), the counting port only counts the chars
 (define (write-bytes (raw port) (raw buf) (raw n))
   (declare unsafe noalloc (result void))
   (if (raw= (bit-and (port-flags port) string-flag) (raw 0))
@@ -46,10 +47,9 @@
               (copy-bytes! (raw+ (port-bytes port) count) buf n)
               (set-port-position! port (raw+ count n)))
             (write-all (port-fd port) buf n)))
-      (let ((count (port-position port)))
-        (unless (raw= port counting-port)
-          (copy-bytes! (raw+ (port-bytes port) count) buf n))
-        (set-port-position! port (raw+ count n)))))
+      (if (raw= port counting-port)
+          (set-port-position! port (raw+ (port-position port) (utf8-nchars buf n)))
+          (append-utf8! (as-val (load port (raw 5))) buf n))))
 
 (define (c-string-length (raw s))
   (declare unsafe noalloc (result raw))

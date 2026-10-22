@@ -1,0 +1,16 @@
+;; A string output port's buffer is a growable string: many writes, ASCII and not, grow it;
+;; get-output-string returns a fresh mutable string of the chars
+(define p (open-output-string))
+(write "é" p)
+(display #\λ p)
+(display 42 p)
+(define first (get-output-string p))
+(define q (open-output-string))
+(let loop ((i 0))
+  (when (< i 2000)
+    (display "ab€" q)
+    (loop (+ i 1))))
+(define all (get-output-string q))
+(string-set! first 0 #\x)
+(list first (string-length all) (substring all 5990 6000) (string=? (substring all 0 3) "ab€")
+      (with-output-to-string (lambda () (write '(1 "λ" #\é)))))
