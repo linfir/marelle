@@ -248,7 +248,9 @@
            (values
             (let ((entries (reverse (current-entries))))
               `((export ,@(apply append (map entry-symbols entries))
-                        ,@(map data-symbol (filter data? items)))
+                        ,@(map data-symbol (filter data? items))
+                        ;; For the literals of the funs a program inlines
+                        "scheme_library_literals")
                 ,@(data-entries items)
                 ,@(literal-entries "scheme_library_literals" "scheme_library_nliterals")
                 ,@(constant-entries)
