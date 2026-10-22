@@ -1,0 +1,3 @@
+stdout = "(11 15)"
+dump = "unit"
+cps_counts = { "(self)" = 1 }

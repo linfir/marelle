@@ -3,7 +3,7 @@
 ;; its calls throws to it, its return throws to k (after Fluet and Weeks, "Contification Using
 ;; Dominators", for the common case of a single caller). Its body moves into the caller, so the
 ;; def goes, and only one that nothing else may name: a lambda's (no env), not public, never a
-;; value.
+;; value, (self) not in its body (a closure's once lifted).
 ;; The letcont-rec is placed in k's scope, around the main term of k's letcont, or around the
 ;; whole term when k is the caller's return; a plain letcont when the def never calls itself.
 
@@ -116,8 +116,7 @@
          (not (def-public? def))
          (not (def-noalloc? def))
          (not (def-rest? def))
-         (eq? (def-result def) 'val)
-         (zero? (def-captures def))))
+         (eq? (def-result def) 'val)))
 
 
   ;; Whether k is a letcont-rec's continuation in t

@@ -1,0 +1,3 @@
+stdout = "2"
+dump = "resimplify"
+cps_lacks = ["(alloc", "(store"]

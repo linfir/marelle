@@ -3,8 +3,9 @@
 ;; continuation by k. The defs are visited callees first, each optimized again once it changed,
 ;; so a caller inlines its callees' optimized bodies. The mark (args tag ...) of an inlined call
 ;; goes with it.
-;; Not inlined: a def into itself, one with a rest parameter, a result other than val, captures,
-;; or (self) in its body; anything into a noalloc def, whose calls stay errors.
+;; Not inlined: a def into itself, one with a rest parameter, a result other than val, or (self)
+;; in its body (a closure's, unless lifted); anything into a noalloc def, whose calls stay
+;; errors.
 ;; The library's small procedures are inlined into programs too: the library exports their funs
 ;; in its interface (export-fun), a program imports them (import-fun) into extern-funs.
 
@@ -130,7 +131,6 @@
   (define (inlinable? def fun limit)
     (and (not (def-rest? def))
          (eq? (def-result def) 'val)
-         (zero? (def-captures def))
          (<= (term-size (fun-term fun) (+ limit 1)) limit)
          (not (mentions-self? (fun-term fun)))))
 

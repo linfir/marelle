@@ -13,7 +13,8 @@
           (cse)
           (inline)
           (contify)
-          (cells))
+          (cells)
+          (lift))
 
 
   ;; (name . pass), (pass def fun) a fun, counter numbering the names a pass adds; each name is
@@ -32,7 +33,8 @@
   ;; The passes on a whole unit, (name . pass), (pass defs funs counters reoptimize) the funs, #f
   ;; for a def's that went
   (define unit-passes
-    (list (cons 'contify contify-unit)
+    (list (cons 'lift lift-unit)
+          (cons 'contify contify-unit)
           (cons 'inline inline-unit)))
 
 

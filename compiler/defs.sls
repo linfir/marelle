@@ -3,7 +3,7 @@
 (library (defs)
   (export make-def def? def-name def-symbol def-params def-result def-inline? def-public? def-noalloc?
           def-pure?
-          def-procedure? def-unsafe? def-captures def-anonymous? def-extern? def-body def-env def-env-set!
+          def-procedure? def-unsafe? def-captures def-params-set! def-anonymous? def-extern? def-body def-env def-env-set!
           def-core def-core-set! def-core-names def-core-body
           make-data data? data-name data-symbol data-nwords data-extern?
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
@@ -62,7 +62,7 @@
   ;; env        the env of the body, set once every name is bound
   ;; core       (names . body): the parameters' names and the body after the front pass
   (define-record-type def
-    (fields name symbol params result inline? public? noalloc? pure? procedure? unsafe? captures
+    (fields name symbol (mutable params) result inline? public? noalloc? pure? procedure? unsafe? captures
             anonymous? extern? body (mutable env) (mutable core)))
 
 

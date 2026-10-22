@@ -7,7 +7,11 @@
 ;;   known (constants, or a variable compared with itself)
 ;; - jump threading: a throw to a continuation whose body is an if on its parameters goes
 ;;   straight to the branch when the thrown atoms decide the test
+;; - invariant parameters: a continuation only thrown to, each throw passing one parameter the
+;;   same atom bound outside it (or, in a loop, the parameter itself), loses the parameter
 ;; - algebra: (raw+ x (quad 0)), (bit-and x (quad -1))... are x
+;; - dead objects: an alloc whose object is only written into (stores, copy-words), or stored
+;;   into such objects, goes with those writes (a lifted closure's)
 ;; Each round walks the term once with the census taken before it; a reduction that makes others
 ;; possible leaves them to the next round.
 
@@ -24,41 +28,139 @@
   (define max-rounds 32)
 
 
+  ;; The dead objects are looked for only once a round changes nothing else
   (define (simplify def fun)
-    (let loop ((fun fun) (round 1))
-      (let-values (((fun changed?) (simplify-round def fun)))
-        (if (and changed? (< round max-rounds))
-            (loop fun (+ round 1))
-            fun))))
+    (let loop ((fun fun) (round 1) (objects? #f))
+      (let-values (((fun changed?) (simplify-round def fun objects?)))
+        (cond
+         ((>= round max-rounds) fun)
+         (changed? (loop fun (+ round 1) #f))
+         (objects? fun)
+         (else (loop fun (+ round 1) #t))))))
 
 
-  ;; Per continuation, its throws and whether an if or a call uses it; the cells, targets of a
-  ;; cell-set!
-  (define (count-cont-uses! t throws branched called cells)
+  ;; Per continuation, its throws (and their atoms in thrown) and whether an if or a call uses
+  ;; it; the cells, targets of a cell-set!; the preorder positions of the binders, and of each
+  ;; continuation's span, its binding (start . end)
+  (define (count-cont-uses! t throws thrown branched called cells positions spans)
     (define (count! table k)
       (hashtable-update! table k (lambda (n) (+ n 1)) 0))
+
+    (define n 0)
+
+    (define (position! x)
+      (hashtable-set! positions x n)
+      (set! n (+ n 1)))
 
     (let walk ((t t))
       (case (car t)
         ((letprim)
          (when (eq? (car (caddr t)) 'cell-set!)
            (hashtable-set! cells (cadr (caddr t)) #t))
+         (when (cadr t)
+           (position! (cadr t)))
          (walk (cadddr t)))
         ((letcont letcont-rec)
-         (walk (caddr (car (cadr t))))
-         (walk (caddr t)))
+         (let ((start n)
+               (b (car (cadr t))))
+           (for-each position! (map param-var (cadr b)))
+           (walk (caddr b))
+           (walk (caddr t))
+           (hashtable-set! spans (car b) (cons start n))))
         ((if) (count! branched (caddr t)) (count! branched (cadddr t)))
-        ((throw) (count! throws (cadr t)))
+        ((throw)
+         (count! throws (cadr t))
+         (hashtable-update! thrown (cadr t) (lambda (l) (cons (cddr t) l)) '()))
         ((call) (count! called (cadr t)))
         ((app) (count! called (cadddr t)))
         ((args) (walk (caddr t)))
         (else (void)))))
 
 
-  (define (simplify-round def fun)
+  ;; The objects of t only written into: each alloc's variable and its casts (as-val r), to #t.
+  ;; Optimistic: an object stored into one is dead unless that one is not.
+  (define (dead-objects t)
+    (let ((aliases (make-eq-hashtable))
+          (live (make-eq-hashtable))
+          (into (make-eq-hashtable)))
+      (define (object a)
+        (cond
+         ((symbol? a) (hashtable-ref aliases a #f))
+         ((and (pair? a) (memq (car a) '(as-raw as-val)) (pair? (cdr a))) (object (cadr a)))
+         (else #f)))
+
+      (define (use! a)
+        (cond
+         ((object a) => (lambda (r) (hashtable-set! live r #t)))
+         ((pair? a) (for-each use! (cdr a)))))
+
+      (let walk ((t t))
+        (case (car t)
+          ((letprim)
+           (let ((x (cadr t))
+                 (op (caddr t)))
+             (case (car op)
+               ((alloc)
+                (for-each use! (cdr op))
+                (when x
+                  (hashtable-set! aliases x x)))
+               ((as-val)
+                (let ((r (object (cadr op))))
+                  (if (and x r (symbol? (cadr op)))
+                      (hashtable-set! aliases x r)
+                      (use! (cadr op)))))
+               ((store copy-words)
+                (let ((r (object (cadr op))))
+                  (if r
+                      (for-each (lambda (a)
+                                  (let ((o (object a)))
+                                    (if (and o (symbol? a))
+                                        (hashtable-update! into o (lambda (l) (cons r l)) '())
+                                        (use! a))))
+                                (cddr op))
+                      (for-each use! (cdr op)))))
+               (else (for-each use! (op-atoms op)))))
+           (walk (cadddr t)))
+          ((letcont letcont-rec)
+           (walk (caddr (car (cadr t))))
+           (walk (caddr t)))
+          ((args) (walk (caddr t)))
+          ((if) (for-each use! (cdadr t)))
+          ((throw) (for-each use! (cddr t)))
+          ((call) (use! (cadddr t)))
+          ((app) (use! (caddr t)) (for-each use! (cddddr t)))
+          ((selfcall) (for-each use! (cdr t)))
+          (else (void))))
+      ;; Stored into a live object, live
+      (let loop ()
+        (let ((more? #f))
+          (vector-for-each
+           (lambda (o)
+             (when (and (not (hashtable-ref live o #f))
+                        (exists (lambda (r) (hashtable-ref live r #f)) (hashtable-ref into o '())))
+               (hashtable-set! live o #t)
+               (set! more? #t)))
+           (hashtable-keys into))
+          (when more? (loop))))
+      (let ((dead (make-eq-hashtable)))
+        (vector-for-each
+         (lambda (x)
+           (unless (hashtable-ref live (hashtable-ref aliases x #f) #f)
+             (hashtable-set! dead x #t)))
+         (hashtable-keys aliases))
+        dead)))
+
+
+  (define (simplify-round def fun objects?)
     (let* ((own (car (caddr fun)))
            (census (census (fun-term fun)))
+           (dead (if objects? (dead-objects (fun-term fun)) (make-eq-hashtable)))
            (throws (make-eq-hashtable))
+           (thrown (make-eq-hashtable))
+           (positions (make-eq-hashtable))
+           (spans (make-eq-hashtable))
+           ;; The continuations that lost parameters, to the indexes of those kept
+           (kept (make-eq-hashtable))
            (branched (make-eq-hashtable))
            (called (make-eq-hashtable))
            (cells (make-eq-hashtable))
@@ -104,8 +206,9 @@
                  (begin
                    (changed!)
                    (walk (caddr t)))
-                 (let ((main (walk (caddr t))))
-                   `(letcont-rec ((,(car b) ,(cadr b) ,(walk (caddr b)))) ,main)))))
+                 (let* ((params (invariant-params! (car b) (cadr b)))
+                        (main (walk (caddr t))))
+                   `(letcont-rec ((,(car b) ,params ,(walk (caddr b)))) ,main)))))
           ((if) (walk-if (cons (caadr t) (map atom (cdadr t))) (cont (caddr t)) (cont (cadddr t))))
           ((throw) (walk-throw (cont (cadr t)) (map atom (cddr t))))
           ((call) `(call ,(cont (cadr t)) ,(caddr t) ,(atom (cadddr t))))
@@ -114,9 +217,19 @@
           ((args) `(args ,(cadr t) ,(walk (caddr t))))
           (else t)))
 
+      (define (dead-object? a)
+        (cond
+         ((symbol? a) (hashtable-ref dead a #f))
+         ((and (pair? a) (memq (car a) '(as-raw as-val)) (pair? (cdr a))) (dead-object? (cadr a)))
+         (else #f)))
+
       (define (walk-letprim x op body)
         (cond
          ((and (or (not x) (zero? (uses x))) (memq (cps-effect op) '(pure reads)))
+          (changed!)
+          (walk body))
+         ((or (and x (memq (car op) '(alloc as-val)) (hashtable-ref dead x #f))
+              (and (memq (car op) '(store copy-words)) (dead-object? (cadr op))))
           (changed!)
           (walk body))
          ((and x (fold op)) => (lambda (a)
@@ -149,10 +262,43 @@
                  (changed!)
                  (walk t)))
            (else
-            (when (tests-only? vars body)
-              (hashtable-set! threaded k (cons vars body)))
-            (let ((main (walk (caddr t))))
-              `(letcont ((,k ,params ,(walk body))) ,main))))))
+            (let* ((params (invariant-params! k params))
+                   (vars (map param-var params)))
+              (when (tests-only? vars body)
+                (hashtable-set! threaded k (cons vars body)))
+              (let ((main (walk (caddr t))))
+                `(letcont ((,k ,params ,(walk body))) ,main)))))))
+
+      ;; The parameters of k but the invariant ones, each substituted by its atom
+      (define (invariant-params! k params)
+        (if (or (positive? (hashtable-ref branched k 0)) (positive? (hashtable-ref called k 0)))
+            params
+            (let* ((span (hashtable-ref spans k #f))
+                   (throws (hashtable-ref thrown k '()))
+                   (indexes
+                    (filter (lambda (i)
+                              (let* ((p (param-var (list-ref params i)))
+                                     (as (filter (lambda (a) (not (eq? a p)))
+                                                 (map (lambda (as) (list-ref as i)) throws))))
+                                (not (and (pair? as)
+                                          (for-all (lambda (a) (equal? a (car as))) as)
+                                          (outside? (car as) span)
+                                          (substitute! p (atom (car as)))))))
+                            (iota (length params)))))
+              (if (= (length indexes) (length params))
+                  params
+                  (begin
+                    (hashtable-set! kept k indexes)
+                    (map (lambda (i) (list-ref params i)) indexes))))))
+
+      ;; Whether the variables of the atom a are bound outside the span
+      (define (outside? a span)
+        (cond
+         ((symbol? a)
+          (let ((p (hashtable-ref positions a #f)))
+            (or (not p) (< p (car span)) (>= p (cdr span)))))
+         ((pair? a) (for-all (lambda (a) (outside? a span)) (cdr a)))
+         (else #t)))
 
       ;; The continuation k is, when its body throws its parameters on: not one substituted at
       ;; its throw; the return continuation only for throws, or for calls of a fun returning a
@@ -200,6 +346,12 @@
            (else `(if ,test ,k1 ,k2)))))
 
       (define (walk-throw k as)
+        (let ((as (cond
+                   ((hashtable-ref kept k #f) => (lambda (is) (map (lambda (i) (list-ref as i)) is)))
+                   (else as))))
+          (walk-throw-kept k as)))
+
+      (define (walk-throw-kept k as)
         (cond
          ((hashtable-ref inlined k #f)
           => (lambda (entry)
@@ -226,7 +378,8 @@
          (else `(throw ,k ,@as))))
 
       (let ((term (begin
-                    (count-cont-uses! (fun-term fun) throws branched called cells)
+                    (count-cont-uses! (fun-term fun) throws thrown branched called cells positions
+                                      spans)
                     (walk (fun-term fun)))))
         (values `(,@(list-head fun 3) ,term) changed?))))
 
