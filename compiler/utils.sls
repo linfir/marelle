@@ -101,7 +101,7 @@
         result)))
 
 
-  (define dump-passes '(front letrec closure resolve assign cps simplify cse frames compile copy-prop reg-alloc asm peephole program))
+  (define dump-passes '(front letrec closure resolve assign cps simplify cse resimplify frames compile copy-prop reg-alloc asm peephole program))
 
 
   ;; The pass whose output dump! prints, else #f

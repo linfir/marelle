@@ -16,7 +16,9 @@
   ;; (name . pass), (pass def fun) a fun; each name is also in dump-passes
   (define passes
     (list (cons 'simplify simplify)
-          (cons 'cse cse)))
+          (cons 'cse cse)
+          ;; The branches cse decided, and what they used
+          (cons 'resimplify simplify)))
 
 
   ;; The names of the passes SCHEME_OPT disables, once read

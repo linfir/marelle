@@ -12,7 +12,7 @@
 ;; possible leaves them to the next round.
 
 (library (simplify)
-  (export simplify)
+  (export simplify compare quad? word)
   (import (chezscheme)
           (utils)
           (defs)

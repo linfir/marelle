@@ -1,0 +1,4 @@
+stdout = "3"
+dump = "resimplify"
+cps_lacks = "cdr_proc"
+cps_counts = { "(raw= t7 (quad 3))" = 1 }

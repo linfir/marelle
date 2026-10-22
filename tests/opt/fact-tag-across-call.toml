@@ -1,0 +1,3 @@
+stdout = "3"
+dump = "resimplify"
+cps_counts = { "(bit-and (as-raw v2) (quad 7))" = 1, "(load (as-raw v2) (quad 0))" = 2 }
