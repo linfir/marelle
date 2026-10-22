@@ -14,6 +14,7 @@
           (core-check)
           (defs)
           (convert)
+          (inline)
           (output))
 
 
@@ -242,34 +243,71 @@
          (core-defs (map (lambda (x) (cons (item-name x) x)) (filter def? items)))
          (let-values (((safe unsafe) (item-bindings items)))
            (set-envs! items safe (append safe unsafe unsafe-bindings)))
-         (compile-unit (lambda () (compile-defs! items)))
-         (compile-literal-init init)
-         (values
-          (let ((entries (reverse (current-entries))))
-            `((export ,@(apply append (map entry-symbols entries))
-                      ,@(map data-symbol (filter data? items)))
-              ,@(data-entries items)
-              ,@(literal-entries "scheme_library_literals" "scheme_library_nliterals")
-              ,@(constant-entries)
-              ,@entries
-              (stubs)))
-          `((names ,((names)))
-            ,@(map (lambda (x)
-                     (cond
-                      ((library-constant? x)
-                       `(constant ,(library-constant-name x) ,(library-constant-kind x)
-                                  ,(library-constant-value x)))
-                      ((data? x)
-                       `(data ,(data-name x) ,(data-symbol x) ,(data-nwords x)))
-                      (else
-                       `(def ,(def-name x) ,(def-symbol x) ,(def-params x) ,(def-result x)
-                             (,@(if (def-inline? x) '(inline) '())
-                              ,@(if (def-public? x) '(public) '())
-                              ,@(if (def-noalloc? x) '(noalloc) '())
-                              ,@(if (def-pure? x) '(pure) '()))
-                             ,(def-unsafe? x) ,(def-procedure? x)
-                             ,@(if (def-inline? x) (def-body x) '())))))
-                   items)))))))
+         (let ((funs (compile-unit (lambda () (compile-defs! items)))))
+           (compile-literal-init init)
+           (values
+            (let ((entries (reverse (current-entries))))
+              `((export ,@(apply append (map entry-symbols entries))
+                        ,@(map data-symbol (filter data? items)))
+                ,@(data-entries items)
+                ,@(literal-entries "scheme_library_literals" "scheme_library_nliterals")
+                ,@(constant-entries)
+                ,@entries
+                (stubs)))
+            `((names ,((names)))
+              ,@(map (lambda (x)
+                       (cond
+                        ((library-constant? x)
+                         `(constant ,(library-constant-name x) ,(library-constant-kind x)
+                                    ,(library-constant-value x)))
+                        ((data? x)
+                         `(data ,(data-name x) ,(data-symbol x) ,(data-nwords x)))
+                        (else
+                         `(def ,(def-name x) ,(def-symbol x) ,(def-params x) ,(def-result x)
+                               (,@(if (def-inline? x) '(inline) '())
+                                ,@(if (def-public? x) '(public) '())
+                                ,@(if (def-noalloc? x) '(noalloc) '())
+                                ,@(if (def-pure? x) '(pure) '()))
+                               ,(def-unsafe? x) ,(def-procedure? x)
+                               ,@(if (def-inline? x) (def-body x) '())))))
+                     items)
+              ,@(cps-entries funs items))))))))
+
+
+  ;; (cps name fun) for the funs a program may inline, those of items naming only items
+  (define (cps-entries funs items)
+    (let ((item? (let ((t (make-eq-hashtable)))
+                   (for-each (lambda (x) (when (def? x) (hashtable-set! t x #t))) items)
+                   (lambda (def) (hashtable-ref t def #f)))))
+      (filter (lambda (x) x)
+              (map (lambda (f)
+                     (let ((fun (and (item? (car f)) (export-fun (car f) (cdr f) item?))))
+                       (and fun `(cps ,(def-name (car f)) ,fun))))
+                   funs))))
+
+
+  ;; The funs of the interface's cps entries, an eq hashtable from the library's defs; those
+  ;; naming a def or a symbol the library does not export are left out
+  (define (interface-funs interface library)
+    (let ((defs (make-eq-hashtable))
+          (symbols (make-hashtable string-hash string=?))
+          (funs (make-eq-hashtable)))
+      (for-each (lambda (x) (when (def? x) (hashtable-set! defs (def-name x) x))) library)
+      (for-each (lambda (x)
+                  (case (car x)
+                    ((symbol) (hashtable-set! symbols (cadr x) #t))
+                    ((export) (for-each (lambda (s) (hashtable-set! symbols s #t)) (cdr x)))))
+                interface)
+      (for-each (lambda (x)
+                  (when (eq? (car x) 'cps)
+                    (let ((def (hashtable-ref defs (cadr x) #f))
+                          (fun (import-fun (caddr x)
+                                           (lambda (name) (hashtable-ref defs name #f))
+                                           (lambda (s) (hashtable-ref symbols s #f)))))
+                      (when (and def fun)
+                        (hashtable-set! funs def fun)))))
+                interface)
+      funs))
 
 
   ;; The def, data or constant of an interface entry, extern
@@ -521,19 +559,21 @@
                                       unsafe-bindings)))
              (set-envs! items env unsafe-env)
              (let ((statics #f))
-               (compile-unit
-                (lambda ()
-                  (compile-defs! items)
-                  (let-values (((entries symbols?) (static-entries datums)))
-                    (set! statics entries)
-                    (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
-                                                          (static-form? (car (last-pair all))))))))
-                      (parameterize ((startup-defs `(,@(if symbols? (list (core-def 'intern-static-symbols!)) '())
-                                                     ,library-init ,init)))
-                        (compile-procedure
-                         (make-def 'main "main" '() 'val #f #f #f #f #t #f 0 #f #f body env
-                                   (make-main-core env body))
-                         '()))))))
+               (parameterize ((extern-funs (interface-funs interface library))
+                              (extern-defs (filter def? library)))
+                 (compile-unit
+                  (lambda ()
+                    (compile-defs! items)
+                    (let-values (((entries symbols?) (static-entries datums)))
+                      (set! statics entries)
+                      (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
+                                                            (static-form? (car (last-pair all))))))))
+                        (parameterize ((startup-defs `(,@(if symbols? (list (core-def 'intern-static-symbols!)) '())
+                                                       ,library-init ,init)))
+                          (compile-procedure
+                           (make-def 'main "main" '() 'val #f #f #f #f #t #f 0 #f #f body env
+                                     (make-main-core env body))
+                           '())))))))
                (compile-literal-init init)
                ;; Before constant-entries, since it interns the names
                (let ((files (embedded-entries embedded)))

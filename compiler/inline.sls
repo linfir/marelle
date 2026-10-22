@@ -5,9 +5,11 @@
 ;; goes with it.
 ;; Not inlined: a def into itself, one with a rest parameter, a result other than val, captures,
 ;; or (self) in its body; anything into a noalloc def, whose calls stay errors.
+;; The library's small procedures are inlined into programs too: the library exports their funs
+;; in its interface (export-fun), a program imports them (import-fun) into extern-funs.
 
 (library (inline)
-  (export inline-unit)
+  (export inline-unit extern-funs extern-defs export-fun import-fun)
   (import (chezscheme)
           (utils)
           (defs)
@@ -18,11 +20,20 @@
   (define max-inline-size 16)
 
 
+  ;; The funs of the library's defs a program may inline, an eq hashtable, else #f
+  (define extern-funs (make-parameter #f))
+
+
+  ;; The defs outside the unit a call may name by their procedure object, a list
+  (define extern-defs (make-parameter '()))
+
+
   ;; defs, funs and counters in the same order; (reoptimize def fun) optimizes a changed fun
   ;; again. Gives the funs.
   (define (inline-unit defs funs counters reoptimize)
     (let ((table (make-eq-hashtable))
-          (state (make-eq-hashtable)))
+          (state (make-eq-hashtable))
+          (procs (known-procs (append defs (extern-defs)))))
       (define (fun-of def)
         (vector-ref (hashtable-ref table def #f) 0))
 
@@ -37,12 +48,17 @@
                           fun
                           (inline-calls def fun (vector-ref entry 1)
                                     (lambda (callee)
-                                      (and (not (eq? callee def))
-                                           (hashtable-ref table callee #f)
-                                           (eq? (hashtable-ref state callee #f) 'done)
-                                           (inlinable? callee (fun-of callee))
-                                           (fun-of callee)))))))
-            (vector-set! entry 0 (if (eq? new fun) fun (reoptimize def new)))
+                                      (cond
+                                       ((eq? callee def) #f)
+                                       ((hashtable-ref table callee #f)
+                                        (and (eq? (hashtable-ref state callee #f) 'done)
+                                             (inlinable? callee (fun-of callee) max-inline-size)
+                                             (fun-of callee)))
+                                       (else
+                                        (and (extern-funs)
+                                             (hashtable-ref (extern-funs) callee #f)))))))))
+            (let ((new (direct-calls new procs)))
+              (vector-set! entry 0 (if (eq? new fun) fun (reoptimize def new))))
             (hashtable-set! state def 'done))))
 
       (for-each (lambda (def fun counter)
@@ -50,6 +66,50 @@
                 defs funs counters)
       (for-each visit! defs)
       (map fun-of defs)))
+
+
+  ;; The defs a call may reach directly, by their procedure object's symbol
+  (define (known-procs defs)
+    (let ((procs (make-hashtable string-hash string=?)))
+      (for-each (lambda (def)
+                  (when (and (not (def-inline? def))
+                             (not (def-noalloc? def))
+                             (not (def-rest? def))
+                             (eq? (def-result def) 'val)
+                             (zero? (def-captures def)))
+                    (hashtable-set! procs (def-proc def) def)))
+                defs)
+      procs))
+
+
+  ;; fun with each call of a procedure object of procs, of its arity, a call of its def; fun
+  ;; itself when there is none
+  (define (direct-calls fun procs)
+    (define (known t)
+      (let ((callee (caddr t)))
+        (and (pair? callee)
+             (eq? (car callee) 'as-val)
+             (string? (cadr callee))
+             (let ((def (hashtable-ref procs (cadr callee) #f)))
+               (and def (= (length (def-params def)) (length (cddddr t))) def)))))
+
+    (let ((changed? #f))
+      (let ((term (let walk ((t (fun-term fun)))
+                    (case (car t)
+                      ((letprim) `(letprim ,(cadr t) ,(caddr t) ,(walk (cadddr t))))
+                      ((letcont letcont-rec)
+                       (let ((b (car (cadr t))))
+                         `(,(car t) ((,(car b) ,(cadr b) ,(walk (caddr b)))) ,(walk (caddr t)))))
+                      ((args) `(args ,(cadr t) ,(walk (caddr t))))
+                      ((app)
+                       (let ((def (known t)))
+                         (if def
+                             (begin
+                               (set! changed? #t)
+                               `(app ,(cadr t) ,def ,@(cdddr t)))
+                             t)))
+                      (else t)))))
+        (if changed? `(,@(list-head fun 3) ,term) fun))))
 
 
   ;; The defs of the unit fun's term calls
@@ -67,11 +127,11 @@
         (else acc))))
 
 
-  (define (inlinable? def fun)
+  (define (inlinable? def fun limit)
     (and (not (def-rest? def))
          (eq? (def-result def) 'val)
          (zero? (def-captures def))
-         (<= (term-size (fun-term fun) (+ max-inline-size 1)) max-inline-size)
+         (<= (term-size (fun-term fun) (+ limit 1)) limit)
          (not (mentions-self? (fun-term fun)))))
 
 
@@ -159,4 +219,74 @@
       (if changed?
           `(,@(list-head fun 3) ,(walk (fun-term fun)))
           fun)))
-)
+
+
+  ;; The datum of the fun of def for the interface, its defs as (def name), when it is
+  ;; inlinable, names only defs for which (item? def), and loads no literal: a program's copy
+  ;; would load its own, not eq? to the library's. Else #f.
+  (define (export-fun def fun item?)
+    (let ((ok? (and (inlinable? def fun max-inline-size) (not (loads-literal? (fun-term fun))))))
+      (let ((x (map-defs fun (lambda (d)
+                               (unless (item? d)
+                                 (set! ok? #f))
+                               `(def ,(def-name d))))))
+        (and ok? x))))
+
+
+  ;; The fun of an interface datum, each (def name) the def (lookup name), each symbol string
+  ;; one for which (symbol? s); #f when either fails
+  (define (import-fun x lookup symbol?)
+    (define (atom? a)
+      (cond
+       ((string? a) (symbol? a))
+       ((pair? a) (for-all atom? (cdr a)))
+       (else #t)))
+
+    (let ((ok? (let walk ((t (fun-term x)))
+                 (case (car t)
+                   ((letprim) (and (for-all atom? (op-atoms (caddr t))) (walk (cadddr t))))
+                   ((letcont letcont-rec) (and (walk (caddr (car (cadr t)))) (walk (caddr t))))
+                   ((args) (walk (caddr t)))
+                   ((if) (for-all atom? (cdadr t)))
+                   ((throw) (for-all atom? (cddr t)))
+                   ((app) (and (atom? (caddr t)) (for-all atom? (cddddr t))))
+                   (else #t)))))
+      (let ((fun (map-defs x (lambda (d)
+                               (or (lookup (cadr d))
+                                   (begin (set! ok? #f) d))))))
+        (and ok? fun))))
+
+
+  (define (loads-literal? t)
+    (let walk ((t t))
+      (case (car t)
+        ((letprim) (or (eq? (car (caddr t)) 'literal) (walk (cadddr t))))
+        ((letcont letcont-rec) (or (walk (caddr (car (cadr t)))) (walk (caddr t))))
+        ((args) (walk (caddr t)))
+        (else #f))))
+
+
+  ;; fun with each def d, a callee or a stackcall's, replaced by (f d)
+  (define (map-defs fun f)
+    (define (callee? x)
+      (or (def? x) (and (pair? x) (eq? (car x) 'def))))
+
+    `(,@(list-head fun 3)
+      ,(let walk ((t (fun-term fun)))
+         (case (car t)
+           ((letprim)
+            (let ((op (caddr t)))
+              `(letprim ,(cadr t)
+                        ,(if (eq? (car op) 'stackcall)
+                             `(stackcall ,(cadr op) ,(f (caddr op)) ,@(cdddr op))
+                             op)
+                        ,(walk (cadddr t)))))
+           ((letcont letcont-rec)
+            (let ((b (car (cadr t))))
+              `(,(car t) ((,(car b) ,(cadr b) ,(walk (caddr b)))) ,(walk (caddr t)))))
+           ((args) `(args ,(cadr t) ,(walk (caddr t))))
+           ((app)
+            (if (callee? (caddr t))
+                `(app ,(cadr t) ,(f (caddr t)) ,@(cdddr t))
+                t))
+           (else t))))))

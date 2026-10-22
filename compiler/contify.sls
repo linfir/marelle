@@ -5,7 +5,7 @@
 ;; def goes, and only one that nothing else may name: a lambda's (no env), not public, never a
 ;; value.
 ;; The letcont-rec is placed in k's scope, around the main term of k's letcont, or around the
-;; whole term when k is the caller's return.
+;; whole term when k is the caller's return; a plain letcont when the def never calls itself.
 
 (library (contify)
   (export contify-unit)
@@ -148,11 +148,22 @@
            (body (begin
                    (hashtable-set! subst (car (caddr ffun)) k)
                    (rename-term (fun-term ffun) subst fresh)))
-           (loop (lambda (main) `(letcont-rec ((,j ,params ,body)) ,main)))
+           (loop (lambda (main) `(,(if (calls? body f) 'letcont-rec 'letcont) ((,j ,params ,body)) ,main)))
            (term (if (eq? k (car (caddr gfun)))
                      (loop (fun-term gfun))
                      (place (fun-term gfun) k loop))))
       `(,@(list-head gfun 3) ,(throws term f j))))
+
+
+  ;; Whether t calls f
+  (define (calls? t f)
+    (let walk ((t t))
+      (case (car t)
+        ((letprim) (walk (cadddr t)))
+        ((letcont letcont-rec) (or (walk (caddr (car (cadr t)))) (walk (caddr t))))
+        ((args) (walk (caddr t)))
+        ((app) (eq? (caddr t) f))
+        (else #f))))
 
 
   ;; t with (wrap main) for the main term of k's letcont
@@ -190,5 +201,4 @@
                (walk (caddr t))
                `(args ,(cadr t) ,(walk (caddr t)))))
           ((app) (if (eq? (caddr t) f) `(throw ,j ,@(cddddr t)) t))
-          (else t)))))
-)
+          (else t))))))
