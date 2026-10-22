@@ -46,6 +46,10 @@
   (declare unsafe inline)
   (utf8-header? (load (as-raw s) (raw 0))))
 
+(define (utf32-string? s)
+  (declare unsafe inline)
+  (raw= (bit-and (load (as-raw s) (raw 0)) (raw -513)) utf32-string-type))
+
 ;; The address of the units (bytes, or UTF-32 codes) of the string at p
 (define (string-units (raw p))
   (declare unsafe inline (result raw))
@@ -144,6 +148,28 @@
    ((utf8-string? s) (utf8-string-code s i))
    (else (load32 (as-raw s) (raw+ (raw<< i (raw 2)) (raw 16))))))
 
+;; Sequential reading: a position is a byte offset in a UTF-8 string, else a char index, from 0
+;; to string-end
+
+(define (string-end s)
+  (declare unsafe inline (result raw))
+  (if (utf8-string? s) (utf8-nbytes-of s) (string-nchars s)))
+
+;; The code of the char at the position pos of s
+(define (string-code-at s (raw pos))
+  (declare unsafe inline (result raw))
+  (cond
+   ((ascii-string? s) (load8 (as-raw s) (raw+ pos (raw 16))))
+   ((utf8-string? s) (decode-at (raw+ (as-raw s) (raw+ pos (raw 40)))))
+   (else (load32 (as-raw s) (raw+ (raw<< pos (raw 2)) (raw 16))))))
+
+;; The position after the char at pos
+(define (string-next s (raw pos))
+  (declare unsafe inline (result raw))
+  (if (utf8-string? s)
+      (raw+ pos (lead-length (load8 (as-raw s) (raw+ pos (raw 40)))))
+      (raw+ pos (raw 1))))
+
 ;; The bytes of the UTF-8 encoding of the chars [start, end) of s
 (define (utf8-range-nbytes s (raw start) (raw end))
   (declare unsafe noalloc (result raw))
@@ -217,10 +243,12 @@
     (cond
      ((not (raw= (string-nchars a) (string-nchars b))) #f)
      ((or (raw= ha utf32-string-type) (raw= hb utf32-string-type))
-      (let char-next ((i (raw 0)))
+      (let char-next ((i (raw 0))
+                      (j (raw 0)))
         (cond
-         ((raw= i (string-nchars a)) #t)
-         ((raw= (string-code a i) (string-code b i)) (char-next (raw+ i (raw 1))))
+         ((raw= i (string-end a)) #t)
+         ((raw= (string-code-at a i) (string-code-at b j))
+          (char-next (string-next a i) (string-next b j)))
          (else #f))))
      ((not (raw= ha hb)) #f)
      ((raw= ha utf8-string-type)
@@ -307,13 +335,14 @@
 ;; By code points
 (define (string-less? a b)
   (declare unsafe noalloc)
-  (let char-next ((i (raw 0)))
+  (let char-next ((i (raw 0))
+                  (j (raw 0)))
     (cond
-     ((raw= i (string-nchars b)) #f)
-     ((raw= i (string-nchars a)) #t)
-     ((raw< (string-code a i) (string-code b i)) #t)
-     ((raw> (string-code a i) (string-code b i)) #f)
-     (else (char-next (raw+ i (raw 1)))))))
+     ((raw= j (string-end b)) #f)
+     ((raw= i (string-end a)) #t)
+     ((raw< (string-code-at a i) (string-code-at b j)) #t)
+     ((raw> (string-code-at a i) (string-code-at b j)) #f)
+     (else (char-next (string-next a i) (string-next b j))))))
 
 (define (string<? a b)
   (declare public)

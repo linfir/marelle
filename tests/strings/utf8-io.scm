@@ -1,0 +1,17 @@
+;; UTF-8 strings printed with write and display, as symbol names, and as file names; utf8->string
+;; copies valid bytes and replaces invalid ones
+(write "é\n€\t😀\"")
+(newline)
+(display "é€😀")
+(newline)
+(display (string->symbol "λx"))
+(newline)
+(define name (string-append "é€" ".txt"))
+(call-with-output-file name (lambda (p) (display "contenu λ" p)))
+(let* ((exists? (file-exists? name))
+       (line (call-with-input-file name read-line))
+       (deleted? (delete-file name)))
+  (list exists? line deleted? (file-exists? name)
+      (utf8->string (bytevector 206 187 120))
+      (utf8->string (bytevector 237 160 128 120))
+      (string-length (utf8->string (bytevector 237 160 128 120)))))

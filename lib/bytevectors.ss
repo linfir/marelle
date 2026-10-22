@@ -283,13 +283,36 @@
                               ((raw= p (raw 0)) (utf8-nbytes code))
                               (else (store-utf8! (raw+ p j) code)))))))))
 
-;; The string of the UTF-8 bytes [start, end) of bv, fixnums
+;; The chars of the bytes [start, end) of bv if they are valid UTF-8, else -1
+(define (valid-utf8-chars bv (raw start) (raw end))
+  (declare unsafe noalloc (result raw))
+  (let byte-next ((i start)
+                  (n (raw 0)))
+    (if (raw= i end)
+        n
+        (let ((len (utf8-span bv i end)))
+          (if (or (raw= len (raw 1))
+                  (and (raw= len (utf8-length (load8 (byte-address bv i) (raw 0))))
+                       (not (raw= (utf8-code (byte-address bv i) len) (raw -1)))))
+              (if (and (raw= len (raw 1)) (raw>=u (load8 (byte-address bv i) (raw 0)) (raw 128)))
+                  (raw -1)
+                  (byte-next (raw+ i len) (raw+ n (raw 1))))
+              (raw -1))))))
+
+;; The string of the UTF-8 bytes [start, end) of bv, fixnums: a copy of valid bytes, else
+;; decoded
 (define (utf8-range->string bv start end)
   (declare unsafe)
-  (let ((s (make-text (make-fixnum (decode-bytes! (raw 0) bv (fixnum-value start) (fixnum-value end) (raw 0)))
-                      (make-fixnum (decode-bytes! (raw 0) bv (fixnum-value start) (fixnum-value end) (raw 1))))))
-    (decode-bytes! (string-units (as-raw s)) bv (fixnum-value start) (fixnum-value end) (raw 1))
-    s))
+  (let ((nbytes (- end start))
+        (nchars (make-fixnum (valid-utf8-chars bv (fixnum-value start) (fixnum-value end)))))
+    (if (eq? nchars -1)
+        (let ((s (make-text (make-fixnum (decode-bytes! (raw 0) bv (fixnum-value start) (fixnum-value end) (raw 0)))
+                            (make-fixnum (decode-bytes! (raw 0) bv (fixnum-value start) (fixnum-value end) (raw 1))))))
+          (decode-bytes! (string-units (as-raw s)) bv (fixnum-value start) (fixnum-value end) (raw 1))
+          s)
+        (let ((s (make-text nchars nbytes)))
+          (copy-bytes! (string-units (as-raw s)) (byte-address bv (fixnum-value start)) (fixnum-value nbytes))
+          s))))
 
 (define (utf8->string bv)
   (declare public)

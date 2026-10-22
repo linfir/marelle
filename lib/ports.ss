@@ -502,15 +502,17 @@
 ;; The file name s as a C string in path-buffer, or 0 if it is too long or holds a NUL
 (define (file-name s)
   (declare unsafe noalloc (result raw))
-  (let char-next ((i (raw 0))
-                  (j (raw 0)))
-    (cond
-     ((raw= i (string-nchars s))
-      (store8 path-buffer j (raw 0))
-      path-buffer)
-     ((or (raw= (string-code s i) (raw 0)) (raw>u j (raw- path-max (raw 5)))) (raw 0))
-     (else
-      (char-next (raw+ i (raw 1)) (raw+ j (store-utf8! (raw+ path-buffer j) (string-code s i))))))))
+  (let ((n (utf8-range-nbytes s (raw 0) (string-nchars s))))
+    (if (raw>=u n path-max)
+        (raw 0)
+        (begin
+          (put-utf8-range! path-buffer s (raw 0) (string-nchars s))
+          (store8 path-buffer n (raw 0))
+          (let byte-next ((i (raw 0)))
+            (cond
+             ((raw= i n) path-buffer)
+             ((raw= (load8 path-buffer i) (raw 0)) (raw 0))
+             (else (byte-next (raw+ i (raw 1))))))))))
 
 ;; The value of the environment variable name, a fresh string, or #f if unset (R7RS); getenv
 ;; is called again after the allocation, its address being raw

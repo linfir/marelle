@@ -160,14 +160,15 @@
   (declare unsafe noalloc (result void))
   (cond
    ((raw= write? (raw 1)) (put-quoted-string out s))
-   ((ascii-string? s) (write-bytes out (raw+ (as-raw s) (raw 16)) (string-nchars s)))
+   ((not (utf32-string? s))
+    (write-bytes out (string-units (as-raw s)) (string-end s)))
    (else
     (let char-next ((i (raw 0)))
-      (if (raw= i (string-nchars s))
+      (if (raw= i (string-end s))
           undef
           (begin
-            (put-utf8 out (string-code s i))
-            (char-next (raw+ i (raw 1)))))))))
+            (put-utf8 out (string-code-at s i))
+            (char-next (string-next s i))))))))
 
 ;; Like Chez's write: in quotes, with escapes; hexadecimal for the other control characters,
 ;; delete and the line separators U+0085 and U+2028, else UTF-8
@@ -175,9 +176,9 @@
   (declare unsafe noalloc (result void))
   (put-string out "\"")
   (let char-next ((i (raw 0)))
-    (if (raw= i (string-nchars s))
+    (if (raw= i (string-end s))
         undef
-        (let* ((n (string-code s i))
+        (let* ((n (string-code-at s i))
                (escape (string-escape n)))
           (cond
            ((not (raw= escape (raw 0))) (put-string out escape))
@@ -186,19 +187,13 @@
             (put-digits out n (raw 16) (raw 1))
             (put-string out ";"))
            (else (put-utf8 out n)))
-          (char-next (raw+ i (raw 1))))))
+          (char-next (string-next s i)))))
   (put-string out "\""))
 
 ;; Its name, bare
 (define (display-symbol (raw out) sym)
   (declare unsafe noalloc (result void))
-  (let ((s (symbol-name sym)))
-    (let char-next ((i (raw 0)))
-      (if (raw= i (string-nchars s))
-          undef
-          (begin
-            (put-utf8 out (string-code s i))
-            (char-next (raw+ i (raw 1))))))))
+  (display-string out (raw 0) (symbol-name sym)))
 
 ;; The escape of the character n in a string, or 0
 (define (string-escape (raw n))

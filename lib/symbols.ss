@@ -82,10 +82,10 @@
   (declare unsafe noalloc (result raw))
   (let hash-next ((i (raw 0))
                   (h (raw 0)))
-    (if (raw= i (string-nchars s))
+    (if (raw= i (string-end s))
         h
-        (hash-next (raw+ i (raw 1))
-                   (raw* (raw+ h (raw+ (string-code s i) (raw 1)))
+        (hash-next (string-next s i)
+                   (raw* (raw+ h (raw+ (string-code-at s i) (raw 1)))
                          (raw 11400714819323198485)))))) ; 0x9E3779B97F4A7C15
 
 ;; The fixnum index of the slot of table holding the symbol named s, of hash h, else of the
