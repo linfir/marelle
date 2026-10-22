@@ -61,6 +61,7 @@
   (library-errorf who
                   (case kind
                     ((pair) "~s is not a pair")
+                    ((mutable-pair) "~s is not a mutable pair")
                     ((list) "~s is not a proper list")
                     ((vector) "~s is not a vector")
                     ((mutable-vector) "~s is not a mutable vector")

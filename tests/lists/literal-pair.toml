@@ -1,0 +1,2 @@
+stdout = '((1 (2 "three") #(4) . 5) #t #t (2 "three") 5 #t eq equal (z a b) (x y z) #t 3)'
+env = { SCHEME_GC_STRESS = "1000" }

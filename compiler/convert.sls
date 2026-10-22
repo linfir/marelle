@@ -147,7 +147,7 @@
         (c tail)
         (build-datum (car elements)
                      (lambda (a)
-                       (call-def (core-def 'cons) (list a tail) x
+                       (call-def (core-def 'immutable-cons) (list a tail) x
                                  (lambda (p) (cons-all x (cdr elements) p c)))))))
 
 

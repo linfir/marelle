@@ -1,0 +1,6 @@
+stage = "executable"
+stderr_contains = "Exception in set-car!: (2 3) is not a mutable pair\n"
+chez = "skip"
+
+[embed_datum]
+d = '''1 2 3'''

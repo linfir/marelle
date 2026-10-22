@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "Exception in set-cdr!: () is not a pair\n"

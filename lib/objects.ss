@@ -1,3 +1,5 @@
+;; The low 3 bits of a value: 0 an object with a header, 1 a fixnum, 2 another immediate, 3 a
+;; pair, 7 an immutable pair
 (define (tag x)
   (declare unsafe inline (result raw))
   (bit-and (as-raw x) (raw 7)))

@@ -1,6 +1,7 @@
+;; A mutable pair is tagged 3, an immutable one (a literal or static) 7
 (define (pair? x)
   (declare unsafe inline public)
-  (tag=? x (raw 3)))
+  (raw= (bit-and (as-raw x) (raw 3)) (raw 3)))
 
 ;; Unchecked, for noalloc defs, which cannot call error
 (define (pair-car x)
@@ -141,6 +142,31 @@
     (store p (raw 0) a)
     (store p (raw 1) d)
     (as-val (bit-or p (raw 3)))))
+
+;; A pair of a literal (build-datum)
+(define (immutable-cons a d)
+  (declare unsafe inline)
+  (let ((p (alloc (raw 2))))
+    (store p (raw 0) a)
+    (store p (raw 1) d)
+    (as-val (bit-or p (raw 7)))))
+
+(define (check-mutable-pair p who)
+  (declare unsafe inline (result void))
+  (unless (tag=? p (raw 3))
+    (argument-error who (if (pair? p) 'mutable-pair 'pair) p)))
+
+(define (set-car! p x)
+  (declare unsafe inline public)
+  (check-mutable-pair p set-car!)
+  (store (untag p) (raw 0) x)
+  undef)
+
+(define (set-cdr! p x)
+  (declare unsafe inline public)
+  (check-mutable-pair p set-cdr!)
+  (set-tail! p x)
+  undef)
 
 (define (fold-left f acc l)
   (declare public)

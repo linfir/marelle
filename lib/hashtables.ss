@@ -118,7 +118,7 @@
 (define (address-key? (raw kind) k)
   (declare unsafe inline)
   (and (not (raw= kind generic-kind))
-       (or (tag=? k (raw 3))
+       (or (pair? k)
            (and (tag=? k (raw 0))
                 (not (symbol? k))
                 (not (by-value? kind k))))))

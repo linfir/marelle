@@ -346,8 +346,8 @@
 
 
   ;; The program's embedded datums, ((name . forms) ...), as static immutable objects in one
-  ;; blob, scheme_static_data, each referenced as the blob's address plus its offset, plus 3 for a
-  ;; pair; strings and symbols shared. => the entries of the blob, of the table of the datums
+  ;; blob, scheme_static_data, each referenced as the blob's address plus its offset, plus 7 for an
+  ;; immutable pair; strings and symbols shared. => the entries of the blob, of the table of the datums
   ;; (scheme_program's word 8: a count, then each name and datum), of the table of the symbols
   ;; (word 7: a count, then each symbol), which intern-static-symbols! enters at startup; and
   ;; whether there are symbols
@@ -393,10 +393,10 @@
             (set-word! i (place (car x)))
             (if (pair? (cdr x))
                 (let ((j (reserve! 2)))
-                  (set-word! (+ i 1) (ref j 3))
+                  (set-word! (+ i 1) (ref j 7))
                   (loop j (cdr x)))
                 (set-word! (+ i 1) (place (cdr x)))))
-          (ref first 3)))
+          (ref first 7)))
 
       ;; ASCII, [header, nchars, bytes...], else UTF-8, [header, nchars, nbytes, cache-index,
       ;; cache-offset, bytes...] (lib/strings.ss)

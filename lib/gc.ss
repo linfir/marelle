@@ -76,7 +76,7 @@
 (define (forward (raw x))
   (declare unsafe noalloc (result raw))
   (let ((t (bit-and x (raw 7))))
-    (if (not (or (raw= t (raw 0)) (raw= t (raw 3))))
+    (if (not (or (raw= t (raw 0)) (raw= (bit-and t (raw 3)) (raw 3))))
         x
         (let ((p (bit-and x (raw -8)))
               (mem (load scheme-mem (raw 0))))
@@ -93,9 +93,10 @@
               (store p (raw 1) new)
               new))
            (else
-            (let ((new (load gc-free (raw 0)))
-                  (n (if (raw= t (raw 3)) (raw 2) (object-words p))))
-              (if (raw= t (raw 3))
+            (let* ((new (load gc-free (raw 0)))
+                   (pair (raw= (bit-and t (raw 3)) (raw 3))) ; mutable or not
+                   (n (if pair (raw 2) (object-words p))))
+              (if pair
                   (begin
                     (store new (raw 0) (load p (raw 0)))
                     (store new (raw 1) (load p (raw 1))))

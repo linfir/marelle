@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "Exception in set-car!: 5 is not a pair\n"
