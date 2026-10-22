@@ -381,13 +381,18 @@
          (error 'encode-asm "unsupported instruction" instr)))))
 
 
+  ;; Each x an integer, a symbol's address, or (+ symbol n) that address plus n
   (define (quad! s xs)
     (for-each (lambda (x)
-                (if (string? x)
-                    (begin
-                      (add-fixup! s 0 'abs64 x 0)
-                      (buffer-le! (section-state-buffer s) 0 8))
-                    (buffer-le! (section-state-buffer s) x 8)))
+                (cond
+                 ((string? x)
+                  (add-fixup! s 0 'abs64 x 0)
+                  (buffer-le! (section-state-buffer s) 0 8))
+                 ((pair? x)
+                  (add-fixup! s 0 'abs64 (cadr x) (caddr x))
+                  (buffer-le! (section-state-buffer s) 0 8))
+                 (else
+                  (buffer-le! (section-state-buffer s) x 8))))
               xs))
 
 

@@ -17,7 +17,7 @@ STAGES = {"compiler", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 INPUT_FIELDS = {"stdin"}
 DUMP_FIELDS = {"dump", "cps_lacks"}
-EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", "embed", *OUTPUT_FIELDS, *INPUT_FIELDS, *DUMP_FIELDS}
+EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", "embed", "embed_datum", *OUTPUT_FIELDS, *INPUT_FIELDS, *DUMP_FIELDS}
 SKIP = "skip"
 
 
@@ -48,7 +48,7 @@ def read_case(path):
     if not ((isinstance(exit_status, int) and not isinstance(exit_status, bool)) or exit_status == "nonzero"):
         raise TestFormatError('exit must be an integer or "nonzero"')
 
-    for field in ("env", "embed"):
+    for field in ("env", "embed", "embed_datum"):
         table = expected.get(field, {})
         if not isinstance(table, dict) or not all(isinstance(v, str) for v in table.values()):
             raise TestFormatError(f"{field} must be a table of strings")
@@ -98,7 +98,8 @@ def check_case(path, chez=False, gc_stress=None):
         if chez:
             result = run_chez(source, stdin=stdin)
         else:
-            result = run_pipeline(source, env=env, stdin=stdin, embed=expected.get("embed"))
+            result = run_pipeline(source, env=env, stdin=stdin, embed=expected.get("embed"),
+                                  embed_datum=expected.get("embed_datum"))
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result

@@ -7,7 +7,8 @@
           def-core def-core-set! def-core-names def-core-body
           make-data data? data-name data-symbol data-nwords data-extern?
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
-          procedure-type immutable-bytevector-type unsafe-bindings
+          procedure-type symbol-type immutable-bytevector-type immutable-vector-type immutable-ascii-string-type
+          immutable-utf32-string-type unsafe-bindings
           names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
           core-defs inlining unsafe-code? general-def
           fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
@@ -22,8 +23,19 @@
   (define procedure-type (* 42 8))
 
 
+  ;; Header of symbols, symbol-type in lib/objects.ss
+  (define symbol-type (* 52 8))
+
+
   ;; Header of the embedded files' static bytevectors, immutable-bytevector-type in lib/objects.ss
   (define immutable-bytevector-type (* 63 8))
+
+
+  ;; The static vectors' and strings' headers, immutable-vector-type and the immutable string types
+  ;; in lib/objects.ss
+  (define immutable-vector-type (* 111 8))
+  (define immutable-ascii-string-type (* 112 8))
+  (define immutable-utf32-string-type (* 113 8))
 
 
   ;; bignum-type and ratnum-type in lib/objects.ss
@@ -102,6 +114,7 @@
   ;; Symbols the IR and the stubs define
   (define reserved-symbols
     '("scheme_program" "scheme_main" "scheme_globals" "scheme_literals" "scheme_embedded"
+      "scheme_embedded_data" "scheme_static_data" "scheme_static_symbols"
       "scheme_library_literals" "scheme_library_nliterals" "_start" "alloc_frame" "alloc_object"))
 
 

@@ -121,19 +121,45 @@
     (store symbol-table (raw 0) new)
     undef))
 
+;; The table, made the first time
+(define (current-symbol-table)
+  (declare unsafe inline)
+  (when (raw= (load symbol-table (raw 0)) (raw 0))
+    (store symbol-shift (raw 0) (raw 58))
+    (store symbol-table (raw 0) (make-vector 64 #f)))
+  (as-val (load symbol-table (raw 0))))
+
+;; sym stored in the empty slot i of table, which grows when then more than half full
+(define (insert-symbol! table i sym)
+  (declare unsafe inline)
+  (vector-set! table i sym)
+  (store symbol-count (raw 0) (raw+ (load symbol-count (raw 0)) (raw 1)))
+  (when (raw>u (raw<< (load symbol-count (raw 0)) (raw 1)) (load (as-raw table) (raw 1)))
+    (grow-symbol-table!))
+  sym)
+
 ;; The symbol named s, made the first time; s is shared, since strings are immutable
 (define (string->symbol s)
   (declare unsafe public)
   (check-string s string->symbol)
-  (when (raw= (load symbol-table (raw 0)) (raw 0))
-    (store symbol-shift (raw 0) (raw 58))
-    (store symbol-table (raw 0) (make-vector 64 #f)))
-  (let* ((table (as-val (load symbol-table (raw 0))))
+  (let* ((table (current-symbol-table))
          (i (symbol-slot table s (string-hash-word s))))
     (or (vector-ref table i)
-        (let ((sym (make-symbol s)))
-          (vector-set! table i sym)
-          (store symbol-count (raw 0) (raw+ (load symbol-count (raw 0)) (raw 1)))
-          (when (raw>u (raw<< (load symbol-count (raw 0)) (raw 1)) (load (as-raw table) (raw 1)))
-            (grow-symbol-table!))
-          sym))))
+        (insert-symbol! table i (make-symbol s)))))
+
+;; The program's static symbols (scheme_program's word 7: their count, then their addresses),
+;; with their hashes, entered in the table before any other symbol is made, so string->symbol
+;; finds them; the program's first startup call when it has any
+(define (intern-static-symbols!)
+  (declare unsafe)
+  (let symbol-next ((i 0))
+    (if (raw= (fixnum-value i) (load (load (address "scheme_program") (raw 7)) (raw 0)))
+        undef
+        (let* ((sym (as-val (load (load (address "scheme_program") (raw 7))
+                                  (raw+ (fixnum-value i) (raw 1)))))
+               (table (current-symbol-table))
+               (k (symbol-slot table (symbol-name sym) (symbol-hash-word sym))))
+          (when (vector-ref table k)
+            (fatal "Static symbol interned twice\n"))
+          (insert-symbol! table k sym)
+          (symbol-next (+ i 1))))))

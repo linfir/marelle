@@ -73,8 +73,9 @@ def compile_source(source, *options):
 
 
 # The executable runs in the temporary directory, so programs may create files there; embed maps
-# the names of the files to embed to their contents
-def run_pipeline(source, *, env=None, stdin=None, embed=None):
+# the names of the files to embed to their contents, embed_datum the names of the datums to the
+# text of their forms
+def run_pipeline(source, *, env=None, stdin=None, embed=None, embed_datum=None):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         executable = work / "out"
@@ -83,6 +84,10 @@ def run_pipeline(source, *, env=None, stdin=None, embed=None):
             path = work / f"embedded{k}"
             path.write_text(contents)
             options += ["--embed", f"{name}={path}"]
+        for k, (name, contents) in enumerate((embed_datum or {}).items()):
+            path = work / f"datum{k}"
+            path.write_text(contents)
+            options += ["--embed-datum", f"{name}={path}"]
         if assemble:
             assembly = work / "out.s"
             obj = work / "out.o"

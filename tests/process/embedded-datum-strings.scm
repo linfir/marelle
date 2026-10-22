@@ -1,0 +1,11 @@
+;; Static strings, ASCII and UTF-32, against strings made at run time
+(let ((a (car (embedded-datum "d")))
+      (u (cadr (embedded-datum "d"))))
+  (list (string=? a (string #\a #\b #\c))
+        (equal? u (string-append "h" (string (integer->char 233)) "llo"))
+        (string-length u)
+        (string-ref u 1)
+        (substring u 1 3)
+        (string-append a u)
+        (string->list a)
+        (string->symbol u)))

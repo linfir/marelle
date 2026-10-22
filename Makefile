@@ -36,7 +36,7 @@ stage1: build/stage1
 
 stage2: build/stage2
 
-EMBED_LIB = --embed lib.img=build/lib.img --embed lib.scm=build/lib.scm
+EMBED_LIB = --embed lib.img=build/lib.img --embed-datum lib.scm=build/lib.scm
 
 build/flat.ss: flatten schemec $(CHEZ_LIBS)
 	mkdir -p build

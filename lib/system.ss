@@ -240,6 +240,24 @@
       (as-val (embedded-word i (raw 1))))
      (else (next (+ i 1))))))
 
+;; Word j of entry i, a fixnum, of the table of the embedded datums (scheme_program's word 8): a
+;; count, then per datum its name and itself, static and immutable
+(define (embedded-datum-word i (raw j))
+  (declare unsafe inline (result raw))
+  (load (load (address "scheme_program") (raw 8))
+        (raw+ (raw+ (raw* (fixnum-value i) (raw 2)) j) (raw 1))))
+
+;; The datum, a list of forms, schemec --embed-datum embedded as name, or #f
+(define (embedded-datum name)
+  (declare unsafe public)
+  (check-string name embedded-datum)
+  (let next ((i 0))
+    (cond
+     ((= i (make-fixnum (load (load (address "scheme_program") (raw 8)) (raw 0)))) #f)
+     ((string=? name (as-val (embedded-datum-word i (raw 0))))
+      (as-val (embedded-datum-word i (raw 1))))
+     (else (next (+ i 1))))))
+
 ;; Called from _start with the value of scheme_main, which it prints when the program was
 ;; compiled with --display (scheme_program's word 6)
 (define (finish-program v)

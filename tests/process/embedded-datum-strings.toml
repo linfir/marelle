@@ -1,0 +1,5 @@
+stdout = "(#t #t 5 #\\é \"él\" \"abchéllo\" (#\\a #\\b #\\c) héllo)"
+chez = "skip"
+
+[embed_datum]
+d = '''"abc" "héllo"'''

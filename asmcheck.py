@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -76,16 +77,24 @@ SKIP = "skip"
 
 
 def check_case(path):
-    """=> None, SKIP when the compiler rejects the case, or (stage, details)."""
+    """=> None, SKIP when the compiler rejects the case, or (stage, details); a case's embed_datum
+    datums are embedded, so their static objects are checked too."""
     source = path.read_text()
-    try:
-        assembly = compile_source(source, "-S")
-    except PipelineFailure:
-        return SKIP
+    expectations = path.with_suffix(".toml")
+    datums = tomllib.loads(expectations.read_text()).get("embed_datum", {}) if expectations.exists() else {}
     with tempfile.TemporaryDirectory() as directory:
-        obj = Path(directory) / "ours.o"
+        work = Path(directory)
+        options = []
+        for k, (name, contents) in enumerate(datums.items()):
+            (work / f"datum{k}").write_text(contents)
+            options += ["--embed-datum", f"{name}={work / f'datum{k}'}"]
         try:
-            run_stage("compiler", [*run.compiler, "--obj", obj, "-"], input=source, cwd=ROOT)
+            assembly = compile_source(source, "-S", *options)
+        except PipelineFailure:
+            return SKIP
+        obj = work / "ours.o"
+        try:
+            run_stage("compiler", [*run.compiler, *options, "--obj", obj, "-"], input=source, cwd=ROOT)
         except PipelineFailure as error:
             return "encoder", [error.result.stderr.strip()]
         return check_object(assembly, obj)

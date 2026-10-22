@@ -1,0 +1,6 @@
+stage = "executable"
+stderr_contains = "Exception in vector-fill!: #(1) is not a mutable vector\n"
+chez = "skip"
+
+[embed_datum]
+d = '''#(1)'''

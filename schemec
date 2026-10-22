@@ -14,8 +14,8 @@
 ;; --obj FILE: also writes the ELF object of the asm (encode.sls, object.sls), for asmcheck.py;
 ;; without -o, no executable
 ;; --embed NAME=FILE, any number of times: the program's (embedded-file NAME) gives the bytes of
-;; FILE
-;; The library: the image and the interface embedded as lib.img and lib.scm, else build/lib.img
+;; FILE; --embed-datum NAME=FILE: its (embedded-datum NAME) the list of FILE's forms, static
+;; The library: the image embedded as lib.img and the interface as the datum lib.scm, else build/lib.img
 ;; and build/lib.scm, from the project root; --libdir DIR forces DIR's files.
 
 (import (except (chezscheme) bytevector-copy!)
@@ -89,9 +89,9 @@
 (define (read-library dir)
   (let-values (((image interface)
                 (let ((image (and (not dir) (embedded-file "lib.img")))
-                      (text (and (not dir) (embedded-file "lib.scm"))))
-                  (if (and image text)
-                      (values image (with-input-from-string (utf8->string text) read-all))
+                      (forms (and (not dir) (embedded-datum "lib.scm"))))
+                  (if (and image forms)
+                      (values image forms)
                       (let ((dir (or dir "build")))
                         (values (read-binary-file (string-append dir "/lib.img"))
                                 (with-input-from-file (string-append dir "/lib.scm") read-all)))))))
@@ -101,21 +101,33 @@
       (values image interface))))
 
 
-;; The files of the --embed NAME=FILE options, ((name path bytes) ...)
-(define (embedded-files args)
+;; The NAME=FILE values of the option, ((name path) ...)
+(define (embed-options option args)
   (cond
    ((null? args) '())
-   ((and (string=? (car args) "--embed") (pair? (cdr args)))
+   ((and (string=? (car args) option) (pair? (cdr args)))
     (let* ((spec (cadr args))
            (i (let loop ((i 0))
                 (cond
-                 ((= i (string-length spec)) (errorf compiler-name "--embed expects NAME=FILE"))
+                 ((= i (string-length spec)) (errorf compiler-name "~a expects NAME=FILE" option))
                  ((char=? (string-ref spec i) #\=) i)
                  (else (loop (+ i 1))))))
            (path (substring spec (+ i 1) (string-length spec))))
-      (cons (list (substring spec 0 i) path (read-binary-file path))
-            (embedded-files (cddr args)))))
-   (else (embedded-files (cdr args)))))
+      (cons (list (substring spec 0 i) path)
+            (embed-options option (cddr args)))))
+   (else (embed-options option (cdr args)))))
+
+
+;; The files of the --embed NAME=FILE options, ((name path bytes) ...)
+(define (embedded-files args)
+  (map (lambda (e) (list (car e) (cadr e) (read-binary-file (cadr e))))
+       (embed-options "--embed" args)))
+
+
+;; The forms of the files of the --embed-datum NAME=FILE options, ((name . forms) ...)
+(define (embedded-datums args)
+  (map (lambda (e) (cons (car e) (with-input-from-file (cadr e) read-all)))
+       (embed-options "--embed-datum" args)))
 
 
 ;; The address of the library's global symbol name
@@ -183,7 +195,7 @@
              (errorf compiler-name "~a expects an argument" name)))))
 
 
-(define valued-options '("--lib" "--pass" "--obj" "-o" "--map" "--embed" "--libdir"))
+(define valued-options '("--lib" "--pass" "--obj" "-o" "--map" "--embed" "--embed-datum" "--libdir"))
 
 (define flag-options '("-S" "--display" "--run"))
 
@@ -267,6 +279,7 @@
                    (lambda ()
                      (program-asm
                       (compile-scheme-program interface program (embedded-files args)
+                                              (embedded-datums args)
                                               (and (member "--display" args) #t))))))
               (cond
                ((or asm? pass)

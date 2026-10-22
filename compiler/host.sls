@@ -1,15 +1,19 @@
 ;; Under Chez, what stage1 has and Chez lacks:
-;; the files schemec --embed embedded, none (embedded-file of lib/system.ss),
-;; execute-bytevector (lib/ports.ss), R7RS's bytevector-copy! (lib/bytevectors.ss) and
-;; get-environment-variable (lib/ports.ss);
+;; the files and datums schemec --embed and --embed-datum embedded, none (embedded-file and
+;; embedded-datum of lib/system.ss), execute-bytevector (lib/ports.ss), R7RS's bytevector-copy!
+;; (lib/bytevectors.ss) and get-environment-variable (lib/ports.ss);
 ;; not flattened
 
 (library (host)
-  (export embedded-file execute-bytevector bytevector-copy! get-environment-variable)
+  (export embedded-file embedded-datum execute-bytevector bytevector-copy! get-environment-variable)
   (import (rename (chezscheme) (bytevector-copy! chez-bytevector-copy!)))
 
 
   (define (embedded-file name)
+    #f)
+
+
+  (define (embedded-datum name)
     #f)
 
 

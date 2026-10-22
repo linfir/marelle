@@ -1,0 +1,6 @@
+stdout = "((k \"s\" #(1 v)) 4 #t)"
+env = { SCHEME_GC_STRESS = "100" }
+chez = "skip"
+
+[embed_datum]
+d = '''k "s" #(1 v)'''

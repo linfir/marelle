@@ -746,6 +746,10 @@
       (display x))
      ((string? x)
       (write-gas-string x))
+     ;; A symbol's address plus n, in a quad
+     ((eq? (car x) '+)
+      (write-gas-string (cadr x))
+      (printf "+~a" (caddr x)))
      ((and (eq? (car x) 'mem) (= (length x) 4))
       (printf "qword ptr [~a + ~a*~a]" (cadr x) (caddr x) (cadddr x)))
      ((memq (car x) '(mem mem8 mem32))
