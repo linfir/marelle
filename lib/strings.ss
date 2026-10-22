@@ -474,3 +474,98 @@
 (define (string<? a b)
   (declare unsafe public)
   (string-less? (string-body a string<?) (string-body b string<?)))
+
+;; Copying and filling, with R7RS's optional ranges (not Chez's R6RS arguments)
+
+(define (string-copy s)
+  (declare public)
+  (substring s 0 (string-length s)))
+
+;; (string-copy s [start [end]])
+(define (variadic-string-copy s . rest)
+  (optional-range s (string-length s) rest string-copy
+                  (lambda (start end) (substring s start end))))
+
+;; Whether the chars [start, end) of the string s are all ASCII
+(define (ascii-range? s (raw start) (raw end))
+  (declare unsafe noalloc)
+  (or (ascii-string? s)
+      (let char-next ((i start))
+        (cond
+         ((raw= i end) #t)
+         ((raw<u (string-code s i) (raw 128)) (char-next (raw+ i (raw 1))))
+         (else #f)))))
+
+;; The body of the mutable string s, relocated to UTF-32 unless it is ASCII and fit? is true
+(define (fitting-body s fit? who)
+  (declare unsafe)
+  (let ((b (mutable-string-body s who)))
+    (if (or (utf32-string? b) (and fit? (ascii-string? b)))
+        b
+        (widen! b (make-fixnum (string-nchars b))))))
+
+(define (string-fill! s c)
+  (declare public)
+  (variadic-string-fill! s c))
+
+;; (string-fill! s c [start [end]])
+(define (variadic-string-fill! s c . rest)
+  (declare unsafe)
+  (let ((n (string-length (mutable-string-body s string-fill!))))
+    (unless (char? c)
+      (argument-error string-fill! 'char c))
+    (optional-range s n rest string-fill!
+                    (lambda (start end)
+                      (fill-chars-range! (fitting-body s (raw<u (char-code c) (raw 128)) string-fill!)
+                                         c (fixnum-value start) (fixnum-value end))
+                      undef))))
+
+;; Copies the chars [start, end) of the string from to the string to from char at: ASCII to
+;; ASCII by bytes, else to UTF-32 by codes; backward when they overlap with at past start
+(define (copy-chars! to (raw at) from (raw start) (raw end))
+  (declare unsafe noalloc (result void))
+  (cond
+   ((ascii-string? to)
+    (if (ascii-string? from)
+        (move-bytes! (raw+ (as-raw to) (raw+ at (raw 16))) (raw+ (as-raw from) (raw+ start (raw 16)))
+                     (raw- end start))
+        (let char-next ((i start))
+          (if (raw= i end)
+              undef
+              (begin
+                (store8 (as-raw to) (raw+ (raw+ at (raw- i start)) (raw 16)) (string-code from i))
+                (char-next (raw+ i (raw 1))))))))
+   ((and (eq? to from) (raw>u at start))
+    (let char-next ((i end))
+      (if (raw= i start)
+          undef
+          (begin
+            (store32 (as-raw to) (raw+ (raw<< (raw+ at (raw- (raw- i (raw 1)) start)) (raw 2)) (raw 24))
+                     (string-code from (raw- i (raw 1))))
+            (char-next (raw- i (raw 1)))))))
+   (else
+    (let char-next ((i start))
+      (if (raw= i end)
+          undef
+          (begin
+            (store32 (as-raw to) (raw+ (raw<< (raw+ at (raw- i start)) (raw 2)) (raw 24))
+                     (string-code from i))
+            (char-next (raw+ i (raw 1)))))))))
+
+(define (string-copy! to at from)
+  (declare public)
+  (variadic-string-copy! to at from))
+
+;; (string-copy! to at from [start [end]]); to is relocated to UTF-32 first unless both are
+;; ASCII for the range
+(define (variadic-string-copy! to at from . rest)
+  (declare unsafe)
+  (mutable-string-body to string-copy!)
+  (optional-range from (string-length from) rest string-copy!
+                  (lambda (start end)
+                    (unless (and (fixnum? at) (>= at 0) (<= (+ at (- end start)) (string-length to)))
+                      (index-error string-copy! at to))
+                    (let ((b (fitting-body to (ascii-range? (resolve from) (fixnum-value start) (fixnum-value end))
+                                           string-copy!)))
+                      (copy-chars! b (fixnum-value at) (resolve from) (fixnum-value start) (fixnum-value end))
+                      undef))))
