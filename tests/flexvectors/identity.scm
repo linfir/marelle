@@ -1,0 +1,18 @@
+;; Growing relocates the flexvector: every reference to it, in a list, a vector, a closure and
+;; an equal hashtable's key, still sees one flexvector with all the elements
+(define fv (make-flexvector 0))
+(define held (list fv))
+(define v (vector fv))
+(define get (lambda () fv))
+(define table (make-hashtable equal-hash equal?))
+(hashtable-set! table fv 'found)
+(let fill ((i 0))
+  (when (< i 1000)
+    (flexvector-add-back! (car held) i)
+    (fill (+ i 1))))
+(list (flexvector-length (get))
+      (flexvector-ref (vector-ref v 0) 999)
+      (eq? (car held) (vector-ref v 0))
+      (eq? (get) fv)
+      (flexvector? (car held))
+      (hashtable-ref table fv #f))

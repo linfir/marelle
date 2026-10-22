@@ -73,19 +73,51 @@
        (not (raw= (as-raw x) (raw 0)))
        (raw= (load (as-raw x) (raw 0)) moved-type)))
 
-;; The current body of x, x itself unless relocated
+;; The current body of x, x itself unless relocated; x then forwards to it directly, so a
+;; reference held across several relocations follows one link
 (define (resolve x)
   (declare unsafe noalloc)
-  (let follow ((x x))
-    (if (moved? x)
-        (follow (as-val (load (as-raw x) (raw 1))))
-        x)))
+  (if (moved? x)
+      (let follow ((y (as-val (load (as-raw x) (raw 1)))))
+        (if (moved? y)
+            (follow (as-val (load (as-raw y) (raw 1))))
+            (begin
+              (store (as-raw x) (raw 1) y)
+              y)))
+      x))
+
+;; The body of x if it was relocated to an object of header h, else #f
+(define (moved-body x (raw h))
+  (declare unsafe noalloc)
+  (and (moved? x)
+       (let ((b (resolve x)))
+         (and (raw= (load (as-raw b) (raw 0)) h) b))))
+
+;; Whether x points to an object of header h
+(define (header=? x (raw h))
+  (declare unsafe inline)
+  (and (tag=? x (raw 0))
+       (not (raw= (as-raw x) (raw 0)))
+       (raw= (load (as-raw x) (raw 0)) h)))
+
+;; moved-body, one link followed inline, so a reference relocated once costs two loads
+(define (relocated-body x (raw h))
+  (declare unsafe inline)
+  (if (and (header=? x moved-type)
+           (raw= (load (load (as-raw x) (raw 1)) (raw 0)) h))
+      (as-val (load (as-raw x) (raw 1)))
+      (moved-body x h)))
+
+;; The body of x if it has the header h, or was relocated to an object of header h, else #f;
+;; the relocated case only costs on the failing path of the header check
+(define (body-of x (raw h))
+  (declare unsafe inline)
+  (if (header=? x h) x (relocated-body x h)))
 
 ;; Whether x, relocated, now has the header h
 (define (moved-to? x (raw h))
   (declare unsafe noalloc)
-  (and (moved? x)
-       (raw= (load (as-raw (resolve x)) (raw 0)) h)))
+  (if (moved-body x h) #t #f))
 
 ;; Makes the body old, resolved, forward to new
 (define (relocate! old new)
