@@ -1,0 +1,3 @@
+stdout = "4"
+dump = "simplify"
+cps_lacks = ["(bit-and (as-raw (as-val (quad", "(bit-and (quad"]

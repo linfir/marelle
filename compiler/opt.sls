@@ -8,11 +8,13 @@
   (import (except (chezscheme) bytevector-copy!)
           (utils)
           (host)
-          (cps))
+          (cps)
+          (simplify))
 
 
-  ;; (name . pass), a pass from a fun to a fun; each name is also in dump-passes
-  (define passes '())
+  ;; (name . pass), (pass def fun) a fun; each name is also in dump-passes
+  (define passes
+    (list (cons 'simplify simplify)))
 
 
   ;; The names of the passes SCHEME_OPT disables, once read
@@ -53,10 +55,10 @@
 
 
   ;; A disabled pass leaves the fun as it is, also in its dump
-  (define (optimize fun)
+  (define (optimize def fun)
     (let ((disabled (disabled-passes)))
       (fold-left (lambda (fun pass)
-                   (let ((fun (if (memq (car pass) disabled) fun ((cdr pass) fun))))
+                   (let ((fun (if (memq (car pass) disabled) fun ((cdr pass) def fun))))
                      (dumped (car pass) (list-head fun 3) (cdddr fun))
                      (check-cps fun)
                      fun))

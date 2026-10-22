@@ -1,0 +1,3 @@
+stdout = "(1 2)"
+dump = "simplify"
+cps_lacks = "(true "

@@ -25,7 +25,7 @@
 ;;           (as-raw atom)...
 
 (library (cps)
-  (export check-cps param-var param-kind op-atoms fun-params fun-term
+  (export check-cps param-var param-kind op-atoms map-op fun-params fun-term
           cps-kinds op-kind census use-count bound-op cps-effect rename-term)
   (import (chezscheme)
           (utils)

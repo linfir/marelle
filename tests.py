@@ -57,12 +57,17 @@ def read_case(path):
         if expected.get(field, SKIP) != SKIP:
             raise TestFormatError(f'{field} must be "skip"')
 
-    for field in OUTPUT_FIELDS | INPUT_FIELDS | DUMP_FIELDS:
+    for field in OUTPUT_FIELDS | INPUT_FIELDS | {"dump"}:
         if field in expected and not isinstance(expected[field], str):
             raise TestFormatError(f"{field} must be a string")
 
     if ("dump" in expected) != ("cps_lacks" in expected):
         raise TestFormatError("dump and cps_lacks go together")
+    lacks = expected.get("cps_lacks", [])
+    if isinstance(lacks, str):
+        expected["cps_lacks"] = [lacks]
+    elif not (isinstance(lacks, list) and all(isinstance(x, str) for x in lacks)):
+        raise TestFormatError("cps_lacks must be a string or a list of strings")
 
     return source, expected
 
@@ -148,17 +153,18 @@ def check_case(path, chez=False, gc_stress=None):
                 f"actual:   {describe_stream(actual)}",
             ]
 
-    # The dump of a pass must not contain cps_lacks
+    # The dump of a pass must not contain any string of cps_lacks
     if "dump" in expected and not chez:
         try:
             dump = compile_source(source, "--pass", expected["dump"])
         except PipelineFailure as error:
             return "compiler", [f"--pass {expected['dump']} failed", f"stderr: {describe_stream(error.result.stderr)}"]
-        if expected["cps_lacks"] in dump:
-            return "compiler", [
-                f"--pass {expected['dump']} contains {expected['cps_lacks']!r}",
-                f"dump: {describe_stream(dump)}",
-            ]
+        for lacked in expected["cps_lacks"]:
+            if lacked in dump:
+                return "compiler", [
+                    f"--pass {expected['dump']} contains {lacked!r}",
+                    f"dump: {describe_stream(dump)}",
+                ]
 
     return None
 

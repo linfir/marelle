@@ -173,7 +173,7 @@
                 (fun (begin
                        (dumped 'cps (list-head fun 3) (cdddr fun))
                        (check-cps fun)
-                       (if optimize? (optimize fun) fun)))
+                       (if optimize? (optimize def fun) fun)))
                 (fun `(,@(list-head fun 3) ,(expand-frames (cadddr fun)))))
            (dumped 'frames (list-head fun 3) (cdddr fun))
            (check-cps fun)

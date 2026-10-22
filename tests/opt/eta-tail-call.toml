@@ -1,0 +1,3 @@
+stdout = "6"
+dump = "simplify"
+cps_lacks = "(throw return t"
