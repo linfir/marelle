@@ -60,13 +60,13 @@
    ((raw= (load p (raw 0)) frame-type) (load p (raw 1)))
    ((raw= (load p (raw 0)) procedure-type) (raw+ (load p (raw 4)) (raw 5)))
    ((raw= (load p (raw 0)) bignum-type) (raw+ (load p (raw 1)) (raw 3)))
-   ((raw= (load p (raw 0)) vector-type) (raw+ (load p (raw 1)) (raw 2)))
+   ((vector-header? (load p (raw 0))) (raw+ (load p (raw 1)) (raw 2)))
    ((raw= (load p (raw 0)) flexvector-type) (raw+ (load p (raw 2)) (raw 3)))
    ((raw= (load p (raw 0)) ratnum-type) (raw 3))
    ((raw= (load p (raw 0)) record-type) (raw+ (load p (raw 1)) (raw 3)))
    ((raw= (load p (raw 0)) hashtable-type) (raw+ (raw<< (raw 1) (raw- (raw 65) (load p (raw 4)))) (raw 8)))
    ((raw= (load p (raw 0)) port-type) (raw 6))
-   ((raw= (load p (raw 0)) bytevector-type) (bytevector-words (load p (raw 1))))
+   ((bytevector-header? (load p (raw 0))) (bytevector-words (load p (raw 1))))
    ((symbol-header? (load p (raw 0))) (raw 3))
    ((string-header? (load p (raw 0))) (string-words p))
    (else (raw 2)))) ; pair, box, values, record type or relocated object
@@ -128,14 +128,14 @@
                  ((raw= header values-type) (raw 1))
                  ((symbol-header? header) (raw 2)) ; the name
                  ((raw= header bignum-type) n) ; only raw words
-                 ((raw= header vector-type) (raw 2))
+                 ((vector-header? header) (raw 2))
                  ((raw= header flexvector-type) (raw 3)) ; the elements
                  ((raw= header ratnum-type) (raw 1))
                  ((raw= header rtd-type) (raw 1)) ; the name
                  ((raw= header record-type) (raw 2)) ; the type and the fields
                  ((raw= header hashtable-type) (raw 6)) ; the procedures and the slots
                  ((raw= header port-type) (raw 5)) ; the buffer
-                 ((raw= header bytevector-type) n) ; only raw words
+                 ((bytevector-header? header) n) ; only raw words
                  ((string-header? header) n) ; only raw words
                  (else (raw 0)))))
     (forward-words (raw+ p (raw<< start (raw 3)))

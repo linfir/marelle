@@ -103,7 +103,7 @@
 
 
   ;; A new pair, vector or bytevector equal to x, its strings and symbols from their cells; a list is
-  ;; consed from its end
+  ;; consed from its end, a vector or bytevector made immutable once filled
   (define (build-datum x c)
     (cond
      ((pair? x)
@@ -118,7 +118,7 @@
                 (lambda (v)
                   (let loop ((i 0))
                     (if (= i (vector-length x))
-                        (c v)
+                        (call-def (core-def 'freeze-literal!) (list v) x c)
                         (build-datum (vector-ref x i)
                                      (lambda (a)
                                        (call-def (core-def 'vector-set!)
@@ -131,7 +131,7 @@
                 (lambda (bv)
                   (let loop ((i 0))
                     (if (= i (bytevector-length x))
-                        (c bv)
+                        (call-def (core-def 'freeze-literal!) (list bv) x c)
                         (call-def (core-def 'bytevector-u8-set!)
                                   (list bv (immediate-operand i) (immediate-operand (bytevector-u8-ref x i))) x
                                   (lambda (ignored) (loop (+ i 1)))))))))

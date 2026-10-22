@@ -1,6 +1,7 @@
 ;; Bytevectors (R7RS, with Chez's bytevector=?, bytevector->u8-list and u8-list->bytevector):
 ;; [bytevector-type, nbytes, bytes...], all raw, the bytes padded with zeros to a whole word;
-;; immutable-bytevector-type for the static ones of embedded-file, which only the readers take
+;; immutable-bytevector-type for the static ones of embedded-file and for literals, which only
+;; the readers take
 
 (define (bytevector-words (raw n))
   (declare unsafe inline (result raw))

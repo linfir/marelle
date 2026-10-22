@@ -41,10 +41,10 @@
 (define-constant flexvector-type (raw (ash 59 3)))
 (define-constant port-type (raw (ash 60 3)))
 (define-constant bytevector-type (raw (ash 61 3)))
-;; A static, read-only bytevector's type differs from bytevector-type by bit 4 (lib/bytevectors.ss)
+;; An immutable bytevector's type differs from bytevector-type by bit 4 (lib/bytevectors.ss)
 (define-constant immutable-bytevector-type (raw (ash 63 3)))
-;; A static, read-only vector's or string's type is the mutable one's plus 64, header bit 9;
-;; nothing allocates them, so the GC never meets them (lib/vectors.ss, lib/strings.ss)
+;; An immutable vector's or string's type is the mutable one's plus 64, header bit 9: static
+;; ones, and literals frozen at startup (lib/vectors.ss, lib/strings.ss)
 (define-constant immutable-vector-type (raw (ash 111 3)))
 (define-constant immutable-ascii-string-type (raw (ash 112 3)))
 (define-constant immutable-utf8-string-type (raw (ash 114 3)))

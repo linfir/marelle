@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "Exception in bytevector-u8-set!: #vu8(1 2) is not a mutable bytevector\n"
+chez = "skip"

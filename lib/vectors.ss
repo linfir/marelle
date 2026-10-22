@@ -1,5 +1,6 @@
 ;; Vectors: [vector-type, length, elem 0, ..., elem n-1], the length a raw word;
-;; immutable-vector-type for the static ones of embedded-datum, which only the readers take
+;; immutable-vector-type for the static ones of embedded-datum and for literals, which only the
+;; readers take
 
 (define (vector-header? (raw h))
   (declare unsafe inline)
@@ -60,6 +61,12 @@
     (store p (raw 1) (fixnum-value k))
     (fill-words (raw+ p (raw 16)) (fixnum-value k) (as-raw fill))
     (as-val p)))
+
+;; The literal vector or bytevector x, made immutable once filled (build-datum)
+(define (freeze-literal! x)
+  (declare unsafe noalloc)
+  (store (as-raw x) (raw 0) (bit-or (load (as-raw x) (raw 0)) (if (vector? x) (raw 512) (raw 16))))
+  x)
 
 (define (vector-fill! v x)
   (declare unsafe public)
