@@ -29,6 +29,7 @@
 ;; The string types, one per kind, are 48 to 51 (lib/strings.ss)
 (define-constant ascii-string-type (raw (ash 48 3)))
 (define-constant utf32-string-type (raw (ash 49 3)))
+(define-constant utf8-string-type (raw (ash 50 3)))
 ;; A gensym's type differs from a symbol's by bit 3 (lib/symbols.ss)
 (define-constant symbol-type (raw (ash 52 3)))
 (define-constant gensym-type (raw (ash 53 3)))
@@ -47,6 +48,7 @@
 (define-constant immutable-vector-type (raw (ash 111 3)))
 (define-constant immutable-ascii-string-type (raw (ash 112 3)))
 (define-constant immutable-utf32-string-type (raw (ash 113 3)))
+(define-constant immutable-utf8-string-type (raw (ash 114 3)))
 
 (define (fixnum? x)
   (declare unsafe inline public)

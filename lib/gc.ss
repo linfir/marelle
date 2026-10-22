@@ -68,7 +68,7 @@
    ((raw= (load p (raw 0)) port-type) (raw 6))
    ((raw= (load p (raw 0)) bytevector-type) (bytevector-words (load p (raw 1))))
    ((symbol-header? (load p (raw 0))) (raw 3))
-   ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
+   ((string-header? (load p (raw 0))) (string-words p))
    (else (raw 2)))) ; pair, box, values, record type or relocated object
 
 ;; The new address of the object x points to, copied to gc-free if it is in the

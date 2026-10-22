@@ -267,33 +267,28 @@
      (else (raw 65533)))))
 
 ;; The chars of the bytes [start, end) of bv, an invalid or truncated sequence one U+FFFD, as in
-;; Chez's utf8->string; stored in the string s, which fits them, unless s is #f
-(define (decode-bytes! s bv (raw start) (raw end))
+;; Chez's utf8->string: their number when bytes? is 0, else the bytes of their encoding, stored
+;; at p unless it is 0
+(define (decode-bytes! (raw p) bv (raw start) (raw end) (raw bytes?))
   (declare unsafe noalloc (result raw))
   (let byte-next ((i start)
                   (j (raw 0)))
     (if (raw= i end)
         j
-        (let ((n (utf8-span bv i end)))
-          (when s
-            (string-set-code! (as-raw s) j (utf8-span-code bv i n)))
-          (byte-next (raw+ i n) (raw+ j (raw 1)))))))
-
-;; Whether the bytes [start, end) of bv are all ASCII
-(define (ascii-bytes? bv (raw start) (raw end))
-  (declare unsafe noalloc)
-  (let byte-next ((i start))
-    (cond
-     ((raw= i end) #t)
-     ((raw<u (load8 (byte-address bv i) (raw 0)) (raw 128)) (byte-next (raw+ i (raw 1))))
-     (else #f))))
+        (let* ((n (utf8-span bv i end))
+               (code (utf8-span-code bv i n)))
+          (byte-next (raw+ i n)
+                     (raw+ j (cond
+                              ((raw= bytes? (raw 0)) (raw 1))
+                              ((raw= p (raw 0)) (utf8-nbytes code))
+                              (else (store-utf8! (raw+ p j) code)))))))))
 
 ;; The string of the UTF-8 bytes [start, end) of bv, fixnums
 (define (utf8-range->string bv start end)
   (declare unsafe)
-  (let ((s (make-string-object (ascii-bytes? bv (fixnum-value start) (fixnum-value end))
-                               (make-fixnum (decode-bytes! #f bv (fixnum-value start) (fixnum-value end))))))
-    (decode-bytes! s bv (fixnum-value start) (fixnum-value end))
+  (let ((s (make-text (make-fixnum (decode-bytes! (raw 0) bv (fixnum-value start) (fixnum-value end) (raw 0)))
+                      (make-fixnum (decode-bytes! (raw 0) bv (fixnum-value start) (fixnum-value end) (raw 1))))))
+    (decode-bytes! (string-units (as-raw s)) bv (fixnum-value start) (fixnum-value end) (raw 1))
     s))
 
 (define (utf8->string bv)
@@ -307,23 +302,11 @@
   (optional-range bv (bytevector-length bv) rest utf8->string
                   (lambda (start end) (utf8-range->string bv start end))))
 
-;; The UTF-8 bytes of the chars [start, end) of s, stored from byte 0 of bv unless bv is #f
-(define (encode-chars! bv s (raw start) (raw end))
-  (declare unsafe noalloc (result raw))
-  (let char-next ((i start)
-                  (j (raw 0)))
-    (if (raw= i end)
-        j
-        (char-next (raw+ i (raw 1))
-                   (raw+ j (if bv
-                               (store-utf8! (byte-address bv j) (string-code s i))
-                               (utf8-nbytes (string-code s i))))))))
-
 ;; The UTF-8 bytevector of the chars [start, end) of s, fixnums
 (define (string-range->utf8 s start end)
   (declare unsafe)
-  (let ((bv (alloc-bytevector (make-fixnum (encode-chars! #f s (fixnum-value start) (fixnum-value end))))))
-    (encode-chars! bv s (fixnum-value start) (fixnum-value end))
+  (let ((bv (alloc-bytevector (make-fixnum (utf8-range-nbytes s (fixnum-value start) (fixnum-value end))))))
+    (put-utf8-range! (byte-address bv (raw 0)) s (fixnum-value start) (fixnum-value end))
     bv))
 
 (define (string->utf8 s)

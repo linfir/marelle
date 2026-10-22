@@ -96,8 +96,7 @@
                                (call-def (core-def 'literal-string)
                                          (list bytes
                                                (immediate-operand (bytevector-length (string->utf8 x)))
-                                               (immediate-operand (string-length x))
-                                               (immediate-operand (ascii? x)))
+                                               (immediate-operand (string-length x)))
                                          x store))))
                   (else
                    (build-datum x store))))))))))
@@ -150,10 +149,6 @@
                      (lambda (a)
                        (call-def (core-def 'cons) (list a tail) x
                                  (lambda (p) (cons-all x (cdr elements) p c)))))))
-
-
-  (define (ascii? s)
-    (for-all (lambda (c) (< (char->integer c) 128)) (string->list s)))
 
 
   ;; The function of def, its parameters params, (name . kind) pairs, its body the term
