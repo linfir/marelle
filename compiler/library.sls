@@ -242,7 +242,7 @@
          (core-defs (map (lambda (x) (cons (item-name x) x)) (filter def? items)))
          (let-values (((safe unsafe) (item-bindings items)))
            (set-envs! items safe (append safe unsafe unsafe-bindings)))
-         (compile-defs! items)
+         (compile-unit (lambda () (compile-defs! items)))
          (compile-literal-init init)
          (values
           (let ((entries (reverse (current-entries))))
@@ -520,16 +520,20 @@
                                            library)
                                       unsafe-bindings)))
              (set-envs! items env unsafe-env)
-             (compile-defs! items)
-             (let-values (((statics symbols?) (static-entries datums)))
-               (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
-                                                     (static-form? (car (last-pair all))))))))
-                 (parameterize ((startup-defs `(,@(if symbols? (list (core-def 'intern-static-symbols!)) '())
-                                                ,library-init ,init)))
-                   (compile-procedure
-                    (make-def 'main "main" '() 'val #f #f #f #f #t #f 0 #f #f body env
-                              (make-main-core env body))
-                    '())))
+             (let ((statics #f))
+               (compile-unit
+                (lambda ()
+                  (compile-defs! items)
+                  (let-values (((entries symbols?) (static-entries datums)))
+                    (set! statics entries)
+                    (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
+                                                          (static-form? (car (last-pair all))))))))
+                      (parameterize ((startup-defs `(,@(if symbols? (list (core-def 'intern-static-symbols!)) '())
+                                                     ,library-init ,init)))
+                        (compile-procedure
+                         (make-def 'main "main" '() 'val #f #f #f #f #t #f 0 #f #f body env
+                                   (make-main-core env body))
+                         '()))))))
                (compile-literal-init init)
                ;; Before constant-entries, since it interns the names
                (let ((files (embedded-entries embedded)))

@@ -4,7 +4,7 @@
 ;; of them.
 
 (library (opt)
-  (export optimize)
+  (export optimize optimize-unit)
   (import (except (chezscheme) bytevector-copy!)
           (utils)
           (host)
@@ -67,4 +67,10 @@
                      (check-cps fun)
                      fun))
                  fun
-                 passes))))
+                 passes)))
+
+
+  ;; The passes on a whole unit: defs, their optimized funs and the counters numbering their
+  ;; names, in the same order; gives the funs
+  (define (optimize-unit defs funs counters)
+    funs))

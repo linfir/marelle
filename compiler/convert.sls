@@ -14,7 +14,7 @@
 ;; computed, as the block IR wants them; inline defs are expanded.
 
 (library (convert)
-  (export compile-procedure compile-low-def compile-literal-init)
+  (export compile-procedure compile-low-def compile-literal-init compile-unit)
   (import (chezscheme)
           (utils)
           (parse)
@@ -151,25 +151,57 @@
                                  (lambda (p) (cons-all x (cdr elements) p c)))))))
 
 
+  ;; During compile-unit, the functions of the compilation converted but not lowered yet: the
+  ;; element 0 of a vector, each (def fun counter), the last converted first
+  (define current-unit (make-parameter #f))
+
+
+  ;; Calls thunk, which converts the functions of the compilation; then optimizes each, runs the
+  ;; passes on the whole unit (optimize-unit) and lowers each, in the order of their conversion
+  (define (compile-unit thunk)
+    (let ((unit (vector '())))
+      (parameterize ((current-unit unit))
+        (thunk))
+      (let* ((funs (reverse (vector-ref unit 0)))
+             (optimized (map (lambda (f) (optimize (car f) (cadr f))) funs)))
+        (for-each (lambda (f fun) (finish-function (car f) fun (caddr f)))
+                  funs
+                  (optimize-unit (map car funs) optimized (map caddr funs))))))
+
+
   ;; The function of def, its parameters params, (name . kind) pairs, its body the term
-  ;; (make-term vars) of the parameters' variables, converted, checked, optimized when optimize?,
-  ;; and lowered
+  ;; (make-term vars) of the parameters' variables, converted and checked; then optimized when
+  ;; optimize?, and lowered, at once or with the rest of the unit
   (define (convert-function def params optimize? make-term)
+    (let ((counter (make-counter 1)))
+      (let ((fun (parameterize ((unsafe-code? (def-unsafe? def))
+                                (current-function def)
+                                (kinds (make-eq-hashtable))
+                                (name-counter counter)
+                                (return-k (gensym "return")))
+                   (let* ((vars (map-in-order (lambda (p) (fresh-named (car p) (cdr p))) params))
+                          (fun `(fun ,(def-code def) (,(return-k) ,@(map param vars)) ,(make-term vars))))
+                     (dumped 'cps (list-head fun 3) (cdddr fun))
+                     (check-cps fun)
+                     fun))))
+        (cond
+         ((not optimize?) (finish-function def fun counter))
+         ((current-unit)
+          (vector-set! (current-unit) 0 (cons (list def fun counter) (vector-ref (current-unit) 0))))
+         (else (finish-function def (optimize def fun) counter))))))
+
+
+  ;; The frames of fun, then its lowering
+  (define (finish-function def fun counter)
     (emit-function!
      def
      (lambda ()
        (parameterize ((unsafe-code? (def-unsafe? def))
                       (current-function def)
-                      (kinds (make-eq-hashtable))
-                      (name-counter (make-counter 1))
-                      (return-k (gensym "return")))
-         (let* ((vars (map-in-order (lambda (p) (fresh-named (car p) (cdr p))) params))
-                (fun `(fun ,(def-code def) (,(return-k) ,@(map param vars)) ,(make-term vars)))
-                (fun (begin
-                       (dumped 'cps (list-head fun 3) (cdddr fun))
-                       (check-cps fun)
-                       (if optimize? (optimize def fun) fun)))
-                (fun `(,@(list-head fun 3) ,(expand-frames (cadddr fun)))))
+                      (kinds (cps-kinds fun))
+                      (name-counter counter)
+                      (return-k (car (caddr fun))))
+         (let ((fun `(,@(list-head fun 3) ,(expand-frames (cadddr fun)))))
            (dumped 'frames (list-head fun 3) (cdddr fun))
            (check-cps fun)
            (lower-function! def fun))))))
