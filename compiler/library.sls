@@ -217,6 +217,7 @@
                    (current-strings '())
                    (current-numbers '())
                    (current-literals '())
+                   (loaded-literals (make-eqv-hashtable))
                    (literals-symbol literals)
                    (startup-defs '())
                    (current-entries '())

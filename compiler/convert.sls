@@ -69,16 +69,17 @@
          (cps-seq env (def-core-body def) (lambda (env x) (cps-tail env def x)))))))
 
 
-  ;; The function of def, which fills the literal cells of the compilation at startup, in order:
-  ;; a string's with literal-string of its UTF-8 bytes, a static string, a symbol's with
-  ;; string->symbol of its name's cell, filled before, a pair's or vector's with a new one
-  ;; Not optimized: its literals' loads read the cells it fills
+  ;; The function of def, which fills at startup the literal cells the code loads, with those
+  ;; they are built from (needed-literals), in order: a string's with literal-string of its UTF-8
+  ;; bytes, a static string, a symbol's with string->symbol of its name's cell, filled before, a
+  ;; pair's or vector's with a new one.
+  ;; Not optimized: its literals' loads read the cells it fills.
   (define (compile-literal-init def)
     (convert-function
      def '() #f
      (lambda (params)
        (parameterize ((unsafe-code? #t))
-         (let loop ((literals (reverse (current-literals))))
+         (let loop ((literals (needed-literals)))
            (if (null? literals)
                (cps-tail '() def undef)
                (let* ((x (caar literals))
@@ -87,7 +88,7 @@
                                          ,(loop (cdr literals))))))
                  (cond
                   ((symbol? x)
-                   (letprim `(literal ,(symbol->string x)) 'val
+                   (letprim (literal-op (symbol->string x)) 'val
                             (lambda (name)
                               (call-def (core-def 'string->symbol) (list name) x store))))
                   ((string? x)
@@ -138,7 +139,7 @@
      ((null? x) (c (immediate-operand ''())))
      ((immediate? x) (c (immediate-operand x)))
      ((exact-rational? x) (c `(as-val ,(intern-number! x))))
-     (else (letprim `(literal ,x) 'val c))))
+     (else (letprim (literal-op x) 'val c))))
 
 
   ;; The conses of the reversed elements onto tail
@@ -262,6 +263,11 @@
               `(letprim ,x ,op ,body)))))
 
 
+  ;; The load of the literal cell of x, a datum
+  (define (literal-op x)
+    `(load-const ,(literals-symbol) (quad ,(intern-literal! x))))
+
+
   ;; The end of a computation that does not return: c only for its errors
   (define (never c)
     (c '(never))
@@ -350,10 +356,10 @@
      ((string? x)
       (if (unsafe-code?)
           (c (intern-string! x))
-          (letprim `(literal ,x) 'val c)))
+          (letprim (literal-op x) 'val c)))
 
      ((literal? x)
-      (letprim `(literal ,(literal-datum x)) 'val c))
+      (letprim (literal-op (literal-datum x)) 'val c))
 
      ((symbol? x)
       (cps-variable env x c))
@@ -384,7 +390,7 @@
        ((local-binding? b)
         (let ((a (local-binding-operand b)))
           (if (deferred-literal? a)
-              (letprim `(literal ,(cadr a)) 'val c)
+              (letprim (literal-op (cadr a)) 'val c)
               (c a))))
        ;; A static procedure of a fix
        ((def-binding? b)

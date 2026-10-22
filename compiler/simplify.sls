@@ -311,7 +311,7 @@
           ((or (quad? a) (string? a)) `(as-val ,a))
           ((and (pair? a) (eq? (car a) 'as-raw)) (cadr a))
           (else #f))))
-      ((stackcall literal move cell-set!) #f)
+      ((stackcall move cell-set!) #f)
       (else
        (let ((args (cdr op)))
          (and (= (length args) 2)

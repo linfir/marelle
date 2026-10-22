@@ -8,7 +8,7 @@
 ;; - void   returns nothing
 
 (library (compile)
-  (export kind check-kind literal-ref finish-result emit-function!)
+  (export kind check-kind finish-result emit-function!)
   (import (chezscheme)
           (utils)
           (defs)
@@ -31,11 +31,6 @@
     (unless (if (eq? k 'any) (memq (kind x) '(val raw)) (eq? (kind x) k))
       (compile-error 'check-kind (if (eq? k 'any) "expected a val or a raw" (format "expected a ~a" k))
                      expr)))
-
-
-  ;; The load of the literal cell of the string or symbol x
-  (define (literal-ref x)
-    (emit-op! 'load 'val (list (literals-symbol) `(quad ,(intern-literal! x)))))
 
 
   (define (finish-result def op)

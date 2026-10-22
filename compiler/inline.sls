@@ -222,15 +222,14 @@
 
 
   ;; The datum of the fun of def for the interface, its defs as (def name), when it is
-  ;; inlinable and names only defs for which (item? def), else #f. A literal is a load of the
-  ;; library's cell, so a program's copy gets the library's object, eq? to it.
+  ;; inlinable and names only defs for which (item? def), else #f. A literal is a load-const of
+  ;; the library's cell, so a program's copy gets the library's object, eq? to it.
   (define (export-fun def fun item?)
     (let ((ok? (inlinable? def fun max-inline-size)))
-      (let ((x (map-defs (library-literals fun)
-                         (lambda (d)
-                           (unless (item? d)
-                             (set! ok? #f))
-                           `(def ,(def-name d))))))
+      (let ((x (map-defs fun (lambda (d)
+                               (unless (item? d)
+                                 (set! ok? #f))
+                               `(def ,(def-name d))))))
         (and ok? x))))
 
 
@@ -256,30 +255,6 @@
                                (or (lookup (cadr d))
                                    (begin (set! ok? #f) d))))))
         (and ok? fun))))
-
-
-  ;; fun with each (letprim x (literal datum) body) a load of the datum's cell in the
-  ;; compilation's literals, then its cast: x's raw named after x, which ends in a digit
-  (define (library-literals fun)
-    `(,@(list-head fun 3)
-      ,(let walk ((t (fun-term fun)))
-         (case (car t)
-           ((letprim)
-            (let ((x (cadr t))
-                  (op (caddr t)))
-              (cond
-               ((not (eq? (car op) 'literal))
-                `(letprim ,x ,op ,(walk (cadddr t))))
-               ((not x) (walk (cadddr t)))
-               (else
-                (let ((r (string->symbol (string-append (symbol->string x) "r"))))
-                  `(letprim ,r (load ,(literals-symbol) (quad ,(intern-literal! (cadr op))))
-                            (letprim ,x (as-val ,r) ,(walk (cadddr t)))))))))
-           ((letcont letcont-rec)
-            (let ((b (car (cadr t))))
-              `(,(car t) ((,(car b) ,(cadr b) ,(walk (caddr b)))) ,(walk (caddr t)))))
-           ((args) `(args ,(cadr t) ,(walk (caddr t))))
-           (else t)))))
 
 
   ;; fun with each def d, a callee or a stackcall's, replaced by (f d)

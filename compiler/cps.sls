@@ -20,7 +20,7 @@
 ;; lowering.
 ;; param ::= x | (raw x)
 ;; op    ::= (low-op atom ...) | (as-val atom) | (stackcall kind def atom ...)
-;;         | (literal x) | (move atom) | (cell-set! c atom)
+;;         | (move atom) | (cell-set! c atom)
 ;; atom  ::= x | a constant operand of the block IR: (quad n), "symbol", (self), (as-val c),
 ;;           (as-raw atom)...
 
@@ -54,7 +54,6 @@
   (define (op-atoms op)
     (case (car op)
       ((stackcall) (cdddr op))
-      ((literal) '())
       (else (cdr op))))
 
 
@@ -62,14 +61,13 @@
   (define (map-op f op)
     (case (car op)
       ((stackcall) `(,@(list-head op 3) ,@(map f (cdddr op))))
-      ((literal) op)
       (else (cons (car op) (map f (cdr op))))))
 
 
   ;; The kind of op's result, given the kinds of its atoms
   (define (op-kind op atom-kind)
     (case (car op)
-      ((as-val literal) 'val)
+      ((as-val) 'val)
       ((stackcall) (cadr op))
       ((move) (atom-kind (cadr op)))
       ((cell-set!) 'void)
@@ -170,7 +168,7 @@
   ;; slip a compile error).
   (define (cps-effect op)
     (case (car op)
-      ((as-val literal) 'pure)
+      ((as-val) 'pure)
       ((stackcall) (if (def-pure? (caddr op)) 'pure 'writes))
       ((move) 'reads)
       ((cell-set!) 'writes)

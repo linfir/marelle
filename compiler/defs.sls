@@ -10,6 +10,7 @@
           procedure-type symbol-type immutable-bytevector-type immutable-vector-type immutable-ascii-string-type
           immutable-utf8-string-type unsafe-bindings
           names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
+          loaded-literals literal-loaded! needed-literals
           core-defs inlining unsafe-code? general-def
           fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
   (import (chezscheme)
@@ -99,6 +100,8 @@
   (define current-numbers (make-parameter '()))
   (define current-literals (make-parameter '()))
   (define literals-symbol (make-parameter #f))
+  ;; The indices of the literal cells the lowered code loads, an eqv hashtable
+  (define loaded-literals (make-parameter #f))
   (define startup-defs (make-parameter '()))
   (define current-entries (make-parameter '()))
   (define core-defs (make-parameter '()))
@@ -186,6 +189,33 @@
       (let ((i (length (current-literals))))
         (current-literals (acons x i (current-literals)))
         i))))
+
+
+  (define (literal-loaded! i)
+    (hashtable-set! (loaded-literals) i #t))
+
+
+  ;; The literals (x . i) the init function fills, in order: those the lowered code loads, and
+  ;; the strings and symbols they are built from; a literal of code the optimizations removed
+  ;; has a cell, but nothing builds it
+  (define (needed-literals)
+    (let ((needed (make-eqv-hashtable)))
+      (define (need! x)
+        (let ((i (cdr (assoc x (current-literals)))))
+          (unless (hashtable-ref needed i #f)
+            (hashtable-set! needed i #t)
+            (let walk ((y (if (symbol? x) (symbol->string x) x)))
+              (cond
+               ((pair? y) (walk (car y)) (walk (cdr y)))
+               ((vector? y) (vector-for-each walk y))
+               ((and (or (string? y) (symbol? y)) (not (eq? y x))) (need! y)))))))
+
+      (for-each (lambda (l)
+                  (when (hashtable-ref (loaded-literals) (cdr l) #f)
+                    (need! (car l))))
+                (current-literals))
+      (filter (lambda (l) (hashtable-ref needed (cdr l) #f))
+              (reverse (current-literals)))))
 
 
   (define (add-entries! entries)
