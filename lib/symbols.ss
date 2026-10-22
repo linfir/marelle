@@ -146,16 +146,22 @@
     (or (vector-ref table i)
         (insert-symbol! table i (make-symbol (immutable-string s))))))
 
-;; The program's static symbols (scheme_program's word 7: their count, then their addresses),
-;; with their hashes, entered in the table before any other symbol is made, so string->symbol
-;; finds them; the program's first startup call when it has any
+;; The static symbols, the library's (scheme_library_static_symbols) then the program's
+;; (scheme_program's word 7), each table their count, then their addresses, with their hashes,
+;; entered in the table before any other symbol is made, so string->symbol finds them; the
+;; program's first startup call
 (define (intern-static-symbols!)
   (declare unsafe)
+  (intern-symbols! (as-val (address "scheme_library_static_symbols")))
+  (intern-symbols! (as-val (load (address "scheme_program") (raw 7)))))
+
+;; symbols, a static table, outside the heap
+(define (intern-symbols! symbols)
+  (declare unsafe)
   (let symbol-next ((i 0))
-    (if (raw= (fixnum-value i) (load (load (address "scheme_program") (raw 7)) (raw 0)))
+    (if (raw= (fixnum-value i) (load (as-raw symbols) (raw 0)))
         undef
-        (let* ((sym (as-val (load (load (address "scheme_program") (raw 7))
-                                  (raw+ (fixnum-value i) (raw 1)))))
+        (let* ((sym (as-val (load (as-raw symbols) (raw+ (fixnum-value i) (raw 1)))))
                (table (current-symbol-table))
                (k (symbol-slot table (symbol-name sym) (symbol-hash-word sym))))
           (when (vector-ref table k)

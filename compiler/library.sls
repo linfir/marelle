@@ -15,6 +15,7 @@
           (defs)
           (convert)
           (inline)
+          (static)
           (output))
 
 
@@ -182,7 +183,7 @@
 
   ;; The symbols an entry defines
   (define (entry-symbols entry)
-    (if (memq (car entry) '(rodata function noalloc))
+    (if (memq (car entry) '(rodata words function noalloc))
         (list (cadr entry))
         '()))
 
@@ -217,6 +218,7 @@
                    (current-strings '())
                    (current-numbers '())
                    (current-literals '())
+                   (static-data (new-static-data))
                    (loaded-literals (make-eqv-hashtable))
                    (literals-symbol literals)
                    (startup-defs '())
@@ -247,7 +249,8 @@
          (let ((funs (compile-unit (lambda () (compile-defs! items)))))
            (compile-literal-init init)
            (values
-            (let ((entries (reverse (current-entries))))
+            (let ((entries (append (static-data-entries "scheme_library_static_symbols")
+                                   (reverse (current-entries)))))
               `((export ,@(apply append (map entry-symbols entries))
                         ,@(map data-symbol (filter data? items))
                         ;; For the literals of the funs a program inlines
@@ -274,7 +277,8 @@
                                ,(def-unsafe? x) ,(def-procedure? x)
                                ,@(if (def-inline? x) (def-body x) '())))))
                      items)
-              ,@(cps-entries funs items))))))))
+              ,@(static-symbol-entries)
+             ,@(cps-entries funs items))))))))
 
 
   ;; (cps name fun) for the funs a program may inline, those of items naming only items
@@ -386,133 +390,15 @@
                         files))))))
 
 
-  ;; The program's embedded datums, ((name . forms) ...), as static immutable objects in one
-  ;; blob, scheme_static_data, each referenced as the blob's address plus its offset, plus 7 for an
-  ;; immutable pair; strings and symbols shared. => the entries of the blob, of the table of the datums
-  ;; (scheme_program's word 8: a count, then each name and datum), of the table of the symbols
-  ;; (word 7: a count, then each symbol), which intern-static-symbols! enters at startup; and
-  ;; whether there are symbols
+  ;; The table of the program's embedded datums, ((name . forms) ...), static objects
+  ;; (static.sls): their count, then each name and datum
   (define (static-entries datums)
-    (let ((words (make-eqv-hashtable))
-          (size 0)
-          (strings (make-hashtable string-hash string=?))
-          (symbols (make-eq-hashtable))
-          (symbol-refs '()))
-      (define (reserve! n)
-        (let ((i size))
-          (set! size (+ size n))
-          i))
-
-      (define (set-word! i w)
-        (hashtable-set! words i w))
-
-      ;; The UTF-8 strings, in a writable blob of their own, since indexing writes their cache
-      (define utf8-words '())
-      (define utf8-size 0)
-
-      (define (ref i tag)
-        `(+ "scheme_static_data" ,(+ (* 8 i) tag)))
-
-      (define (place x)
-        (cond
-         ((pair? x) (place-list x))
-         ((null? x) (immediate-value ''()))
-         ((string? x) (place-string x))
-         ((symbol? x) (place-symbol x))
-         ((vector? x) (place-vector x))
-         ((and (exact-rational? x) (not (fixnum-value? x))) (intern-number! x))
-         ((or (fixnum-value? x) (boolean? x) (char? x)) (immediate-value x))
-         (else (compile-error 'static-entries "unsupported datum to embed" x))))
-
-      (define (immediate-value x)
-        (cadadr (immediate x)))
-
-      ;; Along the spine, so a long list does not nest
-      (define (place-list x)
-        (let ((first (reserve! 2)))
-          (let loop ((i first) (x x))
-            (set-word! i (place (car x)))
-            (if (pair? (cdr x))
-                (let ((j (reserve! 2)))
-                  (set-word! (+ i 1) (ref j 7))
-                  (loop j (cdr x)))
-                (set-word! (+ i 1) (place (cdr x)))))
-          (ref first 7)))
-
-      ;; ASCII, [header, nchars, bytes...], else UTF-8, [header, nchars, nbytes, cache-index,
-      ;; cache-offset, bytes...] (lib/strings.ss)
-      (define (place-string s)
-        (or (hashtable-ref strings s #f)
-            (let* ((bytes (bytevector->u8-list (string->utf8 s)))
-                   (ascii? (= (length bytes) (string-length s)))
-                   (units (let loop ((bytes bytes))
-                            (if (null? bytes)
-                                '()
-                                (let ((n (min 8 (length bytes))))
-                                  (cons (fold-right (lambda (b w) (+ b (bitwise-arithmetic-shift-left w 8)))
-                                                    0 (list-head bytes n))
-                                        (loop (list-tail bytes n)))))))
-                   (r (if ascii?
-                          (let ((i (reserve! (+ 2 (length units)))))
-                            (set-word! i immutable-ascii-string-type)
-                            (set-word! (+ i 1) (string-length s))
-                            (for-each (lambda (w k) (set-word! (+ i 2 k) w)) units (iota (length units)))
-                            (ref i 0))
-                          (let ((i utf8-size))
-                            (set! utf8-words
-                                  (append (reverse units)
-                                          (list 0 0 (length bytes) (string-length s) immutable-utf8-string-type)
-                                          utf8-words))
-                            (set! utf8-size (+ utf8-size 5 (length units)))
-                            `(+ "scheme_static_utf8" ,(* 8 i))))))
-              (hashtable-set! strings s r)
-              r)))
-
-      (define (place-symbol x)
-        (or (hashtable-ref symbols x #f)
-            (let* ((name (symbol->string x))
-                   (i (reserve! 3))
-                   (r (ref i 0)))
-              (hashtable-set! symbols x r)
-              (set! symbol-refs (cons r symbol-refs))
-              (set-word! i symbol-type)
-              (set-word! (+ i 1) (static-symbol-hash name))
-              (set-word! (+ i 2) (place-string name))
-              r)))
-
-      (define (place-vector v)
-        (let ((i (reserve! (+ 2 (vector-length v)))))
-          (set-word! i immutable-vector-type)
-          (set-word! (+ i 1) (vector-length v))
-          (for-each (lambda (k) (set-word! (+ i 2 k) (place (vector-ref v k))))
-                    (iota (vector-length v)))
-          (ref i 0)))
-
-      (let* ((table (map-in-order (lambda (d) (list (place-string (car d)) (place (cdr d)))) datums))
-             (symbol-refs (reverse symbol-refs)))
-        (values
-         `(,@(if (zero? size)
-                 '()
-                 `((rodata "scheme_static_data"
-                           ,@(map (lambda (i) `(quad ,(hashtable-ref words i #f))) (iota size)))))
-           ,@(if (zero? utf8-size)
-                 '()
-                 `((words "scheme_static_utf8" ,@(reverse utf8-words))))
-           (rodata "scheme_embedded_data" (quad ,(length datums))
-                   ,@(map (lambda (w) `(quad ,w)) (apply append table)))
-           (rodata "scheme_static_symbols" (quad ,(length symbol-refs))
-                   ,@(map (lambda (r) `(quad ,r)) symbol-refs)))
-         (pair? symbol-refs)))))
-
-
-  (define (fixnum-value? x)
-    (and (integer? x) (exact? x) (<= (- (expt 2 60)) x (- (expt 2 60) 1))))
-
-
-  ;; The hash of the string s, as string-hash-word (lib/symbols.ss) computes it at run time
-  (define (static-symbol-hash s)
-    (fold-left (lambda (h c) (modulo (* (+ h (char->integer c) 1) #x9E3779B97F4A7C15) (expt 2 64)))
-               0 (string->list s)))
+    `(rodata "scheme_embedded_data" (quad ,(length datums))
+             ,@(apply append (map-in-order (lambda (d)
+                                             (let* ((name (place-static! (car d)))
+                                                    (datum (place-static! (cdr d))))
+                                               `((quad ,name) (quad ,datum))))
+                                           datums))))
 
 
   ;; The IR entries of the program, its top-level forms with begins spliced: a define with a declare
@@ -531,6 +417,10 @@
              (library-init (literal-init-def "scheme_library_init" #t))
              (init (literal-init-def "scheme_init" #f)))
          (add-symbol! "main_proc" 'main)
+         (for-each (lambda (x)
+                     (when (eq? (car x) 'static-symbol)
+                       (add-library-symbol! (cadr x) (caddr x))))
+                   interface)
          (add-def-symbols! library-init)
          (add-def-symbols! init)
          (set-pure-defs! library)
@@ -567,16 +457,15 @@
                  (compile-unit
                   (lambda ()
                     (compile-defs! items)
-                    (let-values (((entries symbols?) (static-entries datums)))
-                      (set! statics entries)
-                      (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
-                                                            (static-form? (car (last-pair all))))))))
-                        (parameterize ((startup-defs `(,@(if symbols? (list (core-def 'intern-static-symbols!)) '())
-                                                       ,library-init ,init)))
-                          (compile-procedure
-                           (make-def 'main "main" '() 'val #f #f #f #f #t #f 0 #f #f body env
-                                     (make-main-core env body))
-                           '())))))))
+                    (set! statics (static-entries datums))
+                    (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
+                                                          (static-form? (car (last-pair all))))))))
+                      (parameterize ((startup-defs (list (core-def 'intern-static-symbols!)
+                                                         library-init init)))
+                        (compile-procedure
+                         (make-def 'main "main" '() 'val #f #f #f #f #t #f 0 #f #f body env
+                                   (make-main-core env body))
+                         '()))))))
                (compile-literal-init init)
                ;; Before constant-entries, since it interns the names
                (let ((files (embedded-entries embedded)))
@@ -585,9 +474,10 @@
                           "scheme_literals" ,(length (current-literals)) "scheme_embedded"
                           ,(if display? 1 0) "scheme_static_symbols" "scheme_embedded_data")
                    ,@files
-                   ,@statics
+                   ,statics
                    ,@(global-entries (hashtable-size (top-globals)))
                    ,@(data-entries items)
                    ,@(literal-entries "scheme_literals" #f)
+                   ,@(static-data-entries "scheme_static_symbols")
                    ,@(constant-entries)
                    ,@(reverse (current-entries))))))))))))

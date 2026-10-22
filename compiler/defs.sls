@@ -117,7 +117,7 @@
   ;; Symbols the IR and the stubs define
   (define reserved-symbols
     '("scheme_program" "scheme_main" "scheme_globals" "scheme_literals" "scheme_embedded"
-      "scheme_embedded_data" "scheme_static_data" "scheme_static_symbols"
+      "scheme_embedded_data" "scheme_static_symbols" "scheme_library_static_symbols"
       "scheme_library_literals" "scheme_library_nliterals" "_start" "alloc_frame" "alloc_object"))
 
 
