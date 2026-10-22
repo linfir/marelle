@@ -1,0 +1,2 @@
+stdout = "(10000 #t \"ghijklmnop\" #\\a #t \"abc\" \"éxλéx!\" \"abcXY\" #t #t \"\" 0 #t)"
+chez = "skip"

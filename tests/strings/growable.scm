@@ -1,0 +1,23 @@
+;; Growable strings: string-push! and string-append! relocate a full string to one of twice the
+;; capacity, keeping its identity; string-truncate! shortens it; an ASCII or UTF-8 string is
+;; relocated to UTF-32 at its first append
+(define s (string-with-capacity 0))
+(define held (list s))
+(define get (lambda () s))
+(let push ((i 0))
+  (when (< i 10000)
+    (string-push! (car held) (integer->char (+ 97 (modulo i 26))))
+    (push (+ i 1))))
+(define a (string-append "ab" ""))
+(string-push! a #\c)
+(define u (string-append "é" ""))
+(string-push! u #\x)
+(string-append! u "λ" u "!")
+(define t (string-append "abcdef" ""))
+(string-truncate! t 3)
+(string-append! t "XY")
+(define e (string-with-capacity 3))
+(list (string-length (get)) (eq? (car held) s) (substring s 9990 10000)
+      (string-ref s 26) (string=? (substring s 0 3) "abc")
+      a u t (string=? t "abcXY") (= (string-hash t) (string-hash "abcXY"))
+      e (string-length e) (string=? e ""))

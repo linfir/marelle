@@ -569,3 +569,75 @@
                                            string-copy!)))
                       (copy-chars! b (fixnum-value at) (resolve from) (fixnum-value start) (fixnum-value end))
                       undef))))
+
+;; Growable strings, as Rust's String: a UTF-32 body appends in place while its capacity
+;; allows, else relocates to one of twice the capacity; an ASCII or UTF-8 body is relocated to
+;; UTF-32 with room first, so later appends are amortized O(1)
+
+;; An empty mutable string with room for k chars
+(define (string-with-capacity k)
+  (declare unsafe public)
+  (unless (and (fixnum? k) (>= k 0))
+    (argument-error string-with-capacity 'string-length k))
+  (make-utf32 0 k))
+
+(define (string-capacity b)
+  (declare unsafe inline (result raw))
+  (if (utf32-string? b) (load (as-raw b) (raw 2)) (string-nchars b)))
+
+;; The UTF-32 body of the mutable string body b with room for the fixnum need chars: b if it
+;; has it, else b relocated to a copy of capacity max(2 capacity, need, 4)
+(define (room-body b need)
+  (declare unsafe)
+  (if (and (utf32-string? b) (raw<=u (fixnum-value need) (string-capacity b)))
+      b
+      (let ((cap (* 2 (make-fixnum (string-capacity b)))))
+        (widen! b (cond
+                   ((< cap need) (if (< need 4) 4 need))
+                   ((< cap 4) 4)
+                   (else cap))))))
+
+(define (string-push! s c)
+  (declare unsafe public)
+  (let ((b (mutable-string-body s string-push!)))
+    (unless (char? c)
+      (argument-error string-push! 'char c))
+    (let ((w (room-body b (+ (make-fixnum (string-nchars b)) 1))))
+      (store32 (as-raw w) (raw+ (raw<< (string-nchars w) (raw 2)) (raw 24)) (char-code c))
+      (store (as-raw w) (raw 1) (raw+ (string-nchars w) (raw 1)))
+      undef)))
+
+;; Appends the strings, which may include s itself, as it was
+(define (string-append! s . strings)
+  (declare unsafe public)
+  (let ((b (mutable-string-body s string-append!)))
+    (let count ((l strings)
+                (n (make-fixnum (string-nchars b))))
+      (if (pair? l)
+          (count (cdr l) (+ n (make-fixnum (string-nchars (string-body (car l) string-append!)))))
+          (let ((w (room-body b n)))
+            ;; The length is set last, so that s, among the strings, keeps its own
+            (let copy-next ((l strings)
+                            (at (make-fixnum (string-nchars w))))
+              (if (pair? l)
+                  (begin
+                    (store-codes! w (fixnum-value at) (resolve (car l)))
+                    (copy-next (cdr l) (+ at (make-fixnum (string-nchars (resolve (car l)))))))
+                  (begin
+                    (store (as-raw w) (raw 1) (fixnum-value n))
+                    undef))))))))
+
+;; Keeps the first k chars; the units past them are zeroed, as string=? compares the padding
+(define (string-truncate! s k)
+  (declare unsafe public)
+  (let ((b (mutable-string-body s string-truncate!)))
+    (unless (and (fixnum? k) (raw<=u (fixnum-value k) (string-nchars b)))
+      (index-error string-truncate! k s))
+    (let ((w (if (utf8-string? b) (widen! b (make-fixnum (string-nchars b))) b)))
+      (if (ascii-string? w)
+          (fill-bytes! (raw+ (as-raw w) (raw+ (fixnum-value k) (raw 16))) (raw- (string-nchars w) (fixnum-value k))
+                       (raw 0))
+          (fill-bytes! (raw+ (as-raw w) (raw+ (raw<< (fixnum-value k) (raw 2)) (raw 24)))
+                       (raw<< (raw- (string-nchars w) (fixnum-value k)) (raw 2)) (raw 0)))
+      (store (as-raw w) (raw 1) (fixnum-value k))
+      undef)))

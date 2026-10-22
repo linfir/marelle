@@ -1,0 +1,3 @@
+stage = "executable"
+stderr_contains = "Exception in string-append!: \"ab\" is not a mutable string\n"
+chez = "skip"
