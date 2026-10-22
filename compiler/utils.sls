@@ -2,7 +2,7 @@
   (export make-counter acons map-in-order for-each-idx adjoin non-empty-list?
           split-last span span-reverse append-reverse read-all mangle
           dump-passes dump-pass dumped add-printer! printable
-          compile-error compile-errorf)
+          compile-error compile-errorf with-entry)
   (import (chezscheme))
 
 
@@ -85,7 +85,23 @@
             (loop (cons x acc))))))
 
 
-  (define dump-passes '(front letrec closure resolve assign cps simplify frames compile copy-prop reg-alloc asm peephole program))
+  (define absent (list 'absent))
+
+
+  ;; (thunk)'s value, with key bound to value in the hashtable t while it runs; t then has key's
+  ;; previous entry again, or none.
+  ;; Hashtables as scoped environments: an entry made for a walk of a subterm is undone after it.
+  (define (with-entry t key value thunk)
+    (let ((old (hashtable-ref t key absent)))
+      (hashtable-set! t key value)
+      (let ((result (thunk)))
+        (if (eq? old absent)
+            (hashtable-delete! t key)
+            (hashtable-set! t key old))
+        result)))
+
+
+  (define dump-passes '(front letrec closure resolve assign cps simplify cse frames compile copy-prop reg-alloc asm peephole program))
 
 
   ;; The pass whose output dump! prints, else #f

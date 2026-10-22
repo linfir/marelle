@@ -1,0 +1,3 @@
+stdout = "(10 2)"
+dump = "cse"
+cps_counts = { "(load (as-raw v2) (quad 2))" = 2, "(bit-and (as-raw v2) (quad 7))" = 1 }

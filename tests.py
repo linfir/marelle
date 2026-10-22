@@ -16,7 +16,7 @@ TEST_ROOT = ROOT / "tests"
 STAGES = {"compiler", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 INPUT_FIELDS = {"stdin"}
-DUMP_FIELDS = {"dump", "cps_lacks"}
+DUMP_FIELDS = {"dump", "cps_lacks", "cps_counts"}
 EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", "embed", "embed_datum", *OUTPUT_FIELDS, *INPUT_FIELDS, *DUMP_FIELDS}
 SKIP = "skip"
 
@@ -61,13 +61,16 @@ def read_case(path):
         if field in expected and not isinstance(expected[field], str):
             raise TestFormatError(f"{field} must be a string")
 
-    if ("dump" in expected) != ("cps_lacks" in expected):
-        raise TestFormatError("dump and cps_lacks go together")
-    lacks = expected.get("cps_lacks", [])
+    if ("dump" in expected) != ("cps_lacks" in expected or "cps_counts" in expected):
+        raise TestFormatError("dump goes with cps_lacks or cps_counts")
+    lacks = expected.setdefault("cps_lacks", [])
     if isinstance(lacks, str):
         expected["cps_lacks"] = [lacks]
     elif not (isinstance(lacks, list) and all(isinstance(x, str) for x in lacks)):
         raise TestFormatError("cps_lacks must be a string or a list of strings")
+    counts = expected.setdefault("cps_counts", {})
+    if not (isinstance(counts, dict) and all(isinstance(n, int) for n in counts.values())):
+        raise TestFormatError("cps_counts must be a table of integers")
 
     return source, expected
 
@@ -154,7 +157,8 @@ def check_case(path, chez=False, gc_stress=None):
                 f"actual:   {describe_stream(actual)}",
             ]
 
-    # The dump of a pass must not contain any string of cps_lacks
+    # The dump of a pass must not contain any string of cps_lacks, and each of cps_counts as many
+    # times as given
     if "dump" in expected and not chez:
         try:
             dump = compile_source(source, "--pass", expected["dump"])
@@ -164,6 +168,12 @@ def check_case(path, chez=False, gc_stress=None):
             if lacked in dump:
                 return "compiler", [
                     f"--pass {expected['dump']} contains {lacked!r}",
+                    f"dump: {describe_stream(dump)}",
+                ]
+        for counted, n in expected["cps_counts"].items():
+            if dump.count(counted) != n:
+                return "compiler", [
+                    f"--pass {expected['dump']} contains {counted!r} {dump.count(counted)} times, expected {n}",
                     f"dump: {describe_stream(dump)}",
                 ]
 

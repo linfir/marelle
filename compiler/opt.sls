@@ -9,12 +9,14 @@
           (utils)
           (host)
           (cps)
-          (simplify))
+          (simplify)
+          (cse))
 
 
   ;; (name . pass), (pass def fun) a fun; each name is also in dump-passes
   (define passes
-    (list (cons 'simplify simplify)))
+    (list (cons 'simplify simplify)
+          (cons 'cse cse)))
 
 
   ;; The names of the passes SCHEME_OPT disables, once read

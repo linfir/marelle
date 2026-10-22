@@ -1,0 +1,3 @@
+stdout = "((1 . 1) 2)"
+dump = "cse"
+cps_counts = { "(bit-and (as-raw p2) (quad -8))" = 2 }
