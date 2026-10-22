@@ -1,0 +1,3 @@
+stdout = "(3 4)"
+dump = "cells"
+cps_lacks = ["cell-set!", "(move"]

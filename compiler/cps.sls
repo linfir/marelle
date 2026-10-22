@@ -160,9 +160,9 @@
 
 
   ;; The effect of op, as in ops.sls: pure (deleted when unused, duplicated, moved), reads,
-  ;; writes, allocates (a safepoint) or never. A stackcall writes unless its def is pure; a
-  ;; literal is pure after the init calls; a move reads its cell, a cell-set! writes it. An app
-  ;; or a call does everything, a safepoint too.
+  ;; writes, allocates (a safepoint) or never. A stackcall writes unless its def is pure; a move
+  ;; reads its cell, a cell-set! writes it (both gone after the cells pass, unless disabled).
+  ;; An app or a call does everything, a safepoint too.
   ;; The GC rule: no raw variable live across a safepoint, so a pass that moves or shares a raw
   ;; letprim must not extend its life across one (check-gc-safety, after the lowering, makes a
   ;; slip a compile error).

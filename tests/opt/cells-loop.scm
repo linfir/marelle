@@ -1,0 +1,10 @@
+;; A loop's assigned locals become its parameters: no cell left
+(define (sum-to k)
+  (let ((s 0) (i 0))
+    (let loop ()
+      (when (< i k)
+        (set! s (+ s i))
+        (set! i (+ i 1))
+        (loop)))
+    s))
+(sum-to 10)

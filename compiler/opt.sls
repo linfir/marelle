@@ -12,15 +12,21 @@
           (simplify)
           (cse)
           (inline)
-          (contify))
+          (contify)
+          (cells))
 
 
-  ;; (name . pass), (pass def fun) a fun; each name is also in dump-passes
-  (define passes
-    (list (cons 'simplify simplify)
+  ;; (name . pass), (pass def fun) a fun, counter numbering the names a pass adds; each name is
+  ;; also in dump-passes
+  (define (passes counter)
+    (list (cons 'cells (lambda (def fun) (cells-to-params fun counter)))
+          (cons 'simplify simplify)
           (cons 'cse cse)
           ;; The branches cse decided, and what they used
           (cons 'resimplify simplify)))
+
+
+  (define pass-names (map car (passes #f)))
 
 
   ;; The passes on a whole unit, (name . pass), (pass defs funs counters reoptimize) the funs, #f
@@ -43,15 +49,15 @@
   (define (parse-opt s)
     (cond
      ((or (not s) (string=? s "")) '())
-     ((string=? s "none") (map car (append passes unit-passes)))
+     ((string=? s "none") (append pass-names (map car unit-passes)))
      (else
       (map (lambda (item)
              (let ((name (and (> (string-length item) 1)
                               (char=? (string-ref item 0) #\-)
                               (string->symbol (substring item 1 (string-length item))))))
-               (unless (and name (assq name (append passes unit-passes)))
+               (unless (and name (or (memq name pass-names) (assq name unit-passes)))
                  (compile-errorf 'optimize "invalid SCHEME_OPT item ~s, expected none or -PASS, PASS one of ~s"
-                                 item (map car (append passes unit-passes))))
+                                 item (append pass-names (map car unit-passes))))
                name))
            (split-commas s)))))
 
@@ -68,7 +74,7 @@
 
 
   ;; A disabled pass leaves the fun as it is, also in its dump
-  (define (optimize def fun)
+  (define (optimize def fun counter)
     (let ((disabled (disabled-passes)))
       (fold-left (lambda (fun pass)
                    (let ((fun (if (memq (car pass) disabled) fun ((cdr pass) def fun))))
@@ -76,7 +82,7 @@
                      (check-cps fun)
                      fun))
                  fun
-                 passes)))
+                 (passes counter))))
 
 
   ;; The unit passes on defs, their optimized funs and the counters numbering their names, in
@@ -85,11 +91,13 @@
   ;; that went.
   (define (optimize-unit defs funs counters)
     (let* ((disabled (disabled-passes))
+           (counter-of (make-eq-hashtable))
            (reoptimize (lambda (def fun)
                          (parameterize ((dump-pass #f))
-                           (optimize def fun))))
+                           (optimize def fun (hashtable-ref counter-of def #f)))))
            (table (make-eq-hashtable)))
       (for-each (lambda (def fun) (hashtable-set! table def fun)) defs funs)
+      (for-each (lambda (def counter) (hashtable-set! counter-of def counter)) defs counters)
       (for-each (lambda (pass)
                   (unless (memq (car pass) disabled)
                     (let* ((live (filter (lambda (def) (hashtable-ref table def #f)) defs))

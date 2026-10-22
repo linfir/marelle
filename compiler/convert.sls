@@ -83,7 +83,7 @@
       (parameterize ((current-unit unit))
         (thunk))
       (let* ((funs (reverse (vector-ref unit 0)))
-             (optimized (map (lambda (f) (optimize (car f) (cadr f))) funs))
+             (optimized (map (lambda (f) (optimize (car f) (cadr f) (caddr f))) funs))
              (final (optimize-unit (map car funs) optimized (map caddr funs))))
         (for-each (lambda (f fun) (when fun (finish-function (car f) fun (caddr f))))
                   funs final)
@@ -109,7 +109,7 @@
          ((not optimize?) (finish-function def fun counter))
          ((current-unit)
           (vector-set! (current-unit) 0 (cons (list def fun counter) (vector-ref (current-unit) 0))))
-         (else (finish-function def (optimize def fun) counter))))))
+         (else (finish-function def (optimize def fun counter) counter))))))
 
 
   ;; The frames of fun, then its lowering
