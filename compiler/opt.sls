@@ -10,7 +10,8 @@
           (host)
           (cps)
           (simplify)
-          (cse))
+          (cse)
+          (inline))
 
 
   ;; (name . pass), (pass def fun) a fun; each name is also in dump-passes
@@ -19,6 +20,11 @@
           (cons 'cse cse)
           ;; The branches cse decided, and what they used
           (cons 'resimplify simplify)))
+
+
+  ;; The passes on a whole unit, (name . pass), (pass defs funs counters reoptimize) the funs
+  (define unit-passes
+    (list (cons 'inline inline-unit)))
 
 
   ;; The names of the passes SCHEME_OPT disables, once read
@@ -34,15 +40,15 @@
   (define (parse-opt s)
     (cond
      ((or (not s) (string=? s "")) '())
-     ((string=? s "none") (map car passes))
+     ((string=? s "none") (map car (append passes unit-passes)))
      (else
       (map (lambda (item)
              (let ((name (and (> (string-length item) 1)
                               (char=? (string-ref item 0) #\-)
                               (string->symbol (substring item 1 (string-length item))))))
-               (unless (and name (assq name passes))
+               (unless (and name (assq name (append passes unit-passes)))
                  (compile-errorf 'optimize "invalid SCHEME_OPT item ~s, expected none or -PASS, PASS one of ~s"
-                                 item (map car passes)))
+                                 item (map car (append passes unit-passes))))
                name))
            (split-commas s)))))
 
@@ -70,7 +76,19 @@
                  passes)))
 
 
-  ;; The passes on a whole unit: defs, their optimized funs and the counters numbering their
-  ;; names, in the same order; gives the funs
+  ;; The unit passes on defs, their optimized funs and the counters numbering their names, in
+  ;; the same order, a fun they change optimized again (not dumped); each dumped once, after
+  ;; them all, under the name unit. Gives the funs.
   (define (optimize-unit defs funs counters)
-    funs))
+    (let* ((disabled (disabled-passes))
+           (reoptimize (lambda (def fun)
+                         (parameterize ((dump-pass #f))
+                           (optimize def fun))))
+           (funs (fold-left (lambda (funs pass)
+                              (if (memq (car pass) disabled)
+                                  funs
+                                  ((cdr pass) defs funs counters reoptimize)))
+                            funs
+                            unit-passes)))
+      (for-each (lambda (fun) (dumped 'unit (list-head fun 3) (cdddr fun))) funs)
+      funs)))
