@@ -365,6 +365,10 @@
       (define (set-word! i w)
         (hashtable-set! words i w))
 
+      ;; The UTF-8 strings, in a writable blob of their own, since indexing writes their cache
+      (define utf8-words '())
+      (define utf8-size 0)
+
       (define (ref i tag)
         `(+ "scheme_static_data" ,(+ (* 8 i) tag)))
 
@@ -394,24 +398,32 @@
                 (set-word! (+ i 1) (place (cdr x)))))
           (ref first 3)))
 
+      ;; ASCII, [header, nchars, bytes...], else UTF-8, [header, nchars, nbytes, cache-index,
+      ;; cache-offset, bytes...] (lib/strings.ss)
       (define (place-string s)
         (or (hashtable-ref strings s #f)
-            (let* ((codes (map char->integer (string->list s)))
-                   (ascii? (for-all (lambda (c) (< c 128)) codes))
-                   (per-word (if ascii? 8 2))
-                   (bits (if ascii? 8 32))
-                   (units (let loop ((codes codes))
-                            (if (null? codes)
+            (let* ((bytes (bytevector->u8-list (string->utf8 s)))
+                   (ascii? (= (length bytes) (string-length s)))
+                   (units (let loop ((bytes bytes))
+                            (if (null? bytes)
                                 '()
-                                (let ((n (min per-word (length codes))))
-                                  (cons (fold-right (lambda (c w) (+ c (bitwise-arithmetic-shift-left w bits)))
-                                                    0 (list-head codes n))
-                                        (loop (list-tail codes n)))))))
-                   (i (reserve! (+ 2 (length units))))
-                   (r (ref i 0)))
-              (set-word! i (if ascii? immutable-ascii-string-type immutable-utf32-string-type))
-              (set-word! (+ i 1) (length codes))
-              (for-each (lambda (w k) (set-word! (+ i 2 k) w)) units (iota (length units)))
+                                (let ((n (min 8 (length bytes))))
+                                  (cons (fold-right (lambda (b w) (+ b (bitwise-arithmetic-shift-left w 8)))
+                                                    0 (list-head bytes n))
+                                        (loop (list-tail bytes n)))))))
+                   (r (if ascii?
+                          (let ((i (reserve! (+ 2 (length units)))))
+                            (set-word! i immutable-ascii-string-type)
+                            (set-word! (+ i 1) (string-length s))
+                            (for-each (lambda (w k) (set-word! (+ i 2 k) w)) units (iota (length units)))
+                            (ref i 0))
+                          (let ((i utf8-size))
+                            (set! utf8-words
+                                  (append (reverse units)
+                                          (list 0 0 (length bytes) (string-length s) immutable-utf8-string-type)
+                                          utf8-words))
+                            (set! utf8-size (+ utf8-size 5 (length units)))
+                            `(+ "scheme_static_utf8" ,(* 8 i))))))
               (hashtable-set! strings s r)
               r)))
 
@@ -442,6 +454,9 @@
                  '()
                  `((rodata "scheme_static_data"
                            ,@(map (lambda (i) `(quad ,(hashtable-ref words i #f))) (iota size)))))
+           ,@(if (zero? utf8-size)
+                 '()
+                 `((words "scheme_static_utf8" ,@(reverse utf8-words))))
            (rodata "scheme_embedded_data" (quad ,(length datums))
                    ,@(map (lambda (w) `(quad ,w)) (apply append table)))
            (rodata "scheme_static_symbols" (quad ,(length symbol-refs))

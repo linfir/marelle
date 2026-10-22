@@ -47,7 +47,6 @@
 ;; nothing allocates them, so the GC never meets them (lib/vectors.ss, lib/strings.ss)
 (define-constant immutable-vector-type (raw (ash 111 3)))
 (define-constant immutable-ascii-string-type (raw (ash 112 3)))
-(define-constant immutable-utf32-string-type (raw (ash 113 3)))
 (define-constant immutable-utf8-string-type (raw (ash 114 3)))
 
 (define (fixnum? x)

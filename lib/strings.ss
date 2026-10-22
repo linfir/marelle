@@ -3,10 +3,11 @@
 ;; cache-offset, bytes...]; nchars, nbytes and the cache are raw words, the bytes padded with
 ;; zeros to a whole word. A UTF-8 string caches the byte offset of the last char indexed, so
 ;; indexing near it is fast (utf8-offset). UTF-32, [header, nchars, units...], 4 bytes per char,
-;; only comes from static data; 51 is kept for a later kind. ASCII and UTF-8 strings share their
-;; bytes' encoding, so building one writes UTF-8 bytes (put-utf8-range!). The static strings of
-;; embedded-datum have the immutable types, 64 more (header bit 9): every test of the kind masks
-;; that bit, and a future mutator must check the mutable types exactly
+;; is not made by the constructors; 51 is kept for a later kind. ASCII and UTF-8 strings share
+;; their bytes' encoding, so building one writes UTF-8 bytes (put-utf8-range!). The static
+;; strings of embedded-datum have the immutable types, 64 more (header bit 9; the UTF-8 ones in
+;; .data, since indexing writes their cache): every test of the kind masks that bit, and a
+;; future mutator must check the mutable types exactly
 
 ;; Exactly the eight words (48 to 51 and 112 to 115) << 3: the GC also reads a pair's car as a
 ;; header

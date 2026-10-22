@@ -8,7 +8,7 @@
           make-data data? data-name data-symbol data-nwords data-extern?
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
           procedure-type symbol-type immutable-bytevector-type immutable-vector-type immutable-ascii-string-type
-          immutable-utf32-string-type unsafe-bindings
+          immutable-utf8-string-type unsafe-bindings
           names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
           core-defs inlining unsafe-code? general-def
           fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
@@ -35,7 +35,7 @@
   ;; in lib/objects.ss
   (define immutable-vector-type (* 111 8))
   (define immutable-ascii-string-type (* 112 8))
-  (define immutable-utf32-string-type (* 113 8))
+  (define immutable-utf8-string-type (* 114 8))
 
 
   ;; bignum-type and ratnum-type in lib/objects.ss
