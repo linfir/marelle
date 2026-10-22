@@ -1,0 +1,16 @@
+;; Resizing relocates the table: every reference to it, in a list, a vector and a closure,
+;; sees one table with all the entries
+(define t (make-eqv-hashtable))
+(define held (list t))
+(define v (vector t))
+(define get (lambda () t))
+(let fill ((i 0))
+  (when (< i 1000)
+    (hashtable-set! (car held) i (* i i))
+    (fill (+ i 1))))
+(hashtable-delete! (vector-ref v 0) 5)
+(list (hashtable-size (get))
+      (hashtable-ref (vector-ref v 0) 999 #f)
+      (hashtable-ref t 5 'gone)
+      (eq? (car held) (get))
+      (hashtable? (vector-ref v 0)))

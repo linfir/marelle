@@ -64,7 +64,7 @@
    ((raw= (load p (raw 0)) flexvector-type) (raw+ (load p (raw 2)) (raw 3)))
    ((raw= (load p (raw 0)) ratnum-type) (raw 3))
    ((raw= (load p (raw 0)) record-type) (raw+ (load p (raw 1)) (raw 3)))
-   ((raw= (load p (raw 0)) hashtable-type) (raw 9))
+   ((raw= (load p (raw 0)) hashtable-type) (raw+ (raw<< (raw 1) (raw- (raw 65) (load p (raw 4)))) (raw 8)))
    ((raw= (load p (raw 0)) port-type) (raw 6))
    ((raw= (load p (raw 0)) bytevector-type) (bytevector-words (load p (raw 1))))
    ((symbol-header? (load p (raw 0))) (raw 3))
@@ -133,7 +133,7 @@
                  ((raw= header ratnum-type) (raw 1))
                  ((raw= header rtd-type) (raw 1)) ; the name
                  ((raw= header record-type) (raw 2)) ; the type and the fields
-                 ((raw= header hashtable-type) (raw 6)) ; the storage and procedures
+                 ((raw= header hashtable-type) (raw 6)) ; the procedures and the slots
                  ((raw= header port-type) (raw 5)) ; the buffer
                  ((raw= header bytevector-type) n) ; only raw words
                  ((string-header? header) n) ; only raw words

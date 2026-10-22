@@ -1,8 +1,10 @@
-;; Hashtables (R6RS): [hashtable-type, count, naddr, epoch, shift, kind, storage, hash, equiv].
+;; Hashtables (R6RS): [hashtable-type, count, naddr, epoch, shift, kind, hash, equiv, slots...].
 ;; count, naddr (the keys hashed by address), epoch (gc-count when they were placed), shift
-;; (64 - k for 2^k slots) and kind are raw words; storage is a vector of 2^k key and value
-;; pairs, a key 0 when empty, at most half full; hash and equiv are the procedures of a generic
-;; table, else #f.
+;; (64 - k for 2^k slots) and kind are raw words; the 2^k slots follow, a key and a value each, a
+;; key 0 when empty, at most half full; hash and equiv are the procedures of a generic table,
+;; else #f. A resize builds a new body and relocates the table to it (relocate!,
+;; lib/objects.ss); the procedures here take the body. The hash and equiv procedures may
+;; relocate the table, so the generic code resolves it after each call.
 ;; Linear probing from the top k bits of the mixed hash, as for symbols.
 ;; A collection moves the keys hashed by address, so the next lookup places them again.
 
@@ -13,14 +15,16 @@
 
 (define (hashtable? x)
   (declare unsafe inline public)
-  (and (tag=? x (raw 0))
-       (not (raw= (as-raw x) (raw 0)))
-       (raw= (load (as-raw x) (raw 0)) hashtable-type)))
+  (or (header=? x hashtable-type)
+      (moved-to? x hashtable-type)))
 
-(define (check-hashtable t who)
-  (declare inline (result void))
-  (unless (hashtable? t)
-    (argument-error who 'hashtable t)))
+;; The body of the hashtable t, checked
+(define (hashtable-body t who)
+  (declare unsafe inline)
+  (if (header=? t hashtable-type)
+      t
+      (or (relocated-body t hashtable-type)
+          (argument-error who 'hashtable t))))
 
 (define (table-count t)
   (declare unsafe inline (result raw))
@@ -30,28 +34,37 @@
   (declare unsafe inline (result raw))
   (load (as-raw t) (raw 5)))
 
+(define (table-hash t)
+  (declare unsafe inline)
+  (as-val (load (as-raw t) (raw 6))))
+
+(define (table-equiv t)
+  (declare unsafe inline)
+  (as-val (load (as-raw t) (raw 7))))
+
+;; The body itself, which holds the slots
 (define (table-storage t)
   (declare unsafe inline (result raw))
-  (load (as-raw t) (raw 6)))
+  (as-raw t))
 
 (define (storage-slots (raw s))
   (declare unsafe inline (result raw))
-  (raw>>u (load s (raw 1)) (raw 1)))
+  (raw<< (raw 1) (raw- (raw 64) (load s (raw 4)))))
 
-;; Word j of slot i of the storage s: 0 the key, 1 the value
+;; Word j of slot i of the body s: 0 the key, 1 the value
 (define (slot-word (raw s) (raw i) (raw j))
   (declare unsafe inline (result raw))
-  (load s (raw+ (raw<< i (raw 1)) (raw+ j (raw 2)))))
+  (load s (raw+ (raw<< i (raw 1)) (raw+ j (raw 8)))))
 
 (define (set-slot! (raw s) (raw i) k v)
   (declare unsafe inline (result void))
-  (store s (raw+ (raw<< i (raw 1)) (raw 2)) k)
-  (store s (raw+ (raw<< i (raw 1)) (raw 3)) v))
+  (store s (raw+ (raw<< i (raw 1)) (raw 8)) k)
+  (store s (raw+ (raw<< i (raw 1)) (raw 9)) v))
 
 (define (clear-slot! (raw s) (raw i))
   (declare unsafe inline (result void))
-  (store s (raw+ (raw<< i (raw 1)) (raw 2)) (raw 0))
-  (store s (raw+ (raw<< i (raw 1)) (raw 3)) (raw 0)))
+  (store s (raw+ (raw<< i (raw 1)) (raw 8)) (raw 0))
+  (store s (raw+ (raw<< i (raw 1)) (raw 9)) (raw 0)))
 
 ;; The fixnum slot i of t
 (define (slot-empty? t i)
@@ -62,9 +75,9 @@
   (declare unsafe inline (result raw))
   (bit-and (raw+ i (raw 1)) (raw- (storage-slots s) (raw 1))))
 
-(define (home-slot t (raw h))
+(define (home-slot (raw s) (raw h))
   (declare unsafe inline (result raw))
-  (raw>>u (raw* h golden) (load (as-raw t) (raw 4))))
+  (raw>>u (raw* h golden) (load s (raw 4))))
 
 (define (mix (raw h) (raw x))
   (declare unsafe inline (result raw))
@@ -135,7 +148,7 @@
       -1
       (let ((s (table-storage t))
             (value? (by-value? (table-kind t) k)))
-        (let probe ((i (home-slot t (key-hash (table-kind t) k))))
+        (let probe ((i (home-slot s (key-hash (table-kind t) k))))
           (let ((x (slot-word s i (raw 0))))
             (if (or (raw= x (raw 0))
                     (raw= x (as-raw k))
@@ -143,38 +156,27 @@
                 (make-fixnum i)
                 (probe (next-slot s i))))))))
 
-;; Stores k and v in the first empty slot from the home of k, in the storage s of t
-(define (eq-place! t (raw s) k v)
+;; Stores k and v in the first empty slot from the home of k, in the body s of an eq or eqv table
+(define (eq-place! (raw s) k v)
   (declare unsafe noalloc (result void))
-  (let probe ((i (home-slot t (key-hash (table-kind t) k))))
+  (let probe ((i (home-slot s (key-hash (load s (raw 5)) k))))
     (if (raw= (slot-word s i (raw 0)) (raw 0))
         (set-slot! s i k v)
         (probe (next-slot s i)))))
 
-;; Makes s the storage of t, placed at the current addresses
-(define (set-storage! t s)
+;; Places the entries of the eq or eqv table body old in the empty body new, at the current
+;; addresses
+(define (reinsert! old new)
   (declare unsafe noalloc (result void))
-  (store (as-raw t) (raw 6) s)
-  (store (as-raw t) (raw 3) (load gc-count (raw 0)))
-  (let shift-next ((n (storage-slots (as-raw s)))
-                   (shift (raw 64)))
-    (if (raw= n (raw 1))
-        (store (as-raw t) (raw 4) shift)
-        (shift-next (raw>>u n (raw 1)) (raw- shift (raw 1))))))
-
-;; Moves the entries of an eq or eqv table to the new storage s
-(define (reinsert! t s)
-  (declare unsafe noalloc (result void))
-  (let ((old (table-storage t)))
-    (set-storage! t s)
-    (let entry-next ((i (raw 0)))
-      (if (raw= i (storage-slots old))
-          undef
-          (begin
-            (unless (raw= (slot-word old i (raw 0)) (raw 0))
-              (eq-place! t (as-raw s) (as-val (slot-word old i (raw 0)))
-                         (as-val (slot-word old i (raw 1)))))
-            (entry-next (raw+ i (raw 1))))))))
+  (store (as-raw new) (raw 3) (load gc-count (raw 0)))
+  (let entry-next ((i (raw 0)))
+    (if (raw= i (storage-slots (as-raw old)))
+        undef
+        (begin
+          (unless (raw= (slot-word (as-raw old) i (raw 0)) (raw 0))
+            (eq-place! (as-raw new) (as-val (slot-word (as-raw old) i (raw 0)))
+                       (as-val (slot-word (as-raw old) i (raw 1)))))
+          (entry-next (raw+ i (raw 1)))))))
 
 ;; Empties slot i, then places again the entries after it, up to an empty slot
 (define (eq-delete-slot! t (raw i))
@@ -188,96 +190,112 @@
             undef
             (begin
               (clear-slot! s j)
-              (eq-place! t s (as-val k) (as-val v))
+              (eq-place! s (as-val k) (as-val v))
               (entry-next (next-slot s j))))))))
 
 ;; The fixnum hash of k, by the hash procedure of t
 (define (generic-hash t k)
   (declare unsafe)
-  (let ((h ((as-val (load (as-raw t) (raw 7))) k)))
+  (let ((h ((table-hash t) k)))
     (cond
      ((fixnum? h) h)
      ((bignum? h) (hash-fixnum (load (as-raw h) (raw 3))))
-     (else (hash-function-error (as-val (load (as-raw t) (raw 7))) h k)))))
+     (else (hash-function-error (table-hash (resolve t)) h k)))))
 
 ;; A fixnum slot from the fixnum hash h
 (define (generic-home t h)
   (declare unsafe inline)
-  (make-fixnum (home-slot t (fixnum-value h))))
+  (make-fixnum (home-slot (table-storage (resolve t)) (fixnum-value h))))
 
 (define (generic-next t i)
   (declare unsafe inline)
-  (make-fixnum (next-slot (table-storage t) (fixnum-value i))))
+  (make-fixnum (next-slot (table-storage (resolve t)) (fixnum-value i))))
 
-;; The calls may collect, so only fixnum slots are kept
+;; The calls may collect or relocate t, so only fixnum slots are kept
 (define (generic-slot t k)
   (declare unsafe)
   (let probe ((i (generic-home t (generic-hash t k))))
-    (let ((x (as-val (slot-word (table-storage t) (fixnum-value i) (raw 0)))))
+    (let ((x (as-val (slot-word (table-storage (resolve t)) (fixnum-value i) (raw 0)))))
       (if (or (raw= (as-raw x) (raw 0))
-              ((as-val (load (as-raw t) (raw 8))) x k))
+              ((table-equiv (resolve t)) x k))
           i
           (probe (generic-next t i))))))
 
 (define (generic-place! t k v)
   (declare unsafe)
   (let probe ((i (generic-home t (generic-hash t k))))
-    (if (slot-empty? t i)
+    (if (slot-empty? (resolve t) i)
         (begin
-          (set-slot! (table-storage t) (fixnum-value i) k v)
+          (set-slot! (table-storage (resolve t)) (fixnum-value i) k v)
           undef)
         (probe (generic-next t i)))))
 
-(define (generic-reinsert! t s)
+;; Places the entries of the generic table body old in the empty body new
+(define (generic-reinsert! old new)
   (declare unsafe)
-  (let ((old (as-val (table-storage t))))
-    (set-storage! t s)
-    (let entry-next ((i 0))
-      (if (raw= (fixnum-value i) (storage-slots (as-raw old)))
-          undef
-          (let ((k (as-val (slot-word (as-raw old) (fixnum-value i) (raw 0)))))
-            (unless (raw= (as-raw k) (raw 0))
-              (generic-place! t k (as-val (slot-word (as-raw old) (fixnum-value i) (raw 1)))))
-            (entry-next (+ i 1)))))))
+  (let entry-next ((i 0))
+    (if (raw= (fixnum-value i) (storage-slots (as-raw old)))
+        undef
+        (let ((k (as-val (slot-word (as-raw old) (fixnum-value i) (raw 0)))))
+          (unless (raw= (as-raw k) (raw 0))
+            (generic-place! new k (as-val (slot-word (as-raw old) (fixnum-value i) (raw 1)))))
+          (entry-next (+ i 1))))))
 
 (define (generic-delete-slot! t i)
   (declare unsafe)
-  (clear-slot! (table-storage t) (fixnum-value i))
+  (clear-slot! (table-storage (resolve t)) (fixnum-value i))
   (let entry-next ((j (generic-next t i)))
-    (let ((k (as-val (slot-word (table-storage t) (fixnum-value j) (raw 0))))
-          (v (as-val (slot-word (table-storage t) (fixnum-value j) (raw 1)))))
+    (let ((k (as-val (slot-word (table-storage (resolve t)) (fixnum-value j) (raw 0))))
+          (v (as-val (slot-word (table-storage (resolve t)) (fixnum-value j) (raw 1)))))
       (if (raw= (as-raw k) (raw 0))
           undef
           (begin
-            (clear-slot! (table-storage t) (fixnum-value j))
+            (clear-slot! (table-storage (resolve t)) (fixnum-value j))
             (generic-place! t k v)
             (entry-next (generic-next t j)))))))
 
-;; A zeroed storage of n slots, a fixnum
-(define (make-storage n)
-  (declare unsafe inline)
-  (let ((p (alloc (raw+ (raw<< (fixnum-value n) (raw 1)) (raw 2)))))
-    (store p (raw 0) vector-type)
-    (store p (raw 1) (raw<< (fixnum-value n) (raw 1)))
+;; 64 - k for n = 2^k slots
+(define (slots-shift (raw n))
+  (declare unsafe noalloc (result raw))
+  (let shift-next ((n n)
+                   (shift (raw 64)))
+    (if (raw= n (raw 1))
+        shift
+        (shift-next (raw>>u n (raw 1)) (raw- shift (raw 1))))))
+
+;; An empty table body of the fixnum kind, with n slots, a fixnum power of 2
+(define (make-table kind n hash equiv)
+  (declare unsafe)
+  (let ((p (alloc (raw+ (raw<< (fixnum-value n) (raw 1)) (raw 8)))))
+    (store p (raw 0) hashtable-type)
+    (store p (raw 3) (load gc-count (raw 0)))
+    (store p (raw 4) (slots-shift (fixnum-value n)))
+    (store p (raw 5) (fixnum-value kind))
+    (store p (raw 6) hash)
+    (store p (raw 7) equiv)
     (as-val p)))
 
-;; Places the entries in a new storage of n slots
+;; The new body of t, with its entries placed in n slots, t relocated to it
 (define (resize! t n)
   (declare unsafe)
-  (let ((s (make-storage n)))
+  (let ((new (make-table (make-fixnum (table-kind t)) n (table-hash t) (table-equiv t))))
+    (store (as-raw new) (raw 1) (table-count t))
+    (store (as-raw new) (raw 2) (load (as-raw t) (raw 2)))
     (if (raw= (table-kind t) generic-kind)
-        (generic-reinsert! t s)
+        (generic-reinsert! t new)
         (begin
-          (reinsert! t s)
-          undef))))
+          (reinsert! t new)
+          undef))
+    (relocate! (resolve t) new)
+    new))
 
 ;; Nothing allocates between the placing and the probe
 (define (replaced-slot t k)
   (declare unsafe)
-  (resize! t (make-fixnum (storage-slots (table-storage t))))
-  (eq-slot t k))
+  (eq-slot (resize! t (make-fixnum (storage-slots (table-storage t)))) k))
 
-;; The fixnum slot of k, else of the empty slot where it goes
+;; The fixnum slot of k, else of the empty slot where it goes; the body of t may be replaced,
+;; so the caller resolves t after
 (define (table-slot t k)
   (declare unsafe inline)
   (if (raw= (table-kind t) generic-kind)
@@ -286,17 +304,6 @@
         (if (eq? i -1)
             (replaced-slot t k)
             i))))
-
-(define (make-table kind n hash equiv)
-  (declare unsafe)
-  (let* ((s (make-storage n))
-         (p (alloc (raw 9))))
-    (store p (raw 0) hashtable-type)
-    (store p (raw 5) (fixnum-value kind))
-    (store p (raw 7) hash)
-    (store p (raw 8) equiv)
-    (set-storage! (as-val p) s)
-    (as-val p)))
 
 ;; The slots for k entries: a power of 2, at least 8 and 2k
 (define (table-slots k)
@@ -353,69 +360,68 @@
 
 (define (hashtable-size t)
   (declare unsafe public)
-  (check-hashtable t hashtable-size)
-  (make-fixnum (table-count t)))
+  (make-fixnum (table-count (hashtable-body t hashtable-size))))
 
 (define (hashtable-ref t k default)
   (declare unsafe public)
-  (check-hashtable t hashtable-ref)
-  (let ((i (table-slot t k)))
-    (if (slot-empty? t i)
+  (let* ((i (table-slot (hashtable-body t hashtable-ref) k))
+         (b (resolve t)))
+    (if (slot-empty? b i)
         default
-        (as-val (slot-word (table-storage t) (fixnum-value i) (raw 1))))))
+        (as-val (slot-word (table-storage b) (fixnum-value i) (raw 1))))))
 
 (define (hashtable-contains? t k)
-  (declare public)
-  (check-hashtable t hashtable-contains?)
-  (not (slot-empty? t (table-slot t k))))
+  (declare unsafe public)
+  (let ((i (table-slot (hashtable-body t hashtable-contains?) k)))
+    (not (slot-empty? (resolve t) i))))
 
 ;; Grows first, so that the slot found stays valid
 (define (hashtable-set! t k v)
   (declare unsafe public)
-  (check-hashtable t hashtable-set!)
-  (when (raw>u (raw<< (raw+ (table-count t) (raw 1)) (raw 1)) (storage-slots (table-storage t)))
-    (resize! t (make-fixnum (raw<< (storage-slots (table-storage t)) (raw 1)))))
-  (let ((i (table-slot t k)))
-    (if (slot-empty? t i)
+  (let ((b (hashtable-body t hashtable-set!)))
+    (when (raw>u (raw<< (raw+ (table-count b) (raw 1)) (raw 1)) (storage-slots (table-storage b)))
+      (resize! b (make-fixnum (raw<< (storage-slots (table-storage b)) (raw 1))))))
+  (let* ((i (table-slot (resolve t) k))
+         (b (resolve t)))
+    (if (slot-empty? b i)
         (begin
-          (set-slot! (table-storage t) (fixnum-value i) k v)
-          (store (as-raw t) (raw 1) (raw+ (table-count t) (raw 1)))
-          (when (address-key? (table-kind t) k)
-            (when (raw= (load (as-raw t) (raw 2)) (raw 0))
-              (store (as-raw t) (raw 3) (load gc-count (raw 0))))
-            (store (as-raw t) (raw 2) (raw+ (load (as-raw t) (raw 2)) (raw 1))))
+          (set-slot! (table-storage b) (fixnum-value i) k v)
+          (store (as-raw b) (raw 1) (raw+ (table-count b) (raw 1)))
+          (when (address-key? (table-kind b) k)
+            (when (raw= (load (as-raw b) (raw 2)) (raw 0))
+              (store (as-raw b) (raw 3) (load gc-count (raw 0))))
+            (store (as-raw b) (raw 2) (raw+ (load (as-raw b) (raw 2)) (raw 1))))
           undef)
         (begin
-          (store (table-storage t) (raw+ (raw<< (fixnum-value i) (raw 1)) (raw 3)) v)
+          (store (table-storage b) (raw+ (raw<< (fixnum-value i) (raw 1)) (raw 9)) v)
           undef))))
 
 (define (hashtable-update! t k proc default)
   (declare public)
-  (check-hashtable t hashtable-update!)
+  (unless (hashtable? t)
+    (argument-error hashtable-update! 'hashtable t))
   (hashtable-set! t k (proc (hashtable-ref t k default))))
 
 (define (hashtable-delete! t k)
   (declare unsafe public)
-  (check-hashtable t hashtable-delete!)
-  (let ((i (table-slot t k)))
-    (unless (slot-empty? t i)
-      (store (as-raw t) (raw 1) (raw- (table-count t) (raw 1)))
-      (when (address-key? (table-kind t) k)
-        (store (as-raw t) (raw 2) (raw- (load (as-raw t) (raw 2)) (raw 1))))
-      (if (raw= (table-kind t) generic-kind)
-          (generic-delete-slot! t i)
+  (let* ((i (table-slot (hashtable-body t hashtable-delete!) k))
+         (b (resolve t)))
+    (unless (slot-empty? b i)
+      (store (as-raw b) (raw 1) (raw- (table-count b) (raw 1)))
+      (when (address-key? (table-kind b) k)
+        (store (as-raw b) (raw 2) (raw- (load (as-raw b) (raw 2)) (raw 1))))
+      (if (raw= (table-kind b) generic-kind)
+          (generic-delete-slot! b i)
           (begin
-            (eq-delete-slot! t (fixnum-value i))
+            (eq-delete-slot! b (fixnum-value i))
             undef)))
     undef))
 
 (define (hashtable-clear! t)
   (declare unsafe public)
-  (check-hashtable t hashtable-clear!)
-  (let ((s (make-storage 8)))
-    (store (as-raw t) (raw 1) (raw 0))
-    (store (as-raw t) (raw 2) (raw 0))
-    (set-storage! t s)
+  (let* ((b (hashtable-body t hashtable-clear!))
+         (new (make-table (make-fixnum (table-kind b)) 8 (table-hash b) (table-equiv b))))
+    (relocate! (resolve t) new)
     undef))
 
 ;; A vector of the keys (j 0) or the values (j 1), in slot order
@@ -438,19 +444,17 @@
 
 (define (hashtable-keys t)
   (declare unsafe public)
-  (check-hashtable t hashtable-keys)
-  (table-column t (raw 0)))
+  (table-column (hashtable-body t hashtable-keys) (raw 0)))
 
 (define (hashtable-values t)
   (declare unsafe public)
-  (check-hashtable t hashtable-values)
-  (table-column t (raw 1)))
+  (table-column (hashtable-body t hashtable-values) (raw 1)))
 
 (define (hashtable-entries t)
   (declare unsafe public)
-  (check-hashtable t hashtable-entries)
-  (let* ((keys (table-column t (raw 0)))
-         (vals (table-column t (raw 1))))
+  (let* ((b (hashtable-body t hashtable-entries))
+         (keys (table-column b (raw 0)))
+         (vals (table-column b (raw 1))))
     (values keys vals)))
 
 ;; Agrees with equal?, never by address: other objects by their header
