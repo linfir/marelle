@@ -18,6 +18,8 @@
   (declare unsafe inline (result void))
   (store (address "scheme_globals") i v))
 
+;; A relocated object: [moved-type, its new body] (relocate!)
+(define-constant moved-type (raw (ash 41 3)))
 (define-constant procedure-type (raw (ash 42 3)))
 (define-constant frame-type (raw (ash 43 3)))
 (define-constant forward-type (raw (ash 44 3)))
@@ -57,6 +59,39 @@
 (define (eq? x y)
   (declare unsafe inline public)
   (raw= (as-raw x) (as-raw y)))
+
+;; Relocation: an object that must grow or change its layout keeps its identity by becoming
+;; [moved-type, new body]; every access follows the chain, and the next collection redirects
+;; every pointer to the body. A procedure resolves its argument once, after the type check, and
+;; never returns or stores the body; it resolves again after a call into Scheme, which may
+;; relocate the object. Relocating allocates, so noalloc code never sees it happen. Pairs and
+;; static objects never move.
+
+(define (moved? x)
+  (declare unsafe inline)
+  (and (tag=? x (raw 0))
+       (not (raw= (as-raw x) (raw 0)))
+       (raw= (load (as-raw x) (raw 0)) moved-type)))
+
+;; The current body of x, x itself unless relocated
+(define (resolve x)
+  (declare unsafe noalloc)
+  (let follow ((x x))
+    (if (moved? x)
+        (follow (as-val (load (as-raw x) (raw 1))))
+        x)))
+
+;; Whether x, relocated, now has the header h
+(define (moved-to? x (raw h))
+  (declare unsafe noalloc)
+  (and (moved? x)
+       (raw= (load (as-raw (resolve x)) (raw 0)) h)))
+
+;; Makes the body old, resolved, forward to new
+(define (relocate! old new)
+  (declare unsafe inline (result void))
+  (store (as-raw old) (raw 0) moved-type)
+  (store (as-raw old) (raw 1) new))
 
 ;; eq?, except that bignums and ratnums are compared by value
 (define (eqv? x y)

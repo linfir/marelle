@@ -1,0 +1,2 @@
+stdout = "((#t #t #t (#(1 2 3 4))) #f #t #t #t (#(1 2 3 4)))"
+gc_stress = "skip"

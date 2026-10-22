@@ -481,7 +481,7 @@
           h
           (word-next (raw+ i (raw 1)) (mix h (load (as-raw x) i))))))
    ((or (bignum? x) (ratnum? x)) (number-hash x))
-   (else (load (as-raw x) (raw 0)))))
+   (else (load (as-raw (resolve x)) (raw 0)))))
 
 (define (equal-hash x)
   (declare unsafe public)

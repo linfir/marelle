@@ -69,7 +69,7 @@
    ((raw= (load p (raw 0)) bytevector-type) (bytevector-words (load p (raw 1))))
    ((symbol-header? (load p (raw 0))) (raw 3))
    ((string-header? (load p (raw 0))) (string-words (load p (raw 0)) (load p (raw 1))))
-   (else (raw 2)))) ; pair, box, values or record type
+   (else (raw 2)))) ; pair, box, values, record type or relocated object
 
 ;; The new address of the object x points to, copied to gc-free if it is in the
 ;; current space; a moved object holds forward-type and its new address
@@ -86,6 +86,12 @@
             x) ; null or static procedure
            ((raw= (load p (raw 0)) forward-type)
             (bit-or (load p (raw 1)) t))
+           ;; A relocated object becomes its body's forwarder, so pointers to it reach the body
+           ((raw= (load p (raw 0)) moved-type)
+            (let ((new (forward (load p (raw 1)))))
+              (store p (raw 0) forward-type)
+              (store p (raw 1) new)
+              new))
            (else
             (let ((new (load gc-free (raw 0)))
                   (n (if (raw= t (raw 3)) (raw 2) (object-words p))))

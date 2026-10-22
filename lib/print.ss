@@ -67,7 +67,7 @@
                      ((eof-object? x) "#!eof")
                      (else "#<err>"))))
    ((pair? x) (display-pair out write? x))
-   ((tag=? x (raw 0)) (display-pointer out write? x))
+   ((tag=? x (raw 0)) (display-pointer out write? (resolve x)))
    (else (put-string out "#<err>"))))
 
 ;; The name of the character n, or 0
