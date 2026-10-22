@@ -1,15 +1,9 @@
-;; The environment variables, NAME=VALUE C strings ending with 0
-(define-data environment 1)
-
-;; The initial stack: argc, then the arguments, C strings
-(define-data arguments 1)
-
 ;; Writes the n bytes at buf to the file descriptor fd, stopping on an error
 (define (write-all (raw fd) (raw buf) (raw n))
   (declare unsafe noalloc (result void))
   (let write-next ((done (raw 0)))
     (if (raw<u done n)
-        (let ((written (syscall 1 fd (raw+ buf done) (raw- n done))))
+        (let ((written (os-write fd (raw+ buf done) (raw- n done))))
           (if (raw< written (raw 0))
               undef
               (write-next (raw+ done written))))
@@ -87,7 +81,7 @@
   (unless (raw= (load gc-stats (raw 0)) (raw 0))
     (print-gc-stats))
   (flush-output-ports)
-  (syscall 231 status)) ; exit_group
+  (os-exit status))
 
 ;; Flushes the ports and exits with status 0 with no argument, a fixnum's low byte, else 1, as in
 ;; Chez (R7RS gives 0 for #t)
@@ -103,30 +97,6 @@
   (declare unsafe noalloc (result never))
   (put-string stderr msg)
   (exit-process (raw 1)))
-
-;; The address of the value of entry, a NAME=VALUE string, or 0 if its name is not name
-(define (env-value (raw entry) (raw name))
-  (declare unsafe noalloc (result raw))
-  (let compare-next ((i (raw 0)))
-    (cond
-     ((raw= (load8 name i) (raw 0))
-      (if (raw= (load8 entry i) (raw 61)) ; =
-          (raw+ entry (raw+ i (raw 1)))
-          (raw 0)))
-     ((raw= (load8 entry i) (load8 name i)) (compare-next (raw+ i (raw 1))))
-     (else (raw 0)))))
-
-;; The value of the environment variable name, or 0 if unset
-(define (getenv (raw name))
-  (declare unsafe noalloc (result raw))
-  (let env-next ((k (raw 0)))
-    (let ((entry (load (load environment (raw 0)) k)))
-      (if (raw= entry (raw 0))
-          (raw 0)
-          (let ((value (env-value entry name)))
-            (if (raw= value (raw 0))
-                (env-next (raw+ k (raw 1)))
-                value))))))
 
 ;; The decimal number s, or 0 if it is empty, has a non-digit or overflows
 (define (parse-positive (raw s))
@@ -162,24 +132,20 @@
 ;; n zeroed words, touched lazily
 (define (map-words (raw n))
   (declare unsafe noalloc (result raw))
-  ;; mmap(0, 8n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
-  (let ((p (syscall 9 (raw 0) (raw<< n (raw 3)) (raw 3) (raw 34) (raw -1) (raw 0))))
-    (when (raw>u p (raw -4096))
+  (let ((p (os-map (raw<< n (raw 3)))))
+    (when (raw= p (raw 0))
       (fatal "Memory allocation failed\n"))
     p))
 
 (define (unmap-words (raw p) (raw n))
   (declare unsafe noalloc (result void))
-  ;; munmap(p, 8n)
-  (syscall 11 p (raw<< n (raw 3)))
-  undef)
+  (os-unmap p (raw<< n (raw 3))))
 
-;; Called from _start with the initial stack: argc, the arguments, 0, then the environment
+;; Called from _start with the initial stack (init-platform)
 (define (init-runtime (raw sp))
   (declare unsafe noalloc (result void))
+  (init-platform sp)
   (init-console-ports!)
-  (store arguments (raw 0) sp)
-  (store environment (raw 0) (raw+ sp (raw<< (raw+ (load sp (raw 0)) (raw 2)) (raw 3))))
   (store scheme-cap (raw 0) initial-heap-words)
   (store gc-target (raw 0) initial-heap-words)
   (store gc-stress (raw 0)
@@ -197,7 +163,7 @@
 ;; The address of argument k, a fixnum
 (define (argument-address k)
   (declare unsafe inline (result raw))
-  (load (load arguments (raw 0)) (raw+ (fixnum-value k) (raw 1))))
+  (os-argument (fixnum-value k)))
 
 ;; Argument k as a string, from its UTF-8 bytes
 (define (argument-string k)
@@ -209,7 +175,7 @@
 ;; The program's name and its arguments (R7RS)
 (define (command-line)
   (declare unsafe public)
-  (let argument-next ((k (- (make-fixnum (load (load arguments (raw 0)) (raw 0))) 1))
+  (let argument-next ((k (- (make-fixnum (os-argument-count)) 1))
                       (acc '()))
     (if (< k 0)
         acc

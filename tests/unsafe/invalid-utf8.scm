@@ -10,9 +10,9 @@
       (store8 bad (fixnum-value i) (fixnum-value (car l)))
       (byte-next (cdr l) (+ i 1))))
   (let* ((n (length bytes))
-         (fd (syscall 2 "bad.txt" (raw 577) (raw 438))))
-    (syscall 1 fd bad (fixnum-value n))
-    (syscall 3 fd))
+         (fd (os-open-output "bad.txt")))
+    (os-write fd bad (fixnum-value n))
+    (os-close fd))
   0)
 
 (write-bad '(#x61 #xFF #x62 #xC0 #x80 #xED #xA0 #x80 #xF4 #x90 #x80 #x80

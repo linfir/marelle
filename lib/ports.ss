@@ -343,7 +343,7 @@
     (copy-bytes! (port-bytes port) (raw+ (port-bytes port) (port-position port)) left)
     (set-port-position! port (raw 0))
     (set-port-end! port left)
-    (let ((n (syscall 0 (port-fd port) (raw+ (port-bytes port) left) (raw- port-buffer-size left))))
+    (let ((n (os-read (port-fd port) (raw+ (port-bytes port) left) (raw- port-buffer-size left))))
       (if (raw> n (raw 0))
           (begin
             (set-port-end! port (raw+ left n))
@@ -475,19 +475,14 @@
   (declare unsafe)
   (read-string k (optional-port port (raw 0) read-string 1)))
 
-;; struct pollfd {int fd; short events; short revents;} for char-ready?
-(define-data poll-fd 1)
-
-;; Whether a char may be read without blocking: a string port, buffered bytes, or poll(2) says
+;; Whether a char may be read without blocking: a string port, buffered bytes, or the OS says
 ;; so (also at the end of the file)
 (define (port-ready? port)
   (declare unsafe noalloc)
   (let ((p (as-raw port)))
     (or (not (raw= (bit-and (port-flags p) string-flag) (raw 0)))
         (raw<u (port-position p) (port-end p))
-        (begin
-          (store poll-fd (raw 0) (bit-or (port-fd p) (raw<< (raw 1) (raw 32)))) ; POLLIN
-          (raw> (syscall 7 poll-fd (raw 1) (raw 0)) (raw 0))))))
+        (os-input-ready? (port-fd p)))))
 
 (define (char-ready? port)
   (declare unsafe public)
@@ -528,30 +523,21 @@
         (copy-bytes! (byte-address bv (raw 0)) (getenv path-buffer) (bytevector-nbytes bv))
         (utf8->string bv))))
 
-;; The text of the errno
-(define (errno-message errno)
-  (case errno
-    ((2) "no such file or directory")
-    ((13) "permission denied")
-    ((17) "file exists")
-    ((20) "not a directory")
-    ((21) "is a directory")
-    ((24) "too many open files")
-    ((36) "file name too long")
-    (else (format "error ~a" errno))))
-
-;; The file name could not be opened, open(2) failing with errno
-(define (open-error who name errno)
+;; The file name could not be opened, with the error code
+(define (open-error who name code)
   (declare (result never))
-  (library-errorf who "failed for ~a: ~a" (list name (errno-message errno))))
+  (library-errorf who "failed for ~a: ~a" (list name (os-error-message code))))
 
-;; A descriptor port of the direction flag for the file name, opened with the open(2) flags;
-;; a name file-name rejects fails like a long one
-(define (open-file name (raw open-flags) (raw flag) who)
+;; A descriptor port of the direction flag for the file name, opened for output (created or
+;; truncated) unless output? is 0; a name file-name rejects fails like a long one
+(define (open-file name (raw output?) (raw flag) who)
   (declare unsafe inline)
   (check-string name who)
   (let ((path (file-name name)))
-    (let ((fd (make-fixnum (if (raw= path (raw 0)) (raw -36) (syscall 2 path open-flags (raw 438)))))) ; 0666
+    (let ((fd (make-fixnum (cond
+                            ((raw= path (raw 0)) (raw- (raw 0) name-too-long-error))
+                            ((raw= output? (raw 0)) (os-open-input path))
+                            (else (os-open-output path))))))
       (when (< fd 0)
         (open-error who name (- 0 fd)))
       (make-fd-port fd flag))))
@@ -577,23 +563,22 @@
   (check-string name who)
   (file-name name))
 
-;; access(2) with F_OK
 (define (file-exists? name)
   (declare unsafe public)
   (let ((path (checked-file-name name file-exists?)))
     (and (not (raw= path (raw 0)))
-         (raw= (syscall 21 path (raw 0)) (raw 0)))))
+         (os-file-exists? path))))
 
-;; unlink(2); #f when it fails, as in Chez
+;; #f when it fails, as in Chez
 (define (delete-file name)
   (declare unsafe public)
   (let ((path (checked-file-name name delete-file)))
     (and (not (raw= path (raw 0)))
-         (raw= (syscall 87 path) (raw 0)))))
+         (os-delete-file path))))
 
 (define (open-input-file name)
   (declare unsafe public)
-  (open-file name (raw 0) input-flag open-input-file)) ; O_RDONLY
+  (open-file name (raw 0) input-flag open-input-file))
 
 (define (open-file-input-port name)
   (declare unsafe public)
@@ -603,7 +588,7 @@
 ;; exit
 (define (open-output-port name (raw flag) who)
   (declare unsafe inline)
-  (let ((port (open-file name (raw 577) flag who))) ; O_WRONLY | O_CREAT | O_TRUNC
+  (let ((port (open-file name (raw 1) flag who)))
     (store output-ports (raw 0) (cons port (as-val (load output-ports (raw 0)))))
     port))
 
@@ -615,47 +600,36 @@
   (declare unsafe public)
   (open-output-port name binary-output-flags open-file-output-port))
 
-;; chmod(2) failed with errno
-(define (chmod-error name errno)
+;; Setting the mode of the file name failed with the error code
+(define (chmod-error name code)
   (declare (result never))
-  (library-errorf chmod "cannot modify ~s: ~a" (list name (errno-message errno))))
+  (library-errorf chmod "cannot modify ~s: ~a" (list name (os-error-message code))))
 
-;; chmod(2)
 (define (chmod name mode)
   (declare unsafe public)
   (let ((path (checked-file-name name chmod)))
     (unless (fixnum? mode)
       (argument-error chmod 'fixnum mode))
-    (let ((result (make-fixnum (if (raw= path (raw 0)) (raw -36) (syscall 90 path (fixnum-value mode))))))
+    (let ((result (make-fixnum (if (raw= path (raw 0)) (raw- (raw 0) name-too-long-error) (os-chmod path (fixnum-value mode))))))
       (when (< result 0)
         (chmod-error name (- 0 result)))
       (void))))
 
-;; The arguments of execveat(2): the program's name, then 0, which is also the empty path
-(define-data execute-arguments 2)
-
-;; Running the executable name failed with errno
-(define (execute-error name errno)
+;; Running the executable name failed with the error code
+(define (execute-error name code)
   (declare (result never))
-  (library-errorf execute-bytevector "cannot run ~a: ~a" (list name (errno-message errno))))
+  (library-errorf execute-bytevector "cannot run ~a: ~a" (list name (os-error-message code))))
 
-;; Replaces the process with the executable bv, named name in its arguments:
-;; its bytes in a memfd, run by execveat(2) after flushing the output ports.
-;; The memfd is named marelle, since memfd_create(2) rejects names over 249 bytes.
+;; Replaces the process with the executable bv, named name in its arguments, after flushing
+;; the output ports; file-name is called again, its address being raw
 (define (execute-bytevector bv name)
   (declare unsafe public)
   (check-bytevector bv execute-bytevector)
-  (let* ((path (checked-file-name name execute-bytevector))
-         (fd (make-fixnum (if (raw= path (raw 0)) (raw -36) (syscall 319 "marelle" (raw 1)))))) ; memfd_create, MFD_CLOEXEC
-    (when (< fd 0)
-      (execute-error name (- 0 fd)))
-    (write-all (fixnum-value fd) (byte-address bv (raw 0)) (bytevector-nbytes bv))
-    (flush-output-ports)
-    (store execute-arguments (raw 0) (file-name name))
-    (store execute-arguments (raw 1) (raw 0))
-    (execute-error name (- 0 (make-fixnum (syscall 322 (fixnum-value fd) (raw+ execute-arguments (raw 8))
-                                                   execute-arguments (load environment (raw 0))
-                                                   (raw 4096))))))) ; AT_EMPTY_PATH
+  (when (raw= (checked-file-name name execute-bytevector) (raw 0))
+    (execute-error name (make-fixnum name-too-long-error)))
+  (flush-output-ports)
+  (execute-error name (- 0 (make-fixnum (os-execute (byte-address bv (raw 0)) (bytevector-nbytes bv)
+                                                    (file-name name))))))
 
 ;; Flushes a descriptor output port; a console port keeps its descriptor, for the runtime's
 ;; messages
@@ -665,7 +639,7 @@
     (flush-port (as-raw port))
     (store output-ports (raw 0) (remq port (as-val (load output-ports (raw 0))))))
   (when (raw>u (port-fd (as-raw port)) (raw 2))
-    (syscall 3 (port-fd (as-raw port))))
+    (os-close (port-fd (as-raw port))))
   (store (as-raw port) (raw 1) (bit-or (port-flags (as-raw port)) closed-flag))
   undef)
 

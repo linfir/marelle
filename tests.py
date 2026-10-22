@@ -17,7 +17,18 @@ STAGES = {"compiler", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 INPUT_FIELDS = {"stdin"}
 DUMP_FIELDS = {"dump", "cps_lacks", "cps_counts"}
-EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", "embed", "embed_datum", *OUTPUT_FIELDS, *INPUT_FIELDS, *DUMP_FIELDS}
+EXPECTATION_FIELDS = {
+    "stage",
+    "exit",
+    "chez",
+    "gc_stress",
+    "env",
+    "embed",
+    "embed_datum",
+    *OUTPUT_FIELDS,
+    *INPUT_FIELDS,
+    *DUMP_FIELDS,
+}
 SKIP = "skip"
 
 
@@ -101,8 +112,9 @@ def check_case(path, chez=False, gc_stress=None):
         if chez:
             result = run_chez(source, stdin=stdin)
         else:
-            result = run_pipeline(source, env=env, stdin=stdin, embed=expected.get("embed"),
-                                  embed_datum=expected.get("embed_datum"))
+            result = run_pipeline(
+                source, env=env, stdin=stdin, embed=expected.get("embed"), embed_datum=expected.get("embed_datum")
+            )
         actual_stage = "result"
     except PipelineFailure as error:
         result = error.result

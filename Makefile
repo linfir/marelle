@@ -27,6 +27,8 @@ build/lib.o: build/lib.s
 
 # One recipe writes all three
 build/lib.s build/lib.img build/lib.scm &: $(SOURCES) $(CHEZ_OBJS)
+	@# Only the platform layer may use syscall
+	! grep -n '(syscall' $(filter-out lib/platform.ss,$(wildcard lib/*.ss))
 	mkdir -p build
 	$(CHEZ) --program schemec --lib build $(sort $(wildcard lib/*.ss))
 

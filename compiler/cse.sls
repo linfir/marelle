@@ -129,7 +129,7 @@
                               (gc (or (and u (cdr u)) (next))))
                          `(letcont ((,(pending-k p) ,(pending-params p)
                                      ,(walk (pending-body p) (pending-inner p) mem gc)))
-                            ,t)))
+                                   ,t)))
                      t
                      pending)))
 
