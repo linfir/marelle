@@ -328,7 +328,8 @@
 ;; The UTF-8 bytevector of the chars [start, end) of s, fixnums
 (define (string-range->utf8 s start end)
   (declare unsafe)
-  (let ((bv (alloc-bytevector (make-fixnum (utf8-range-nbytes s (fixnum-value start) (fixnum-value end))))))
+  (let* ((s (resolve s))
+         (bv (alloc-bytevector (make-fixnum (utf8-range-nbytes s (fixnum-value start) (fixnum-value end))))))
     (put-utf8-range! (byte-address bv (raw 0)) s (fixnum-value start) (fixnum-value end))
     bv))
 

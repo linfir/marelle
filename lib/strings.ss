@@ -1,13 +1,16 @@
-;; Strings, immutable. The header is the kind, chosen by content: ASCII, [header, nchars,
+;; Strings. The header is the kind, chosen by content for a new string: ASCII, [header, nchars,
 ;; bytes...], when every char is below 128, else UTF-8, [header, nchars, nbytes, cache-index,
 ;; cache-offset, bytes...]; nchars, nbytes and the cache are raw words, the bytes padded with
 ;; zeros to a whole word. A UTF-8 string caches the byte offset of the last char indexed, so
-;; indexing near it is fast (utf8-offset). UTF-32, [header, nchars, units...], 4 bytes per char,
-;; is not made by the constructors; 51 is kept for a later kind. ASCII and UTF-8 strings share
-;; their bytes' encoding, so building one writes UTF-8 bytes (put-utf8-range!). The static
-;; strings of embedded-datum have the immutable types, 64 more (header bit 9; the UTF-8 ones in
-;; .data, since indexing writes their cache): every test of the kind masks that bit, and a
-;; future mutator must check the mutable types exactly
+;; indexing near it is fast (utf8-offset). UTF-32, [header, nchars, capacity, units...], 4 bytes
+;; per char, zero past nchars, comes from mutation; 51 is kept for a later kind. ASCII and UTF-8
+;; strings share their bytes' encoding, so building one writes UTF-8 bytes (put-utf8-range!).
+;; New strings are mutable (R7RS); literals, symbol names and the static strings of
+;; embedded-datum have the immutable types, 64 more (header bit 9; the static UTF-8 ones in
+;; .data, since indexing writes their cache): every test of the kind masks that bit. A mutation
+;; is in place for ASCII with an ASCII char and for UTF-32; otherwise the string is relocated
+;; to UTF-32 first (widen!, relocate! in lib/objects.ss), so every entry point resolves it
+;; (string-body).
 
 ;; Exactly the eight words (48 to 51 and 112 to 115) << 3: the GC also reads a pair's car as a
 ;; header
@@ -24,16 +27,48 @@
   (declare unsafe inline)
   (raw= (bit-and h (raw -513)) utf8-string-type))
 
-(define (string? x)
-  (declare unsafe inline public)
+(define (string-pointer? x)
+  (declare unsafe inline)
   (and (tag=? x (raw 0))
        (not (raw= (as-raw x) (raw 0)))
        (string-header? (load (as-raw x) (raw 0)))))
+
+;; The body of x if it is a relocated string, else #f
+(define (moved-string-body x)
+  (declare unsafe noalloc)
+  (and (moved? x)
+       (let ((b (resolve x)))
+         (and (string-header? (load (as-raw b) (raw 0))) b))))
+
+(define (string? x)
+  (declare unsafe inline public)
+  (or (string-pointer? x)
+      (if (moved-string-body x) #t #f)))
 
 (define (check-string s who)
   (declare inline (result void))
   (unless (string? s)
     (argument-error who 'string s)))
+
+;; The body of the string s, checked
+(define (string-body s who)
+  (declare unsafe inline)
+  (if (string-pointer? s)
+      s
+      (or (moved-string-body s)
+          (argument-error who 'string s))))
+
+(define (mutable-header? (raw h))
+  (declare unsafe inline)
+  (raw= (bit-and h (raw 512)) (raw 0)))
+
+;; The body of the mutable string s, checked
+(define (mutable-string-body s who)
+  (declare unsafe inline)
+  (let ((b (if (string-pointer? s) s (moved-string-body s))))
+    (if (and b (mutable-header? (load (as-raw b) (raw 0))))
+        b
+        (argument-error who 'mutable-string s))))
 
 (define (string-nchars s)
   (declare unsafe inline (result raw))
@@ -54,7 +89,10 @@
 ;; The address of the units (bytes, or UTF-32 codes) of the string at p
 (define (string-units (raw p))
   (declare unsafe inline (result raw))
-  (raw+ p (if (utf8-header? (load p (raw 0))) (raw 40) (raw 16))))
+  (raw+ p (cond
+           ((ascii-header? (load p (raw 0))) (raw 16))
+           ((utf8-header? (load p (raw 0))) (raw 40))
+           (else (raw 24)))))
 
 ;; The bytes of a UTF-8 string
 (define (utf8-nbytes-of s)
@@ -67,7 +105,7 @@
   (cond
    ((ascii-header? (load p (raw 0))) (raw+ (raw 2) (raw>>u (raw+ (load p (raw 1)) (raw 7)) (raw 3))))
    ((utf8-header? (load p (raw 0))) (raw+ (raw 5) (raw>>u (raw+ (load p (raw 2)) (raw 7)) (raw 3))))
-   (else (raw+ (raw 2) (raw>>u (raw+ (load p (raw 1)) (raw 1)) (raw 1))))))
+   (else (raw+ (raw 3) (raw>>u (raw+ (load p (raw 2)) (raw 1)) (raw 1))))))
 
 ;; A string of the fixnum nchars chars, whose UTF-8 encoding has the fixnum nbytes bytes, zero:
 ;; ASCII if they are equal, else UTF-8; to fill before the next allocation
@@ -80,6 +118,15 @@
     (store p (raw 1) (fixnum-value nchars))
     (unless (eq? nchars nbytes)
       (store p (raw 2) (fixnum-value nbytes)))
+    (as-val p)))
+
+;; A mutable UTF-32 string of the fixnum nchars chars, zero, with room for the fixnum capacity
+(define (make-utf32 nchars capacity)
+  (declare unsafe inline)
+  (let ((p (alloc (raw+ (raw 3) (raw>>u (raw+ (fixnum-value capacity) (raw 1)) (raw 1))))))
+    (store p (raw 0) utf32-string-type)
+    (store p (raw 1) (fixnum-value nchars))
+    (store p (raw 2) (fixnum-value capacity))
     (as-val p)))
 
 ;; The length of the UTF-8 sequence the valid lead byte b starts
@@ -147,7 +194,7 @@
   (cond
    ((ascii-string? s) (load8 (as-raw s) (raw+ i (raw 16))))
    ((utf8-string? s) (utf8-string-code s i))
-   (else (load32 (as-raw s) (raw+ (raw<< i (raw 2)) (raw 16))))))
+   (else (load32 (as-raw s) (raw+ (raw<< i (raw 2)) (raw 24))))))
 
 ;; Sequential reading: a position is a byte offset in a UTF-8 string, else a char index, from 0
 ;; to string-end
@@ -162,7 +209,7 @@
   (cond
    ((ascii-string? s) (load8 (as-raw s) (raw+ pos (raw 16))))
    ((utf8-string? s) (decode-at (raw+ (as-raw s) (raw+ pos (raw 40)))))
-   (else (load32 (as-raw s) (raw+ (raw<< pos (raw 2)) (raw 16))))))
+   (else (load32 (as-raw s) (raw+ (raw<< pos (raw 2)) (raw 24))))))
 
 ;; The position after the char at pos
 (define (string-next s (raw pos))
@@ -214,26 +261,106 @@
      ((raw= (load p i) (load q i)) (word-next (raw+ i (raw 1))))
      (else #f))))
 
+;; Makes the new string s immutable
+(define (freeze! s)
+  (declare unsafe inline (result void))
+  (store (as-raw s) (raw 0) (bit-or (load (as-raw s) (raw 0)) (raw 512))))
+
 ;; A string literal of nchars chars, from its nbytes UTF-8 bytes at the fixnum address bytes
-;; (compile-literal-init); out of line, since each literal of a compilation calls it
+;; (compile-literal-init), immutable; out of line, since each literal of a compilation calls it
 (define (literal-string bytes nbytes nchars)
   (declare unsafe)
   (let ((s (make-text nchars nbytes)))
     (copy-bytes! (string-units (as-raw s)) (fixnum-value bytes) (fixnum-value nbytes))
+    (freeze! s)
     s))
+
+;; The string body s if it is immutable, else an immutable copy, ASCII or UTF-8 (symbol names)
+(define (immutable-string s)
+  (declare unsafe)
+  (if (mutable-header? (load (as-raw s) (raw 0)))
+      (let ((r (make-text (make-fixnum (string-nchars s))
+                          (make-fixnum (utf8-range-nbytes s (raw 0) (string-nchars s))))))
+        (put-utf8-range! (string-units (as-raw r)) s (raw 0) (string-nchars s))
+        (freeze! r)
+        r)
+      s))
+
+;; Stores the codes of the chars of the string s from char at of the UTF-32 string w
+(define (store-codes! w (raw at) s)
+  (declare unsafe noalloc (result void))
+  (let char-next ((pos (raw 0))
+                  (i at))
+    (if (raw= pos (string-end s))
+        undef
+        (begin
+          (store32 (as-raw w) (raw+ (raw<< i (raw 2)) (raw 24)) (string-code-at s pos))
+          (char-next (string-next s pos) (raw+ i (raw 1)))))))
+
+;; The UTF-32 string of the chars of the string body b, with room for the fixnum capacity, at
+;; least its length; b is relocated to it
+(define (widen! b capacity)
+  (declare unsafe)
+  (let ((w (make-utf32 (make-fixnum (string-nchars b)) capacity)))
+    (store-codes! w (raw 0) b)
+    (relocate! b w)
+    w))
+
+(define (string-set! s i c)
+  (declare unsafe public)
+  (let ((b (mutable-string-body s string-set!)))
+    (unless (and (fixnum? i) (raw<u (fixnum-value i) (string-nchars b)))
+      (index-error string-set! i s))
+    (unless (char? c)
+      (argument-error string-set! 'char c))
+    (cond
+     ((and (ascii-string? b) (raw<u (char-code c) (raw 128)))
+      (store8 (as-raw b) (raw+ (fixnum-value i) (raw 16)) (char-code c)))
+     ((utf32-string? b)
+      (store32 (as-raw b) (raw+ (raw<< (fixnum-value i) (raw 2)) (raw 24)) (char-code c)))
+     (else
+      (let ((w (widen! b (make-fixnum (string-nchars b)))))
+        (store32 (as-raw w) (raw+ (raw<< (fixnum-value i) (raw 2)) (raw 24)) (char-code c)))))
+    undef))
+
+;; k chars c, #\nul by default as in Chez: ASCII if c is, else UTF-32, since such a string is
+;; made to be mutated
+(define (make-string k . fill)
+  (declare unsafe public)
+  (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
+    (argument-error make-string 'string-length k))
+  (unless (or (null? fill) (null? (cdr fill)))
+    (argument-count-error make-string (+ 1 (length fill))))
+  (let ((c (if (null? fill) #\nul (car fill))))
+    (unless (char? c)
+      (argument-error make-string 'char c))
+    (let ((s (if (raw<u (char-code c) (raw 128)) (make-text k k) (make-utf32 k k))))
+      (fill-chars-range! s c (raw 0) (fixnum-value k))
+      s)))
+
+;; Sets the chars [start, end) of the string s, ASCII if c is, else UTF-32, to c
+(define (fill-chars-range! s c (raw start) (raw end))
+  (declare unsafe noalloc (result void))
+  (let char-next ((i start))
+    (if (raw= i end)
+        undef
+        (begin
+          (if (ascii-string? s)
+              (store8 (as-raw s) (raw+ i (raw 16)) (char-code c))
+              (store32 (as-raw s) (raw+ (raw<< i (raw 2)) (raw 24)) (char-code c)))
+          (char-next (raw+ i (raw 1)))))))
 
 (define (string-length s)
   (declare unsafe inline public)
-  (check-string s string-length)
-  (make-fixnum (string-nchars s)))
+  (make-fixnum (string-nchars (string-body s string-length))))
 
 ;; i is a fixnum in [0, length); one unsigned compare also rejects negatives
 (define (string-ref s i)
   (declare unsafe inline public)
-  (check-string s string-ref)
-  (unless (and (fixnum? i) (raw<u (fixnum-value i) (string-nchars s)))
-    (index-error string-ref i s))
-  (code->char (string-code s (fixnum-value i))))
+  (let ((b (string-body s string-ref)))
+    (unless (and (fixnum? i) (raw<u (fixnum-value i) (string-nchars b)))
+      (index-error string-ref i s))
+    (code->char (string-code b (fixnum-value i)))))
 
 ;; Same kind, length and byte count, then the units, whose padding is zero; a UTF-32 string,
 ;; whose kind does not follow its content, char by char; ASCII and UTF-8 strings differ
@@ -261,10 +388,8 @@
                (raw- (string-words (as-raw a)) (raw 2)))))))
 
 (define (string=? a b)
-  (declare public)
-  (check-string a string=?)
-  (check-string b string=?)
-  (same-string? a b))
+  (declare unsafe public)
+  (same-string? (string-body a string=?) (string-body b string=?)))
 
 (define (string-append . strings)
   (declare unsafe public)
@@ -273,27 +398,28 @@
               (nbytes 0))
     (if (pair? l)
         (begin
-          (check-string (car l) string-append)
-          (count (cdr l) (+ n (string-length (car l)))
-                 (+ nbytes (make-fixnum (utf8-range-nbytes (car l) (raw 0) (string-nchars (car l)))))))
+          (let ((b (string-body (car l) string-append)))
+            (count (cdr l) (+ n (make-fixnum (string-nchars b)))
+                   (+ nbytes (make-fixnum (utf8-range-nbytes b (raw 0) (string-nchars b)))))))
         (let ((s (make-text n nbytes)))
           (let copy-next ((l strings)
                           (at (string-units (as-raw s))))
             (if (pair? l)
-                (copy-next (cdr l) (raw+ at (put-utf8-range! at (car l) (raw 0) (string-nchars (car l)))))
+                (let ((b (resolve (car l))))
+                  (copy-next (cdr l) (raw+ at (put-utf8-range! at b (raw 0) (string-nchars b)))))
                 s))))))
 
 ;; ASCII when the chars are, even from a UTF-8 or UTF-32 string
 (define (substring s start end)
   (declare unsafe public)
-  (check-string s substring)
-  (unless (and (fixnum? end) (raw<=u (fixnum-value end) (string-nchars s))
-               (fixnum? start) (raw<=u (fixnum-value start) (fixnum-value end)))
-    (range-error substring start end s))
-  (let ((r (make-text (- end start)
-                      (make-fixnum (utf8-range-nbytes s (fixnum-value start) (fixnum-value end))))))
-    (put-utf8-range! (string-units (as-raw r)) s (fixnum-value start) (fixnum-value end))
-    r))
+  (let ((b (string-body s substring)))
+    (unless (and (fixnum? end) (raw<=u (fixnum-value end) (string-nchars b))
+                 (fixnum? start) (raw<=u (fixnum-value start) (fixnum-value end)))
+      (range-error substring start end s))
+    (let ((r (make-text (- end start)
+                        (make-fixnum (utf8-range-nbytes b (fixnum-value start) (fixnum-value end))))))
+      (put-utf8-range! (string-units (as-raw r)) b (fixnum-value start) (fixnum-value end))
+      r)))
 
 ;; Stores the UTF-8 encoding of the list of characters l in the string s
 (define (fill-chars! s l)
@@ -346,7 +472,5 @@
      (else (char-next (string-next a i) (string-next b j))))))
 
 (define (string<? a b)
-  (declare public)
-  (check-string a string<?)
-  (check-string b string<?)
-  (string-less? a b))
+  (declare unsafe public)
+  (string-less? (string-body a string<?) (string-body b string<?)))

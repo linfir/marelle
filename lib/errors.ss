@@ -67,6 +67,8 @@
                     ((vector-length) "~s is not a valid vector length")
                     ((string) "~s is not a string")
                     ((char) "~s is not a character")
+                    ((mutable-string) "~s is not a mutable string")
+                    ((string-length) "~s is not a valid string length")
                     ((scalar-value) "~s is not a valid unicode scalar value")
                     ((symbol) "~s is not a symbol")
                     ((procedure) "~s is not a procedure")

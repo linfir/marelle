@@ -62,9 +62,8 @@
     (as-val p)))
 
 (define (gensym name)
-  (declare public)
-  (check-string name gensym)
-  (make-gensym name))
+  (declare unsafe public)
+  (make-gensym (immutable-string (string-body name gensym))))
 
 (define (numbered-name n)
   (string-append "g" (number->string n)))
@@ -138,14 +137,14 @@
     (grow-symbol-table!))
   sym)
 
-;; The symbol named s, made the first time; s is shared, since strings are immutable
+;; The symbol named s, made the first time with an immutable copy of s, or s if it is immutable
 (define (string->symbol s)
   (declare unsafe public)
-  (check-string s string->symbol)
-  (let* ((table (current-symbol-table))
+  (let* ((s (string-body s string->symbol))
+         (table (current-symbol-table))
          (i (symbol-slot table s (string-hash-word s))))
     (or (vector-ref table i)
-        (insert-symbol! table i (make-symbol s)))))
+        (insert-symbol! table i (make-symbol (immutable-string s))))))
 
 ;; The program's static symbols (scheme_program's word 7: their count, then their addresses),
 ;; with their hashes, entered in the table before any other symbol is made, so string->symbol

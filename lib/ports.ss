@@ -404,16 +404,18 @@
         (code->char (if (raw= n (raw -1)) (raw 65533) n)))
       (eof-object)))
 
-;; The next char of the string input port, or the EOF object, consumed unless peek? is 1
+;; The next char of the string input port, or the EOF object, consumed unless peek? is 1; the
+;; string may have been mutated, relocated or shortened since
 (define (read-string-char (raw port) (raw peek?))
   (declare unsafe noalloc)
-  (let ((i (port-position port)))
-    (if (raw= i (port-end port))
+  (let ((i (port-position port))
+        (s (resolve (as-val (load port (raw 5))))))
+    (if (or (raw= i (port-end port)) (raw>=u i (string-nchars s)))
         (eof-object)
         (begin
           (when (raw= peek? (raw 0))
             (set-port-position! port (raw+ i (raw 1))))
-          (code->char (string-code (as-val (load port (raw 5))) i))))))
+          (code->char (string-code s i))))))
 
 (define (port-read-char port (raw peek?))
   (declare unsafe inline)
@@ -502,7 +504,8 @@
 ;; The file name s as a C string in path-buffer, or 0 if it is too long or holds a NUL
 (define (file-name s)
   (declare unsafe noalloc (result raw))
-  (let ((n (utf8-range-nbytes s (raw 0) (string-nchars s))))
+  (let* ((s (resolve s))
+         (n (utf8-range-nbytes s (raw 0) (string-nchars s))))
     (if (raw>=u n path-max)
         (raw 0)
         (begin
@@ -807,9 +810,8 @@
 
 (define (open-input-string s)
   (declare unsafe public)
-  (check-string s open-input-string)
   (let ((p (make-port s (make-fixnum (bit-or input-flag string-flag)))))
-    (set-port-end! (as-raw p) (string-nchars s))
+    (set-port-end! (as-raw p) (string-nchars (string-body s open-input-string)))
     p))
 
 (define (open-output-string)

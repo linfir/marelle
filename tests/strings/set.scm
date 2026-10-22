@@ -1,0 +1,21 @@
+;; string-set!: in place for ASCII with an ASCII char; otherwise the string is relocated to
+;; UTF-32, and every reference to it (a list, a vector, a closure, an eq hashtable's key, a
+;; string port) sees one string
+(define s (string-append "abc" "d"))
+(define held (list s))
+(define v (vector s))
+(define get (lambda () s))
+(define table (make-eq-hashtable))
+(hashtable-set! table s 'found)
+(define port (open-input-string s))
+(string-set! s 0 #\z)
+(string-set! (car held) 1 #\λ)
+(string-set! (vector-ref v 0) 3 #\D)
+(define u (string-append "é" "xy"))
+(string-set! u 2 #\z)
+(make-vector 2000000 0)
+(list s (eq? (car held) s) (eq? (vector-ref v 0) (get)) (hashtable-ref table s #f)
+      (read-char port) (read-char port) (string-length s)
+      (string=? s "zλcD") (equal? (list s) (list "zλcD")) (= (string-hash s) (string-hash "zλcD"))
+      u (string=? u "éxz")
+      (string->list s))

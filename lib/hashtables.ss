@@ -470,7 +470,7 @@
    ((not (tag=? x (raw 0))) (as-raw x))
    ((raw= (as-raw x) (raw 0)) (raw 0))
    ((symbol? x) (symbol-hash-word x))
-   ((string? x) (string-hash-word x))
+   ((string? x) (string-hash-word (resolve x)))
    ((vector? x)
     (let element-next ((i (raw 0))
                        (h (load (as-raw x) (raw 1))))
@@ -493,8 +493,7 @@
 
 (define (string-hash s)
   (declare unsafe public)
-  (check-string s string-hash)
-  (hash-fixnum (string-hash-word s)))
+  (hash-fixnum (string-hash-word (string-body s string-hash))))
 
 (define (symbol-hash s)
   (declare unsafe public)
