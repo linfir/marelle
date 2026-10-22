@@ -28,15 +28,12 @@
   (define max-rounds 32)
 
 
-  ;; The dead objects are looked for only once a round changes nothing else
   (define (simplify def fun)
-    (let loop ((fun fun) (round 1) (objects? #f))
-      (let-values (((fun changed?) (simplify-round def fun objects?)))
-        (cond
-         ((>= round max-rounds) fun)
-         (changed? (loop fun (+ round 1) #f))
-         (objects? fun)
-         (else (loop fun (+ round 1) #t))))))
+    (let loop ((fun fun) (round 1))
+      (let-values (((fun changed?) (simplify-round def fun)))
+        (if (and changed? (< round max-rounds))
+            (loop fun (+ round 1))
+            fun))))
 
 
   ;; Per continuation, its throws (and their atoms in thrown) and whether an if or a call uses
@@ -151,10 +148,10 @@
         dead)))
 
 
-  (define (simplify-round def fun objects?)
+  (define (simplify-round def fun)
     (let* ((own (car (caddr fun)))
            (census (census (fun-term fun)))
-           (dead (if objects? (dead-objects (fun-term fun)) (make-eq-hashtable)))
+           (dead (dead-objects (fun-term fun)))
            (throws (make-eq-hashtable))
            (thrown (make-eq-hashtable))
            (positions (make-eq-hashtable))
