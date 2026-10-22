@@ -409,7 +409,7 @@
           (values result (reverse attrs) unsafe?)
           (let ((d (car decls)))
             (cond
-             ((memq d '(inline public noalloc))
+             ((memq d '(inline public noalloc pure))
               (loop (cdr decls) result
                     (cons (string->symbol (format ":~a" d)) attrs) unsafe?))
              ((eq? d 'unsafe)

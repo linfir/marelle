@@ -1,0 +1,1 @@
+(get-environment-variable 'home)

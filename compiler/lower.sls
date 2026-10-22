@@ -1,6 +1,6 @@
 ;; CPS to block IR, into the function being emitted (emit.sls).
 ;;
-;; Each variable is an operand. A continuation is a label, emitted in place at its last use when
+;; Each variable is an operand, a parameter its argument slot. A continuation is a label, emitted in place at its last use when
 ;; that use can fall into it (a throw, a call, a branch of an if: of two, the one bound last, the
 ;; then branch of the source), else after the term binding it. One used once gets its
 ;; parameters bound to the operands thrown to it; one used more, or a loop, gets a tmp per
@@ -10,6 +10,7 @@
   (export lower-function!)
   (import (chezscheme)
           (utils)
+          (defs)
           (ops)
           (gc-check)
           (output)
@@ -40,8 +41,12 @@
                    (uses (make-eq-hashtable))
                    (own (car (caddr fun)))
                    (function-def def))
-      (count-uses! (cadddr fun))
-      (lower (cadddr fun))))
+      (for-each (lambda (p i)
+                  (let ((arg `(arg ,(+ i 1))))
+                    (bind! (param-var p) (if (eq? (param-kind p) 'raw) `(as-raw ,arg) arg))))
+                (fun-params fun) (iota (length (fun-params fun))))
+      (count-uses! (fun-term fun))
+      (lower (fun-term fun))))
 
 
   (define (count-uses! t)
@@ -227,7 +232,7 @@
   (define (lower-prim x op)
     (case (car op)
       ((stackcall)
-       (let ((ops (map atom->operand (cddr op))))
+       (let ((ops (cons (def-code (caddr op)) (map atom->operand (cdddr op)))))
          (if x
              (bind! x (emit-op! 'stackcall (cadr op) ops))
              (emit! `(stackcall void ,@ops)))))

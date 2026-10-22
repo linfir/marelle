@@ -1,0 +1,3 @@
+stdout = "(\"héllo\" #f #f)"
+env = { MARELLE_TEST = "héllo" }
+chez = "skip"

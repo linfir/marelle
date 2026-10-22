@@ -1,10 +1,11 @@
 ;; Under Chez, what stage1 has and Chez lacks:
 ;; the files schemec --embed embedded, none (embedded-file of lib/system.ss),
-;; execute-bytevector (lib/ports.ss) and R7RS's bytevector-copy! (lib/bytevectors.ss);
+;; execute-bytevector (lib/ports.ss), R7RS's bytevector-copy! (lib/bytevectors.ss) and
+;; get-environment-variable (lib/ports.ss);
 ;; not flattened
 
 (library (host)
-  (export embedded-file execute-bytevector bytevector-copy!)
+  (export embedded-file execute-bytevector bytevector-copy! get-environment-variable)
   (import (rename (chezscheme) (bytevector-copy! chez-bytevector-copy!)))
 
 
@@ -34,4 +35,8 @@
 
   ;; The bytes [start, end) of from to to at at, in R7RS's order, not R6RS's
   (define (bytevector-copy! to at from start end)
-    (chez-bytevector-copy! from start to at (- end start))))
+    (chez-bytevector-copy! from start to at (- end start)))
+
+
+  (define (get-environment-variable name)
+    (getenv name)))

@@ -517,6 +517,17 @@
      (else
       (char-next (raw+ i (raw 1)) (raw+ j (store-utf8! (raw+ path-buffer j) (string-code s i))))))))
 
+;; The value of the environment variable name, a fresh string, or #f if unset (R7RS); getenv
+;; is called again after the allocation, its address being raw
+(define (get-environment-variable name)
+  (declare unsafe public)
+  (check-string name get-environment-variable)
+  (if (or (raw= (file-name name) (raw 0)) (raw= (getenv path-buffer) (raw 0)))
+      #f
+      (let ((bv (alloc-bytevector (make-fixnum (c-string-length (getenv path-buffer))))))
+        (copy-bytes! (byte-address bv (raw 0)) (getenv path-buffer) (bytevector-nbytes bv))
+        (utf8->string bv))))
+
 ;; The text of the errno
 (define (errno-message errno)
   (case errno

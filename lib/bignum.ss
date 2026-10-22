@@ -70,7 +70,7 @@
 ;; -1, 0 or 1 as x is below, equal to or above y, normalized integers; else 2; a bignum is
 ;; beyond every fixnum, so its sign decides against one
 (define (compare-integers x y)
-  (declare unsafe noalloc (result raw))
+  (declare unsafe noalloc pure (result raw))
   (cond
    ((not (and (integer? x) (integer? y))) (raw 2))
    ((and (fixnum? x) (fixnum? y))

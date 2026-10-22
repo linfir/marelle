@@ -2,6 +2,7 @@
 
 (library (defs)
   (export make-def def? def-name def-symbol def-params def-result def-inline? def-public? def-noalloc?
+          def-pure?
           def-procedure? def-unsafe? def-captures def-anonymous? def-extern? def-body def-env def-env-set!
           def-core def-core-set! def-core-names def-core-body
           make-data data? data-name data-symbol data-nwords data-extern?
@@ -40,6 +41,8 @@
   ;; symbol     the mangled name, prefix of the def's symbols
   ;; params     (name . kind) pairs
   ;; result     kind
+  ;; pure?      a noalloc def whose result depends only on its arguments, and which writes
+  ;;            nothing
   ;; procedure? lifted like a lambda: Scheme semantics for its parameters (boxes)
   ;; captures   number of captures, 0 for a static procedure
   ;; anonymous? the procedure object has no name
@@ -47,7 +50,7 @@
   ;; env        the env of the body, set once every name is bound
   ;; core       (names . body): the parameters' names and the body after the front pass
   (define-record-type def
-    (fields name symbol params result inline? public? noalloc? procedure? unsafe? captures
+    (fields name symbol params result inline? public? noalloc? pure? procedure? unsafe? captures
             anonymous? extern? body (mutable env) (mutable core)))
 
 

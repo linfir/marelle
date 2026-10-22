@@ -25,6 +25,7 @@
           (output)
           (compile)
           (cps)
+          (opt)
           (lower))
 
 
@@ -45,39 +46,37 @@
   ;; env, of which it sees the static procedures; its body binds its captures. main first calls
   ;; the startup defs.
   (define (compile-procedure def env)
-    (let* ((args (def-core-names def))
-           (outer (disable-loops (filter (lambda (b) (not (local-binding? (cdr b)))) env) 'lambda))
-           (env (append (map (lambda (x i) (cons x (make-local-binding `(arg ,(+ i 1)))))
-                             args (iota (length args)))
-                        outer)))
+    (let ((args (def-core-names def))
+          (outer (disable-loops (filter (lambda (b) (not (local-binding? (cdr b)))) env) 'lambda)))
       (convert-function
-       def
-       (lambda ()
-         (let loop ((defs (if (string=? (def-symbol def) "main") (startup-defs) '())))
-           (if (pair? defs)
-               (call-def (car defs) '() 'main (lambda (ignored) (loop (cdr defs))))
-               (cps-seq env (def-core-body def) (lambda (env x) (cps-tail env def x)))))))))
+       def (map (lambda (x) (cons x 'val)) args) #t
+       (lambda (params)
+         (let ((env (append (map (lambda (x p) (cons x (make-local-binding p))) args params)
+                            outer)))
+           (let loop ((defs (if (string=? (def-symbol def) "main") (startup-defs) '())))
+             (if (pair? defs)
+                 (call-def (car defs) '() 'main (lambda (ignored) (loop (cdr defs))))
+                 (cps-seq env (def-core-body def) (lambda (env x) (cps-tail env def x))))))))))
 
 
   ;; A def with typed parameters
   (define (compile-low-def def)
-    (let ((env (map (lambda (name k i)
-                      (let ((arg `(arg ,(+ i 1))))
-                        (cons name (make-local-binding (if (eq? k 'raw) `(as-raw ,arg) arg)))))
-                    (def-core-names def) (def-params-kinds def) (iota (length (def-params def))))))
-      (convert-function
-       def
-       (lambda ()
+    (convert-function
+     def (map cons (def-core-names def) (def-params-kinds def)) #t
+     (lambda (params)
+       (let ((env (map (lambda (name p) (cons name (make-local-binding p)))
+                       (def-core-names def) params)))
          (cps-seq env (def-core-body def) (lambda (env x) (cps-tail env def x)))))))
 
 
   ;; The function of def, which fills the literal cells of the compilation at startup, in order:
   ;; a string's with literal-string of its UTF-8 bytes, a static string, a symbol's with
   ;; string->symbol of its name's cell, filled before, a pair's or vector's with a new one
+  ;; Not optimized: its literals' loads read the cells it fills
   (define (compile-literal-init def)
     (convert-function
-     def
-     (lambda ()
+     def '() #f
+     (lambda (params)
        (parameterize ((unsafe-code? #t))
          (let loop ((literals (reverse (current-literals))))
            (if (null? literals)
@@ -157,8 +156,10 @@
     (for-all (lambda (c) (< (char->integer c) 128)) (string->list s)))
 
 
-  ;; The function of def, its body the term (make-term), converted, checked and lowered
-  (define (convert-function def make-term)
+  ;; The function of def, its parameters params, (name . kind) pairs, its body the term
+  ;; (make-term vars) of the parameters' variables, converted, checked, optimized when optimize?,
+  ;; and lowered
+  (define (convert-function def params optimize? make-term)
     (emit-function!
      def
      (lambda ()
@@ -167,11 +168,13 @@
                       (kinds (make-eq-hashtable))
                       (name-counter (make-counter 1))
                       (return-k (gensym "return")))
-         (let* ((fun `(fun ,(def-code def) (,(return-k)) ,(make-term)))
+         (let* ((vars (map-in-order (lambda (p) (fresh-named (car p) (cdr p))) params))
+                (fun `(fun ,(def-code def) (,(return-k) ,@(map param vars)) ,(make-term vars)))
                 (fun (begin
                        (dumped 'cps (list-head fun 3) (cdddr fun))
                        (check-cps fun)
-                       `(,@(list-head fun 3) ,(expand-frames (cadddr fun))))))
+                       (if optimize? (optimize fun) fun)))
+                (fun `(,@(list-head fun 3) ,(expand-frames (cadddr fun)))))
            (dumped 'frames (list-head fun 3) (cdddr fun))
            (check-cps fun)
            (lower-function! def fun))))))
@@ -192,7 +195,12 @@
 
 
   (define (fresh kind)
-    (let ((x (new-name "t")))
+    (fresh-named 't kind))
+
+
+  ;; A variable named after the symbol name
+  (define (fresh-named name kind)
+    (let ((x (new-name (symbol->string name))))
       (hashtable-set! (kinds) x kind)
       x))
 
@@ -499,7 +507,7 @@
         (cps-inline def as form (lambda (env def x) (cps-result env def x c)))))
      ;; A call on the machine stack, so not a safepoint
      ((def-noalloc? def)
-      (letprim `(stackcall ,(def-result def) ,(def-code def) ,@as) (def-result def) c))
+      (letprim `(stackcall ,(def-result def) ,def ,@as) (def-result def) c))
      ((def-rest? def)
       (compile-error 'call-def "def with a rest parameter called with its parameters" (def-name def)))
      (else
@@ -927,7 +935,7 @@
     (let-values (((capture-names args body) (parse-closure form)))
       (let ((def (make-def (or name 'lambda) (mangle (fresh-name (or name 'lambda)))
                            (formals->params args) 'val
-                           #f #f #f #t (unsafe-code?) (length captures) (not name) #f body
+                           #f #f #f #f #t (unsafe-code?) (length captures) (not name) #f body
                            #f (cons (formals-names args) body))))
         (for-each (lambda (c)
                     (when (eq? (atom-kind (local-binding-operand (cdr c))) 'raw)

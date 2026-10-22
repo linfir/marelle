@@ -8,7 +8,7 @@ import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from run import PipelineFailure, lib_missing, run_chez, run_pipeline, use_as, use_chez_host
+from run import PipelineFailure, compile_source, lib_missing, run_chez, run_pipeline, use_as, use_chez_host
 
 
 ROOT = Path(__file__).resolve().parent
@@ -16,7 +16,8 @@ TEST_ROOT = ROOT / "tests"
 STAGES = {"compiler", "as", "ld", "executable", "result"}
 OUTPUT_FIELDS = {"stdout", "stderr", "stdout_contains", "stderr_contains"}
 INPUT_FIELDS = {"stdin"}
-EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", "embed", *OUTPUT_FIELDS, *INPUT_FIELDS}
+DUMP_FIELDS = {"dump", "cps_lacks"}
+EXPECTATION_FIELDS = {"stage", "exit", "chez", "gc_stress", "env", "embed", *OUTPUT_FIELDS, *INPUT_FIELDS, *DUMP_FIELDS}
 SKIP = "skip"
 
 
@@ -56,9 +57,12 @@ def read_case(path):
         if expected.get(field, SKIP) != SKIP:
             raise TestFormatError(f'{field} must be "skip"')
 
-    for field in OUTPUT_FIELDS | INPUT_FIELDS:
+    for field in OUTPUT_FIELDS | INPUT_FIELDS | DUMP_FIELDS:
         if field in expected and not isinstance(expected[field], str):
             raise TestFormatError(f"{field} must be a string")
+
+    if ("dump" in expected) != ("cps_lacks" in expected):
+        raise TestFormatError("dump and cps_lacks go together")
 
     return source, expected
 
@@ -142,6 +146,18 @@ def check_case(path, chez=False, gc_stress=None):
                 f"{stream} does not contain expected substring",
                 f"expected: {describe_stream(expected[contains])}",
                 f"actual:   {describe_stream(actual)}",
+            ]
+
+    # The dump of a pass must not contain cps_lacks
+    if "dump" in expected and not chez:
+        try:
+            dump = compile_source(source, "--pass", expected["dump"])
+        except PipelineFailure as error:
+            return "compiler", [f"--pass {expected['dump']} failed", f"stderr: {describe_stream(error.result.stderr)}"]
+        if expected["cps_lacks"] in dump:
+            return "compiler", [
+                f"--pass {expected['dump']} contains {expected['cps_lacks']!r}",
+                f"dump: {describe_stream(dump)}",
             ]
 
     return None

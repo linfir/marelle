@@ -68,10 +68,13 @@
                             (map cons (library-def-args x) (library-def-kinds x))
                             (library-def-result x)
                             (and (memq ':inline attrs) #t) (and (memq ':public attrs) #t)
-                            (and (memq ':noalloc attrs) #t) (library-def-procedure? x)
+                            (and (memq ':noalloc attrs) #t) (and (memq ':pure attrs) #t)
+                            (library-def-procedure? x)
                             (library-def-unsafe? x) 0 #f #f (library-def-body x) #f #f)))
         (when (and (def-noalloc? def) (or (def-inline? def) (def-public? def)))
           (compile-error 'scanned-item ":noalloc with another attribute" name))
+        (when (and (def-pure? def) (not (def-noalloc? def)))
+          (compile-error 'scanned-item ":pure without :noalloc" name))
         ;; An emitted def is called with the Scheme convention
         (unless (or (not (def-emitted? def))
                     (def-noalloc? def)
@@ -199,7 +202,7 @@
 
   ;; The def of the function filling a unit's literal cells, called by main
   (define (literal-init-def symbol extern?)
-    (make-def 'literal-init symbol '() 'val #f #f #f #f #t 0 #t extern? '() #f #f))
+    (make-def 'literal-init symbol '() 'val #f #f #f #f #f #t 0 #t extern? '() #f #f))
 
 
   (define (data-entries items)
@@ -262,7 +265,8 @@
                        `(def ,(def-name x) ,(def-symbol x) ,(def-params x) ,(def-result x)
                              (,@(if (def-inline? x) '(inline) '())
                               ,@(if (def-public? x) '(public) '())
-                              ,@(if (def-noalloc? x) '(noalloc) '()))
+                              ,@(if (def-noalloc? x) '(noalloc) '())
+                              ,@(if (def-pure? x) '(pure) '()))
                              ,(def-unsafe? x) ,(def-procedure? x)
                              ,@(if (def-inline? x) (def-body x) '())))))
                    items)))))))
@@ -277,7 +281,7 @@
        (apply (lambda (name symbol params result attrs unsafe? procedure? . body)
                 (make-def name symbol params result (and (memq 'inline attrs) #t)
                           (and (memq 'public attrs) #t) (and (memq 'noalloc attrs) #t)
-                          procedure? unsafe? 0 #f #t body #f #f))
+                          (and (memq 'pure attrs) #t) procedure? unsafe? 0 #f #t body #f #f))
               (cdr x)))))
 
 
@@ -392,7 +396,7 @@
                                                    (static-form? (car (last-pair all))))))))
                (parameterize ((startup-defs (list library-init init)))
                  (compile-procedure
-                  (make-def 'main "main" '() 'val #f #f #f #t #f 0 #f #f body env
+                  (make-def 'main "main" '() 'val #f #f #f #f #t #f 0 #f #f body env
                             (make-main-core env body))
                   '())))
              (compile-literal-init init)

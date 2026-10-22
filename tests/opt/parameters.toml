@@ -1,0 +1,4 @@
+# The parameters are variables of the CPS fun, not argument slots
+stdout = "(3 3)"
+dump = "cps"
+cps_lacks = "(arg "
