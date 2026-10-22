@@ -194,33 +194,17 @@
             (map cddr (reverse (current-numbers)))))
 
 
-  ;; The cells of the literals, 0 until the init function fills them, and their count when
-  ;; count-symbol is not #f
-  (define (literal-entries symbol count-symbol)
-    (let ((n (length (current-literals))))
-      (cons `(data ,symbol ,n 0)
-            (if count-symbol (list `(rodata ,count-symbol (quad ,n))) '()))))
-
-
-  ;; The def of the function filling a unit's literal cells, called by main
-  (define (literal-init-def symbol extern?)
-    (make-def 'literal-init symbol '() 'val #f #f #f #f #f #t 0 #t extern? '() #f #f))
-
-
   (define (data-entries items)
     (map (lambda (d) `(data ,(data-symbol d) ,(data-nwords d) 0))
          (filter (lambda (x) (and (data? x) (not (data-extern? x)))) items)))
 
 
-  (define (new-compilation first-name literals thunk)
+  (define (new-compilation first-name thunk)
     (parameterize ((names (make-counter first-name))
                    (symbols (make-hashtable string-hash string=?))
                    (current-strings '())
                    (current-numbers '())
-                   (current-literals '())
                    (static-data (new-static-data))
-                   (loaded-literals (make-eqv-hashtable))
-                   (literals-symbol literals)
                    (startup-defs '())
                    (current-entries '())
                    (inlining '())
@@ -237,26 +221,20 @@
   ;; ones with their body, and each data
   (define (compile-scheme-library forms)
     (new-compilation
-     0 "scheme_library_literals"
+     0
      (lambda ()
-       (let ((items (map-in-order scanned-item (scan-library forms)))
-             (init (literal-init-def "scheme_library_init" #f)))
-         (add-def-symbols! init)
+       (let ((items (map-in-order scanned-item (scan-library forms))))
          (set-pure-defs! items)
          (core-defs (map (lambda (x) (cons (item-name x) x)) (filter def? items)))
          (let-values (((safe unsafe) (item-bindings items)))
            (set-envs! items safe (append safe unsafe unsafe-bindings)))
          (let ((funs (compile-unit (lambda () (compile-defs! items)))))
-           (compile-literal-init init)
            (values
             (let ((entries (append (static-data-entries "scheme_library_static_symbols")
                                    (reverse (current-entries)))))
               `((export ,@(apply append (map entry-symbols entries))
-                        ,@(map data-symbol (filter data? items))
-                        ;; For the literals of the funs a program inlines
-                        "scheme_library_literals")
+                        ,@(map data-symbol (filter data? items)))
                 ,@(data-entries items)
-                ,@(literal-entries "scheme_library_literals" "scheme_library_nliterals")
                 ,@(constant-entries)
                 ,@entries
                 (stubs)))
@@ -410,19 +388,15 @@
     (when (null? (splice-begins program))
       (compile-error 'compile-scheme-program "empty program"))
     (new-compilation
-     (cadr (assq 'names interface)) "scheme_literals"
+     (cadr (assq 'names interface))
      (lambda ()
        (let ((library (map interface-item
-                           (filter (lambda (x) (memq (car x) '(def data constant))) interface)))
-             (library-init (literal-init-def "scheme_library_init" #t))
-             (init (literal-init-def "scheme_init" #f)))
+                           (filter (lambda (x) (memq (car x) '(def data constant))) interface))))
          (add-symbol! "main_proc" 'main)
          (for-each (lambda (x)
                      (when (eq? (car x) 'static-symbol)
                        (add-library-symbol! (cadr x) (caddr x))))
                    interface)
-         (add-def-symbols! library-init)
-         (add-def-symbols! init)
          (set-pure-defs! library)
          (core-defs (map (lambda (x) (cons (def-name x) x)) (filter def? library)))
          (for-each (lambda (x)
@@ -460,24 +434,21 @@
                     (set! statics (static-entries datums))
                     (let ((body (main-body forms (not (or (define-form? (car (last-pair all)))
                                                           (static-form? (car (last-pair all))))))))
-                      (parameterize ((startup-defs (list (core-def 'intern-static-symbols!)
-                                                         library-init init)))
+                      (parameterize ((startup-defs (list (core-def 'intern-static-symbols!))))
                         (compile-procedure
                          (make-def 'main "main" '() 'val #f #f #f #f #t #f 0 #f #f body env
                                    (make-main-core env body))
                          '()))))))
-               (compile-literal-init init)
                ;; Before constant-entries, since it interns the names
                (let ((files (embedded-entries embedded)))
                  `((export "scheme_program")
                    (words "scheme_program" "scheme_main" "scheme_globals" ,(hashtable-size (top-globals))
-                          "scheme_literals" ,(length (current-literals)) "scheme_embedded"
-                          ,(if display? 1 0) "scheme_static_symbols" "scheme_embedded_data")
+                          "scheme_embedded" ,(if display? 1 0) "scheme_static_symbols"
+                          "scheme_embedded_data")
                    ,@files
                    ,statics
                    ,@(global-entries (hashtable-size (top-globals)))
                    ,@(data-entries items)
-                   ,@(literal-entries "scheme_literals" #f)
                    ,@(static-data-entries "scheme_static_symbols")
                    ,@(constant-entries)
                    ,@(reverse (current-entries))))))))))))

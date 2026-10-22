@@ -153,12 +153,9 @@
          (to (if grow? (map-words target) (load spare-mem (raw 0)))))
     (store gc-free (raw 0) to)
     (forward-words roots nroots)
-    ;; scheme_program: main, the globals and their count, the literals and their count, the
-    ;; embedded files, the display flag
+    ;; scheme_program: main, the globals and their count, the embedded files, the display flag,
+    ;; the static symbols and datums; literals are static
     (forward-words (load (address "scheme_program") (raw 1)) (load (address "scheme_program") (raw 2)))
-    (forward-words (load (address "scheme_program") (raw 3)) (load (address "scheme_program") (raw 4)))
-    (forward-words (address "scheme_library_literals")
-                   (load (address "scheme_library_nliterals") (raw 0)))
     (forward-words symbol-table (raw 1))
     (forward-words current-ports (raw 3))
     (forward-words output-ports (raw 1))

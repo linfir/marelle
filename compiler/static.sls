@@ -1,7 +1,8 @@
 ;; A compilation's static objects: immutable data laid out at compile time, outside the heap,
 ;; which the collector never scans. Each object has its entry and its label, referenced as the
-;; label, or plus 7 for an immutable pair (a list's pairs in one entry); strings and symbols are
-;; shared, and a symbol the library has is the library's, so symbols stay unique.
+;; label, or plus 7 for an immutable pair (a list's pairs in one entry). Equal objects are
+;; shared, one per compilation, as R7RS literals (the reader compares its marker vectors with
+;; eq?); a symbol the library has is the library's, so symbols stay unique.
 
 (library (static)
   (export static-data new-static-data place-static! static-data-entries static-symbol-entries
@@ -14,9 +15,10 @@
 
 
   ;; entries: the entries, last first; strings: string to reference; symbols: symbol to
-  ;; reference, the library's too; own: this unit's symbols, (symbol . reference), last first
+  ;; reference, the library's too; data: pair, vector or bytevector to reference; own: this
+  ;; unit's symbols, (symbol . reference), last first
   (define-record-type state
-    (fields (mutable entries) strings symbols (mutable own)))
+    (fields (mutable entries) strings symbols data (mutable own)))
 
 
   ;; The compilation's state, else #f
@@ -24,7 +26,8 @@
 
 
   (define (new-static-data)
-    (make-state '() (make-hashtable string-hash string=?) (make-eq-hashtable) '()))
+    (make-state '() (make-hashtable string-hash string=?) (make-eq-hashtable)
+                (make-hashtable equal-hash equal?) '()))
 
 
   ;; The library's static symbol name, at the reference label, for a program
@@ -35,12 +38,18 @@
   ;; The reference to the static object equal to x, or its immediate's word
   (define (place-static! x)
     (cond
-     ((pair? x) (place-list x))
+     ((or (pair? x) (vector? x) (bytevector? x))
+      (let ((data (state-data (static-data))))
+        (or (hashtable-ref data x #f)
+            (let ((r (cond
+                      ((pair? x) (place-list x))
+                      ((vector? x) (place-vector x))
+                      (else (place-bytevector x)))))
+              (hashtable-set! data x r)
+              r))))
      ((null? x) (immediate-value ''()))
      ((string? x) (place-string x))
      ((symbol? x) (place-symbol x))
-     ((vector? x) (place-vector x))
-     ((bytevector? x) (place-bytevector x))
      ((and (exact-rational? x) (not (fixnum-value? x))) (intern-number! x))
      ((or (fixnum-value? x) (boolean? x) (char? x)) (immediate-value x))
      (else (compile-error 'place-static! "unsupported static datum" x))))
@@ -126,7 +135,7 @@
 
 
   (define (place-vector v)
-    (let* ((elements (map place-static! (vector->list v)))
+    (let* ((elements (map-in-order place-static! (vector->list v)))
            (label (new-label)))
       (add-entry! `(rodata ,label (quad ,immutable-vector-type) (quad ,(vector-length v))
                            ,@(map (lambda (w) `(quad ,w)) elements)))

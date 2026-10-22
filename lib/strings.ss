@@ -266,15 +266,6 @@
   (declare unsafe inline (result void))
   (store (as-raw s) (raw 0) (bit-or (load (as-raw s) (raw 0)) (raw 512))))
 
-;; A string literal of nchars chars, from its nbytes UTF-8 bytes at the fixnum address bytes
-;; (compile-literal-init), immutable; out of line, since each literal of a compilation calls it
-(define (literal-string bytes nbytes nchars)
-  (declare unsafe)
-  (let ((s (make-text nchars nbytes)))
-    (copy-bytes! (string-units (as-raw s)) (fixnum-value bytes) (fixnum-value nbytes))
-    (freeze! s)
-    s))
-
 ;; The string body s if it is immutable, else an immutable copy, ASCII or UTF-8 (symbol names)
 (define (immutable-string s)
   (declare unsafe)

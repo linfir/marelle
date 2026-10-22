@@ -143,14 +143,6 @@
     (store p (raw 1) d)
     (as-val (bit-or p (raw 3)))))
 
-;; A pair of a literal (build-datum)
-(define (immutable-cons a d)
-  (declare unsafe inline)
-  (let ((p (alloc (raw 2))))
-    (store p (raw 0) a)
-    (store p (raw 1) d)
-    (as-val (bit-or p (raw 7)))))
-
 (define (check-mutable-pair p who)
   (declare unsafe inline (result void))
   (unless (tag=? p (raw 3))

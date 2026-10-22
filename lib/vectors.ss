@@ -62,12 +62,6 @@
     (fill-words (raw+ p (raw 16)) (fixnum-value k) (as-raw fill))
     (as-val p)))
 
-;; The literal vector or bytevector x, made immutable once filled (build-datum)
-(define (freeze-literal! x)
-  (declare unsafe noalloc)
-  (store (as-raw x) (raw 0) (bit-or (load (as-raw x) (raw 0)) (if (vector? x) (raw 512) (raw 16))))
-  x)
-
 (define (vector-fill! v x)
   (declare unsafe public)
   (check-mutable-vector v vector-fill!)

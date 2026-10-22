@@ -246,8 +246,6 @@
        (let ((a (atom->operand (cadr op))))
          (bind! x (if (zero? (raws-in a)) `(as-val ,a) (emit-op! 'mov 'val (list a))))))
       (else
-       (when (and (eq? (car op) 'load-const) (equal? (cadr op) (literals-symbol)))
-         (literal-loaded! (cadr (caddr op))))
        (let ((o (low-op (car op)))
              (ops (map atom->operand (cdr op))))
          (if (eq? (op-result o) 'void)

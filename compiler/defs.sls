@@ -9,10 +9,9 @@
           def-emitted? def-proc def-code def-params-kinds def-rest? def-required
           procedure-type symbol-type immutable-bytevector-type immutable-vector-type immutable-ascii-string-type
           immutable-utf8-string-type unsafe-bindings
-          names symbols current-strings current-numbers current-literals literals-symbol startup-defs current-entries
-          loaded-literals literal-loaded! needed-literals
+          names symbols current-strings current-numbers startup-defs current-entries
           core-defs inlining unsafe-code? general-def
-          fresh-name add-symbol! add-def-symbols! intern-string! intern-number! intern-literal! add-entries! core-def)
+          fresh-name add-symbol! add-def-symbols! intern-string! intern-number! add-entries! core-def)
   (import (chezscheme)
           (utils)
           (vars)
@@ -90,18 +89,13 @@
 
   ;; Per compilation: the fresh name counter, the symbols (symbol => name), the interned strings
   ;; ((string . name), newest first), the static numbers ((n name . entry), newest first), the
-  ;; string and symbol literals ((datum . cell index), newest first)
-  ;; and the data of their cells, the defs main calls first, the entries of the compiled functions
+  ;; defs main calls first, the entries of the compiled functions
   ;; (newest first), the library defs the compiler calls (name => def), and the inline defs being
   ;; expanded
   (define names (make-parameter #f))
   (define symbols (make-parameter #f))
   (define current-strings (make-parameter '()))
   (define current-numbers (make-parameter '()))
-  (define current-literals (make-parameter '()))
-  (define literals-symbol (make-parameter #f))
-  ;; The indices of the literal cells the lowered code loads, an eqv hashtable
-  (define loaded-literals (make-parameter #f))
   (define startup-defs (make-parameter '()))
   (define current-entries (make-parameter '()))
   (define core-defs (make-parameter '()))
@@ -116,9 +110,9 @@
 
   ;; Symbols the IR and the stubs define
   (define reserved-symbols
-    '("scheme_program" "scheme_main" "scheme_globals" "scheme_literals" "scheme_embedded"
+    '("scheme_program" "scheme_main" "scheme_globals" "scheme_embedded"
       "scheme_embedded_data" "scheme_static_symbols" "scheme_library_static_symbols"
-      "scheme_library_literals" "scheme_library_nliterals" "_start" "alloc_frame" "alloc_object"))
+      "_start" "alloc_frame" "alloc_object"))
 
 
   ;; Mangling is not injective, so two names giving the same symbol are an error;
@@ -173,49 +167,6 @@
              (name (format "num~a" (+ 1 (length (current-numbers))))))
         (current-numbers (cons (cons* n name `(rodata ,name ,@entry)) (current-numbers)))
         name))))
-
-
-  ;; The index of the literal cell of the Scheme string, symbol, pair, vector or bytevector x; the strings
-  ;; and symbols it contains, a symbol its name, get their cells first, so they are filled first
-  (define (intern-literal! x)
-    (cond
-     ((assoc x (current-literals)) => cdr)
-     (else
-      (let walk ((y (if (symbol? x) (symbol->string x) x)))
-        (cond
-         ((pair? y) (walk (car y)) (walk (cdr y)))
-         ((vector? y) (vector-for-each walk y))
-         ((and (or (string? y) (symbol? y)) (not (eq? y x))) (intern-literal! y))))
-      (let ((i (length (current-literals))))
-        (current-literals (acons x i (current-literals)))
-        i))))
-
-
-  (define (literal-loaded! i)
-    (hashtable-set! (loaded-literals) i #t))
-
-
-  ;; The literals (x . i) the init function fills, in order: those the lowered code loads, and
-  ;; the strings and symbols they are built from; a literal of code the optimizations removed
-  ;; has a cell, but nothing builds it
-  (define (needed-literals)
-    (let ((needed (make-eqv-hashtable)))
-      (define (need! x)
-        (let ((i (cdr (assoc x (current-literals)))))
-          (unless (hashtable-ref needed i #f)
-            (hashtable-set! needed i #t)
-            (let walk ((y (if (symbol? x) (symbol->string x) x)))
-              (cond
-               ((pair? y) (walk (car y)) (walk (cdr y)))
-               ((vector? y) (vector-for-each walk y))
-               ((and (or (string? y) (symbol? y)) (not (eq? y x))) (need! y)))))))
-
-      (for-each (lambda (l)
-                  (when (hashtable-ref (loaded-literals) (cdr l) #f)
-                    (need! (car l))))
-                (current-literals))
-      (filter (lambda (l) (hashtable-ref needed (cdr l) #f))
-              (reverse (current-literals)))))
 
 
   (define (add-entries! entries)

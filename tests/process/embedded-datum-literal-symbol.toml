@@ -1,0 +1,5 @@
+stdout = "(#t #t #t)"
+chez = "skip"
+
+[embed_datum]
+d = '''(foo pair)'''

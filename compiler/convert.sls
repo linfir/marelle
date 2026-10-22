@@ -14,7 +14,7 @@
 ;; computed, as the block IR wants them; inline defs are expanded.
 
 (library (convert)
-  (export compile-procedure compile-low-def compile-literal-init compile-unit)
+  (export compile-procedure compile-low-def compile-unit)
   (import (chezscheme)
           (utils)
           (parse)
@@ -26,7 +26,8 @@
           (compile)
           (cps)
           (opt)
-          (lower))
+          (lower)
+          (static))
 
 
   ;; Per function: its def, for self tail calls, the kinds of its variables, its return
@@ -67,89 +68,6 @@
        (let ((env (map (lambda (name p) (cons name (make-local-binding p)))
                        (def-core-names def) params)))
          (cps-seq env (def-core-body def) (lambda (env x) (cps-tail env def x)))))))
-
-
-  ;; The function of def, which fills at startup the literal cells the code loads, with those
-  ;; they are built from (needed-literals), in order: a string's with literal-string of its UTF-8
-  ;; bytes, a static string, a symbol's with string->symbol of its name's cell, filled before, a
-  ;; pair's or vector's with a new one.
-  ;; Not optimized: its literals' loads read the cells it fills.
-  (define (compile-literal-init def)
-    (convert-function
-     def '() #f
-     (lambda (params)
-       (parameterize ((unsafe-code? #t))
-         (let loop ((literals (needed-literals)))
-           (if (null? literals)
-               (cps-tail '() def undef)
-               (let* ((x (caar literals))
-                      (store (lambda (a)
-                               `(letprim #f (store ,(literals-symbol) (quad ,(cdar literals)) ,a)
-                                         ,(loop (cdr literals))))))
-                 (cond
-                  ((symbol? x)
-                   (letprim (literal-op (symbol->string x)) 'val
-                            (lambda (name)
-                              (call-def (core-def 'string->symbol) (list name) x store))))
-                  ((string? x)
-                   (call-def (core-def 'make-fixnum) (list (intern-string! x)) x
-                             (lambda (bytes)
-                               (call-def (core-def 'literal-string)
-                                         (list bytes
-                                               (immediate-operand (bytevector-length (string->utf8 x)))
-                                               (immediate-operand (string-length x)))
-                                         x store))))
-                  (else
-                   (build-datum x store))))))))))
-
-
-  ;; A new pair, vector or bytevector equal to x, its strings and symbols from their cells; a list is
-  ;; consed from its end, a vector or bytevector made immutable once filled
-  (define (build-datum x c)
-    (cond
-     ((pair? x)
-      (let loop ((y x) (elements '()))
-        (if (pair? y)
-            (loop (cdr y) (cons (car y) elements))
-            (build-datum y (lambda (tail) (cons-all x elements tail c))))))
-     ((vector? x)
-      (call-def (core-def 'make-vector)
-                (list (immediate-operand (vector-length x)) (immediate-operand 0))
-                x
-                (lambda (v)
-                  (let loop ((i 0))
-                    (if (= i (vector-length x))
-                        (call-def (core-def 'freeze-literal!) (list v) x c)
-                        (build-datum (vector-ref x i)
-                                     (lambda (a)
-                                       (call-def (core-def 'vector-set!)
-                                                 (list v (immediate-operand i) a) x
-                                                 (lambda (ignored) (loop (+ i 1)))))))))))
-     ((bytevector? x)
-      (call-def (core-def 'make-bytevector)
-                (list (immediate-operand (bytevector-length x)) (immediate-operand 0))
-                x
-                (lambda (bv)
-                  (let loop ((i 0))
-                    (if (= i (bytevector-length x))
-                        (call-def (core-def 'freeze-literal!) (list bv) x c)
-                        (call-def (core-def 'bytevector-u8-set!)
-                                  (list bv (immediate-operand i) (immediate-operand (bytevector-u8-ref x i))) x
-                                  (lambda (ignored) (loop (+ i 1)))))))))
-     ((null? x) (c (immediate-operand ''())))
-     ((immediate? x) (c (immediate-operand x)))
-     ((exact-rational? x) (c `(as-val ,(intern-number! x))))
-     (else (letprim (literal-op x) 'val c))))
-
-
-  ;; The conses of the reversed elements onto tail
-  (define (cons-all x elements tail c)
-    (if (null? elements)
-        (c tail)
-        (build-datum (car elements)
-                     (lambda (a)
-                       (call-def (core-def 'immutable-cons) (list a tail) x
-                                 (lambda (p) (cons-all x (cdr elements) p c)))))))
 
 
   ;; During compile-unit, the functions of the compilation converted but not lowered yet: the
@@ -263,9 +181,16 @@
               `(letprim ,x ,op ,body)))))
 
 
-  ;; The load of the literal cell of x, a datum
-  (define (literal-op x)
-    `(load-const ,(literals-symbol) (quad ,(intern-literal! x))))
+  ;; The literal x, a datum, a static object (static.sls), given to c: its label as a val, or
+  ;; plus 7 for a pair
+  (define (literal-atom x c)
+    (let ((r (place-static! x)))
+      (cond
+       ((string? r) (c `(as-val ,r)))
+       ((number? r) (c `(as-val (quad ,r))))
+       (else
+        (letprim `(raw+ ,(cadr r) (quad ,(caddr r))) 'raw
+                 (lambda (t) (letprim `(as-val ,t) 'val c)))))))
 
 
   ;; The end of a computation that does not return: c only for its errors
@@ -356,10 +281,10 @@
      ((string? x)
       (if (unsafe-code?)
           (c (intern-string! x))
-          (letprim (literal-op x) 'val c)))
+          (literal-atom x c)))
 
      ((literal? x)
-      (letprim (literal-op (literal-datum x)) 'val c))
+      (literal-atom (literal-datum x) c))
 
      ((symbol? x)
       (cps-variable env x c))
@@ -390,7 +315,7 @@
        ((local-binding? b)
         (let ((a (local-binding-operand b)))
           (if (deferred-literal? a)
-              (letprim (literal-op (cadr a)) 'val c)
+              (literal-atom (cadr a) c)
               (c a))))
        ;; A static procedure of a fix
        ((def-binding? b)

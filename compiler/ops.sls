@@ -61,10 +61,6 @@
           (make-op 'syscall '(literal raw ...) 'raw 'writes 'syscall)
           ;; (load address i): the word at word index i of address
           (make-op 'load '(raw raw) 'raw 'reads 'load)
-          ;; (load-const address i): a val in a word written only before any optimized code
-          ;; runs, a literal's cell: so pure. The literal init functions, which fill the cells
-          ;; and read some they filled, are not optimized.
-          (make-op 'load-const '(raw raw) 'val 'pure 'load)
           ;; (store address i x)
           (make-op 'store '(raw raw any) 'void 'writes 'store)
           ;; At byte index i, zero-extended

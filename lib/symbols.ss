@@ -147,13 +147,13 @@
         (insert-symbol! table i (make-symbol (immutable-string s))))))
 
 ;; The static symbols, the library's (scheme_library_static_symbols) then the program's
-;; (scheme_program's word 7), each table their count, then their addresses, with their hashes,
+;; (scheme_program's word 5), each table their count, then their addresses, with their hashes,
 ;; entered in the table before any other symbol is made, so string->symbol finds them; the
 ;; program's first startup call
 (define (intern-static-symbols!)
   (declare unsafe)
   (intern-symbols! (as-val (address "scheme_library_static_symbols")))
-  (intern-symbols! (as-val (load (address "scheme_program") (raw 7)))))
+  (intern-symbols! (as-val (load (address "scheme_program") (raw 5)))))
 
 ;; symbols, a static table, outside the heap
 (define (intern-symbols! symbols)

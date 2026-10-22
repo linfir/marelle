@@ -2,8 +2,7 @@
 ;; is that one's variable, and an if whose test is decided by the tests dominating it goes to its
 ;; branch. One walk down the term, scope being dominance: each letcont is moved down to the
 ;; innermost term enclosing all its uses, so the letprims dominating its body enclose it.
-;; - a pure op is shared while in scope, but a load-const (a literal): reloading it is cheaper
-;;   than keeping it
+;; - a pure op is shared while in scope
 ;; - a reading op only with no write, app or call between
 ;; - a raw result only with no safepoint between (the GC rule of cps-effect)
 ;; Writes and safepoints start new epochs, path by path; a continuation's body starts in the
@@ -206,7 +205,6 @@
         (let* ((effect (cps-effect op))
                (shared? (and x
                              (memq effect '(pure reads))
-                             (not (eq? (car op) 'load-const))
                              (not (hashtable-ref cells x #f))
                              (not (exists cell-atom? (op-atoms op))))))
           (cond

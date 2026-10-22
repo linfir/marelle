@@ -222,8 +222,8 @@
 
 
   ;; The datum of the fun of def for the interface, its defs as (def name), when it is
-  ;; inlinable and names only defs for which (item? def), else #f. A literal is a load-const of
-  ;; the library's cell, so a program's copy gets the library's object, eq? to it.
+  ;; inlinable and names only defs for which (item? def), else #f. A literal is the library's
+  ;; static object, so a program's copy refers to it, eq? to it.
   (define (export-fun def fun item?)
     (let ((ok? (inlinable? def fun max-inline-size)))
       (let ((x (map-defs fun (lambda (d)

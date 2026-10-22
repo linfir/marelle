@@ -181,11 +181,11 @@
         acc
         (argument-next (- k 1) (cons (argument-string k) acc)))))
 
-;; Word j of entry i, a fixnum, of the table of the embedded files (scheme_program's word 5):
+;; Word j of entry i, a fixnum, of the table of the embedded files (scheme_program's word 3):
 ;; a count, then per file the address of its name (a C string) and its static bytevector
 (define (embedded-word i (raw j))
   (declare unsafe inline (result raw))
-  (load (load (address "scheme_program") (raw 5))
+  (load (load (address "scheme_program") (raw 3))
         (raw+ (raw+ (raw* (fixnum-value i) (raw 2)) j) (raw 1))))
 
 ;; A fresh bytevector of the name of entry i (a fixnum)
@@ -201,16 +201,16 @@
   (check-string name embedded-file)
   (let next ((i 0))
     (cond
-     ((= i (make-fixnum (load (load (address "scheme_program") (raw 5)) (raw 0)))) #f)
+     ((= i (make-fixnum (load (load (address "scheme_program") (raw 3)) (raw 0)))) #f)
      ((string=? name (utf8->string (embedded-name i)))
       (as-val (embedded-word i (raw 1))))
      (else (next (+ i 1))))))
 
-;; Word j of entry i, a fixnum, of the table of the embedded datums (scheme_program's word 8): a
+;; Word j of entry i, a fixnum, of the table of the embedded datums (scheme_program's word 6): a
 ;; count, then per datum its name and itself, static and immutable
 (define (embedded-datum-word i (raw j))
   (declare unsafe inline (result raw))
-  (load (load (address "scheme_program") (raw 8))
+  (load (load (address "scheme_program") (raw 6))
         (raw+ (raw+ (raw* (fixnum-value i) (raw 2)) j) (raw 1))))
 
 ;; The datum, a list of forms, schemec --embed-datum embedded as name, or #f
@@ -219,16 +219,16 @@
   (check-string name embedded-datum)
   (let next ((i 0))
     (cond
-     ((= i (make-fixnum (load (load (address "scheme_program") (raw 8)) (raw 0)))) #f)
+     ((= i (make-fixnum (load (load (address "scheme_program") (raw 6)) (raw 0)))) #f)
      ((string=? name (as-val (embedded-datum-word i (raw 0))))
       (as-val (embedded-datum-word i (raw 1))))
      (else (next (+ i 1))))))
 
 ;; Called from _start with the value of scheme_main, which it prints when the program was
-;; compiled with --display (scheme_program's word 6)
+;; compiled with --display (scheme_program's word 4)
 (define (finish-program v)
   (declare unsafe noalloc (result never))
-  (unless (raw= (load (address "scheme_program") (raw 6)) (raw 0))
+  (unless (raw= (load (address "scheme_program") (raw 4)) (raw 0))
     (put-datum stdout (raw 1) v))
   (exit-process (raw 0)))
 
