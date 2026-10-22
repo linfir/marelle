@@ -26,7 +26,7 @@
 
 (library (cps)
   (export check-cps param-var param-kind op-atoms map-op fun-params fun-term
-          cps-kinds op-kind census use-count bound-op cps-effect rename-term)
+          cps-kinds op-kind census use-count bound-op cps-effect rename-term name-prefix)
   (import (chezscheme)
           (utils)
           (defs)
@@ -226,6 +226,16 @@
         (else t)))
 
     (walk t))
+
+
+  ;; The name x without its number, for a fresh name after it
+  (define (name-prefix x)
+    (let* ((s (symbol->string x))
+           (n (let loop ((n (string-length s)))
+                (if (and (> n 1) (char-numeric? (string-ref s (- n 1))))
+                    (loop (- n 1))
+                    n))))
+      (substring s 0 n)))
 
 
   (define (check-cps fun)

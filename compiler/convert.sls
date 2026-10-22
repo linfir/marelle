@@ -157,14 +157,15 @@
 
 
   ;; Calls thunk, which converts the functions of the compilation; then optimizes each, runs the
-  ;; passes on the whole unit (optimize-unit) and lowers each, in the order of their conversion
+  ;; passes on the whole unit (optimize-unit) and lowers each left, in the order of their
+  ;; conversion
   (define (compile-unit thunk)
     (let ((unit (vector '())))
       (parameterize ((current-unit unit))
         (thunk))
       (let* ((funs (reverse (vector-ref unit 0)))
              (optimized (map (lambda (f) (optimize (car f) (cadr f))) funs)))
-        (for-each (lambda (f fun) (finish-function (car f) fun (caddr f)))
+        (for-each (lambda (f fun) (when fun (finish-function (car f) fun (caddr f))))
                   funs
                   (optimize-unit (map car funs) optimized (map caddr funs))))))
 

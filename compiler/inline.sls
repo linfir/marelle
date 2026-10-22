@@ -159,13 +159,4 @@
       (if changed?
           `(,@(list-head fun 3) ,(walk (fun-term fun)))
           fun)))
-
-
-  ;; The name x without its number
-  (define (name-prefix x)
-    (let* ((s (symbol->string x))
-           (n (let loop ((n (string-length s)))
-                (if (and (> n 1) (char-numeric? (string-ref s (- n 1))))
-                    (loop (- n 1))
-                    n))))
-      (substring s 0 n))))
+)

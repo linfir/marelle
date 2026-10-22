@@ -1,0 +1,3 @@
+stdout = "12"
+dump = "unit"
+cps_lacks = ["(fun \"sum", "(fun \"f_"]
