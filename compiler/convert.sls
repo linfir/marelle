@@ -542,7 +542,7 @@
            (cps-operands env x (op-operands op)
                          (lambda (as)
                            (c '(never))
-                           `(call ,(return-k) frame ,(car as)))))
+                           `(call ,(return-k) frame ,(car as) #f))))
 
           ((self)
            (cps-operands env x (op-operands op) (lambda (as) (c '(self)))))
@@ -1184,12 +1184,34 @@
                                    (lambda (f)
                                      (store-ready (cadr t) (make-filling f 0 (limit callee as) as) #f
                                                   (lambda (filling)
-                                                    (walk (caddr t)
-                                                          (acons (cadr t) filling pending)))))))
+                                                    (zero-pending filling (safepoint-in? (cadr t) (caddr t))
+                                                                  (lambda ()
+                                                                    (walk (caddr t)
+                                                                          (acons (cadr t) filling pending)))))))))
                  (walk (caddr t) pending))))
           ((app)
            (expand-app t pending))
           (else t)))
+
+      ;; The argument slots of the filling f not stored yet zeroed, when a safepoint may come
+      ;; before them (safepoint?), then (k): the GC scans a pending frame's arguments, and the
+      ;; frame region is not zeroed
+      (define (zero-pending f safepoint? k)
+        (let loop ((i (filling-next f)))
+          (if (and safepoint? (< i (filling-limit f)))
+              (frame-store (filling-frame f) i '(quad 0) (lambda () (loop (+ i 1))))
+              (k))))
+
+      ;; Whether the term t, computing the arguments of the call tag, may reach a safepoint
+      (define (safepoint-in? tag t)
+        (let walk ((t t))
+          (case (car t)
+            ((letprim) (or (eq? (cps-effect (caddr t)) 'allocates) (walk (cadddr t))))
+            ((letcont letcont-rec) (or (walk (caddr (car (cadr t)))) (walk (caddr t))))
+            ((args) (walk (caddr t)))
+            ((app) (not (eq? (cadr t) tag)))
+            ((call) #t)
+            (else #f))))
 
       ;; The variables vars bound: the arguments they hold stored, then (k pending)
       (define (bound vars pending k)
@@ -1266,7 +1288,8 @@
     (call-def (core-def 'make-direct-frame) (list (def-code def) `(as-val ,(def-proc def))) '() c))
 
 
-  ;; The arguments of f not stored yet, then a rest def's extra ones as a fresh list, before (k)
+  ;; The arguments of f not stored yet, then a rest def's extra ones as a fresh list, before (k);
+  ;; its slot zeroed while the list is consed, a safepoint
   (define (fill-rest callee f k)
     (let ((frame (filling-frame f))
           (as (filling-atoms f))
@@ -1276,7 +1299,11 @@
          ((< i limit)
           (frame-store frame i (list-ref as i) (lambda () (loop (+ i 1)))))
          ((and (def? callee) (def-rest? callee))
-          (rest-list (list-tail as limit) (lambda (l) (frame-store frame limit l k))))
+          (let ((store-rest (lambda ()
+                              (rest-list (list-tail as limit) (lambda (l) (frame-store frame limit l k))))))
+            (if (null? (list-tail as limit))
+                (store-rest)
+                (frame-store frame limit '(quad 0) store-rest))))
          (else
           (k))))))
 
@@ -1305,7 +1332,7 @@
   ;; is a placeholder when its arity is not n, which apply-frame turns into its frame
   (define (call-frame callee k f n)
     (if (def? callee)
-        `(call ,k ,(def-code callee) ,f)
+        `(call ,k ,(def-code callee) ,f ,(if (def-rest? callee) (+ (def-required callee) 1) n))
         (let* ((fast (new-name "k"))
                (slow (new-name "k"))
                (test (cps-inline (core-def 'frame-fits?) (list f `(quad ,n)) '() (test-last fast slow)))
@@ -1315,11 +1342,11 @@
                                           (frame-store g 0 f
                                                        (lambda ()
                                                          (if (eq? k (return-k))
-                                                             `(call ,k ,(def-code apply-frame) ,g)
+                                                             `(call ,k ,(def-code apply-frame) ,g 1)
                                                              (let* ((k2 (new-name "k"))
                                                                     (r (fresh 'val)))
                                                                `(letcont ((,k2 (,r) (throw ,k ,r)))
-                                                                         (call ,k2 ,(def-code apply-frame) ,g))))))))))
+                                                                         (call ,k2 ,(def-code apply-frame) ,g 1))))))))))
           `(letcont ((,slow () ,slow-term))
-                    (letcont ((,fast () (call ,k frame ,f)))
+                    (letcont ((,fast () (call ,k frame ,f ,n)))
                              ,test))))))

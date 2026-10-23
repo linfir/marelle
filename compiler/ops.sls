@@ -76,9 +76,12 @@
           (make-op 'raw/wu '(raw raw raw) 'raw 'pure 'divwu)
           ;; (alloc n): the raw address of n new zeroed words
           (make-op 'alloc '(raw) 'raw 'allocates 'alloc)
-          ;; (alloc-frame n proc): a new frame of n zeroed words, its header and self set; proc
-          ;; stays a root while it is allocated
-          (make-op 'alloc-frame '(raw val) 'val 'allocates 'allocframe)
+          ;; (alloc-frame n proc): a new pending frame of n words in the frame region, its header
+          ;; and self set (asm.sls); not a safepoint
+          (make-op 'alloc-frame '(raw val) 'val 'writes 'allocframe)
+          ;; (alloc-placeholder n proc): a new frame of n zeroed words on the heap, its header and
+          ;; self set, only holding arguments (lib/calls.ss); proc stays a root while it is allocated
+          (make-op 'alloc-placeholder '(raw val) 'val 'allocates 'allocplaceholder)
           ;; (tail-call-frame f): enters the filled frame f, as a tail call
           (make-op 'tail-call-frame '(val) 'never 'never 'tailcall)
           (make-op 'self '() 'val 'pure #f)

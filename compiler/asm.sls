@@ -1,9 +1,11 @@
-;; Frames are heap objects, rbp pointing to the current one, n being the
-;; function's arity and m its number of tmps:
+;; Frames live in the frame region (lib/gc.ss), allocated at frame_top and freed
+;; in LIFO order, rbp pointing to the current one, n being the function's arity
+;; and m its number of tmps:
 ;;
 ;;   rbp + 0            frame type (43 << 3)
 ;;   rbp + 8            length of the frame in words, header included (raw)
-;;   rbp + 16           number of raw slots at the end, not scanned (raw)
+;;   rbp + 16           number of raw slots at the end, not scanned (raw), or -1
+;;                      while the frame is pending (being filled)
 ;;   rbp + 24           return address (raw)
 ;;   rbp + 32           caller's frame, or 0 for scheme_main
 ;;   rbp + 40           (self), the procedure object, or 0 for scheme_main
@@ -42,11 +44,13 @@
 ;;   - the caller allocates the callee's frame (allocframe, the alloc_frame stub,
 ;;     which sets the header and self) and stores the arguments in it, any number;
 ;;     call then stores the return address and rbp in it, points rbp to it and
-;;     jumps to the code; the callee's prologue only stores the number of raw slots
-;;   - ret puts the result in rax, restores the caller's rbp and jumps to the
-;;     saved return address
-;;   - a tail call gives the new frame its own return address and caller's frame,
-;;     so the callee returns directly there
+;;     jumps to the code; the callee's prologue stores the number of raw slots
+;;     and zeroes the tmps, since the region is reused
+;;   - ret puts the result in rax, frees the frame (frame_top back to rbp),
+;;     restores the caller's rbp and jumps to the saved return address
+;;   - a tail call moves the new frame down over its own (its length, self and
+;;     arguments), keeping its return address and caller's frame, so the callee
+;;     returns directly there
 ;;   - a tail call to the function itself (selfcall) reuses the frame: the
 ;;     arguments and self are moved into it, then a jump to the body
 ;;   - only rbp and rsp are preserved: all values live in frames
@@ -272,6 +276,7 @@
   (define (leave! ctx)
     (emit-asm! ctx
                `(mov r11 (mem rbp ,frame-ret))
+               '(mov (rip "frame_top") rbp)
                `(mov rbp (mem rbp ,frame-caller))))
 
 
@@ -328,18 +333,36 @@
          (unless (eq? dst 'void)
            (store! ctx dst 'rax))))
 
-      ;; The callee returns where this function would
+      ;; (tailcall target frame n): the callee returns where this function would. Its frame,
+      ;; above this one, moves down over it: its length, self and n arguments (words 5 to the
+      ;; end when n is #f), the destination below the source, so copied upward
       ((tailcall)
        (let ((target (cadr instr))
-             (frame (caddr instr)))
-         (enter-frame! ctx target frame)
+             (frame (caddr instr))
+             (n (cadddr instr)))
+         (load! ctx 'rax frame)
          (emit-asm! ctx
-                    `(mov r11 (mem rbp ,frame-ret))
-                    `(mov (mem rax ,frame-ret) r11)
-                    `(mov r11 (mem rbp ,frame-caller))
-                    `(mov (mem rax ,frame-caller) r11)
-                    '(mov rbp rax)
-                    `(jmp ,(if (string? target) target 'rcx)))))
+                    '(mov rdx (mem rax 8))
+                    '(mov (mem rbp 8) rdx))
+         (if (and n (<= n 6))
+             (for-each (lambda (i)
+                         (emit-asm! ctx
+                                    `(mov r11 (mem rax ,(+ frame-self (* 8 i))))
+                                    `(mov (mem rbp ,(+ frame-self (* 8 i))) r11)))
+                       (iota (+ n 1)))
+             (emit-asm! ctx
+                        `(lea rsi (mem rax ,frame-self))
+                        `(lea rdi (mem rbp ,frame-self))
+                        (if n `(mov ecx ,(+ n 1)) '(lea rcx (mem rdx -5)))
+                        '(rep movsq)))
+         (emit-asm! ctx
+                    '(lea rdx (mem rbp rdx 8))
+                    '(mov (rip "frame_top") rdx))
+         (unless (string? target)
+           (emit-asm! ctx
+                      `(mov rcx (mem rbp ,frame-self))
+                      '(mov rcx (mem rcx 16))))
+         (emit-asm! ctx `(jmp ,(if (string? target) target 'rcx)))))
 
       ;; (selfcall proc arg ...): a tail call to this function's own code, in this frame;
       ;; the operands may be its own slots, so all are read before any is written
@@ -368,6 +391,15 @@
          (load! ctx 'rax nwords)
          (load! ctx 'rdx proc)
          (emit-asm! ctx '(call "alloc_frame"))
+         (store! ctx dst 'rax)))
+
+      ((allocplaceholder)
+       (let ((dst (cadr instr))
+             (nwords (caddr instr))
+             (proc (cadddr instr)))
+         (load! ctx 'rax nwords)
+         (load! ctx 'rdx proc)
+         (emit-asm! ctx '(call "alloc_placeholder"))
          (store! ctx dst 'rax)))
 
       ((alloc)
@@ -559,14 +591,26 @@
                        '(mov rbp rsp))
             (unless (zero? (+ (asm-context-ntmp ctx) nraw))
               (emit-asm! ctx `(sub rsp ,(* 8 (+ (asm-context-ntmp ctx) nraw))))))
-          ;; The frame length, which callers read before the code
-          (emit-asm! ctx
-                     '(text)
-                     '(balign 8)
-                     `(quad ,nwords)
-                     `(label ,fn)
-                     `(mov (mem rbp ,frame-nraw) ,nraw)
-                     `(label ,(body-label ctx))))
+          ;; The frame length, which callers read before the code; the tmps zeroed, since
+          ;; the GC scans them, by stores or, for many, rep stosq (nothing is live yet)
+          (let ((ntmp (asm-context-ntmp ctx))
+                (first (+ frame-self 8 (* 8 arity))))
+            (emit-asm! ctx
+                       '(text)
+                       '(balign 8)
+                       `(quad ,nwords)
+                       `(label ,fn)
+                       `(mov (mem rbp ,frame-nraw) ,nraw))
+            (unless (zero? ntmp)
+              (emit-asm! ctx '(xor eax eax))
+              (if (<= ntmp 8)
+                  (for-each (lambda (i) (emit-asm! ctx `(mov (mem rbp ,(+ first (* 8 i))) rax)))
+                            (iota ntmp))
+                  (emit-asm! ctx
+                             `(lea rdi (mem rbp ,first))
+                             `(mov ecx ,ntmp)
+                             '(rep stosq))))
+            (emit-asm! ctx `(label ,(body-label ctx)))))
       (for-each (lambda (block)
                   (emit-asm! ctx `(label ,(label-name ctx (cadr block))))
                   (for-each (lambda (instr) (instr->asm! ctx instr)) (cddr block)))
@@ -633,6 +677,7 @@
       (call "alloc_frame")
       (lea r11 (rip ".L_start_finish"))
       (mov (mem rax ,frame-ret) r11)
+      (mov (mem rax ,frame-caller) rbp)
       (mov rbp rax)
       (mov rcx (rip "scheme_program"))
       (jmp rcx)
@@ -640,14 +685,12 @@
       (push rax)
       (call "finish_program_code")
 
-      ;; Allocate an object, zeroed
+      ;; Allocate an object, zeroed; the GC's roots are the frame region and the globals
       ;; Parameters:
       ;;   - rax: length (in words) of the object
-      ;;   - rbp: current frame, the only root
       ;; Output:
       ;;   - rax: the object
-      ;;   - rbp: the current frame, moved if a collection happened
-      ;; Clobbers: all other registers
+      ;; Clobbers: all other registers but rbp
       ;; The fast path bumps scheme_len up to scheme_limit (0 in stress mode)
       (globl "alloc_object")
       (label "alloc_object")
@@ -662,56 +705,79 @@
       (mov rax rcx)
       (ret)
       (label ".Lalloc_object_slow")
-      (push rbp)                        ; roots[0]
+      (sub rsp 8)                       ; no roots, rsp aligned as with one
+      (push 0)
+      (push 0)
+      (push rax)
+      (call "alloc_words_code")
+      (add rsp 32)
+      (ret)
+
+      ;; Allocate a pending frame in the frame region: its header and self set, nraw -1
+      ;; until the callee's prologue sets it, the rest not zeroed; never collects, so not
+      ;; a safepoint, and a full region is a fatal error
+      ;; Parameters:
+      ;;   - rax: length (in words) of the frame
+      ;;   - rdx: procedure object, the frame's self
+      ;; Output:
+      ;;   - rax: the frame
+      ;; Clobbers: rcx and r11
+      (globl "alloc_frame")
+      (label "alloc_frame")
+      (mov r11 (rip "frame_top"))
+      (lea rcx (mem r11 rax 8))
+      (cmp rcx (rip "frame_limit"))
+      (ja ".Lalloc_frame_full")
+      (mov (rip "frame_top") rcx)
+      (mov (mem r11 0) ,frame-type)
+      (mov (mem r11 8) rax)
+      (mov (mem r11 ,frame-nraw) -1)
+      (mov (mem r11 ,frame-self) rdx)
+      (mov rax r11)
+      (ret)
+      (label ".Lalloc_frame_full")
+      (and rsp -16)
+      (call "recursion_too_deep_code")
+
+      ;; Allocate a placeholder frame on the heap, holding the arguments of a call whose arity
+      ;; differs from its callee's (lib/calls.ss): zeroed but its header and self
+      ;; Parameters:
+      ;;   - rax: length (in words) of the frame
+      ;;   - rdx: procedure object, the frame's self, a root
+      ;; Output:
+      ;;   - rax: the frame
+      ;; Clobbers: all other registers but rbp
+      (globl "alloc_placeholder")
+      (label "alloc_placeholder")
+      (mov rcx (rip "scheme_len"))
+      (add rcx rax)
+      (cmp rcx (rip "scheme_limit"))
+      (ja ".Lalloc_placeholder_slow")
+      (mov (rip "scheme_len") rcx)
+      (sub rcx rax)
+      (shl rcx 3)
+      (add rcx (rip "scheme_mem"))
+      (label ".Lalloc_placeholder_init")
+      (mov (mem rcx 0) ,frame-type)
+      (mov (mem rcx 8) rax)
+      (mov (mem rcx ,frame-self) rdx)
+      (mov rax rcx)
+      (ret)
+      (label ".Lalloc_placeholder_slow")
+      (push rax)                        ; saved, not a root
+      (sub rsp 8)                       ; rsp aligned as with two roots
+      (push rdx)                        ; roots[0]
       (mov rcx rsp)
       (push 1)
       (push rcx)
       (push rax)
       (call "alloc_words_code")
       (add rsp 24)
-      (pop rbp)
-      (ret)
-
-      ;; Allocate a frame, zeroed but its header and self
-      ;; Parameters:
-      ;;   - rax: length (in words) of the frame
-      ;;   - rdx: procedure object, the frame's self, a root
-      ;;   - rbp: current frame, a root
-      ;; Output:
-      ;;   - rax: the frame
-      ;;   - rbp: the current frame, moved if a collection happened
-      ;; Clobbers: all other registers
-      (globl "alloc_frame")
-      (label "alloc_frame")
-      (mov rcx (rip "scheme_len"))
-      (add rcx rax)
-      (cmp rcx (rip "scheme_limit"))
-      (ja ".Lalloc_frame_slow")
-      (mov (rip "scheme_len") rcx)
-      (sub rcx rax)
-      (shl rcx 3)
-      (add rcx (rip "scheme_mem"))
-      (label ".Lalloc_frame_init")
-      (mov (mem rcx 0) ,frame-type)
-      (mov (mem rcx 8) rax)
-      (mov (mem rcx ,frame-self) rdx)
-      (mov rax rcx)
-      (ret)
-      (label ".Lalloc_frame_slow")
-      (push rax)                        ; saved, not a root
-      (push rdx)                        ; roots: rbp, rdx
-      (push rbp)
-      (mov rcx rsp)
-      (push 2)
-      (push rcx)
-      (push rax)
-      (call "alloc_words_code")
-      (add rsp 24)
       (mov rcx rax)
-      (pop rbp)
       (pop rdx)
+      (add rsp 8)
       (pop rax)
-      (jmp ".Lalloc_frame_init")))
+      (jmp ".Lalloc_placeholder_init")))
 
 
   (define (program->asm tops exports)

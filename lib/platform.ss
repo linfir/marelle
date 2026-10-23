@@ -107,6 +107,13 @@
   (let ((p (syscall 9 (raw 0) n (raw 3) (raw 34) (raw -1) (raw 0))))
     (if (raw>u p (raw -4096)) (raw 0) p)))
 
+;; n bytes like os-map, but not counted against the commit limit (MAP_NORESERVE), for a region
+;; touched only in part
+(define (os-reserve (raw n))
+  (declare unsafe noalloc (result raw))
+  (let ((p (syscall 9 (raw 0) n (raw 3) (raw 16418) (raw -1) (raw 0))))
+    (if (raw>u p (raw -4096)) (raw 0) p)))
+
 ;; Releases the n bytes at p, from os-map
 (define (os-unmap (raw p) (raw n))
   (declare unsafe noalloc (result void))

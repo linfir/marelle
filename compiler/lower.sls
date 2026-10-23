@@ -103,7 +103,7 @@
       ((throw)
        (lower-throw (cadr t) (map atom->operand (cddr t))))
       ((call)
-       (lower-call (cadr t) (caddr t) (atom->operand (cadddr t))))
+       (lower-call (cadr t) (caddr t) (atom->operand (cadddr t)) (list-ref t 4)))
       ((selfcall)
        (emit! `(selfcall ,@(map atom->operand (cdr t)))))
       ((unreachable)
@@ -204,10 +204,10 @@
         (emit! `(jmp ,(cont-label c1)))))))
 
 
-  (define (lower-call k target f)
+  (define (lower-call k target f n)
     (cond
      ((eq? k (own))
-      (emit! `(tailcall ,target ,f)))
+      (emit! `(tailcall ,target ,f ,n)))
      ((eq? k 'never)
       (emit! `(call void ,target ,f))
       (emit! '(unreachable)))

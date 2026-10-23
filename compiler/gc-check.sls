@@ -28,7 +28,7 @@
                      (let ((live (if (memq (car instr) jumps-ops)
                                      (logor live (vector-ref ins (cadr instr)))
                                      live)))
-                       (when (memq (car instr) '(call tailcall alloc allocframe))
+                       (when (memq (car instr) '(call tailcall alloc allocplaceholder))
                          (let* ((across (set-minus live (indexes->set (instr-defs instr))))
                                 (raw (find odd? (set-members across))))
                            (when raw

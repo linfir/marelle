@@ -149,9 +149,9 @@
   (put-string stderr " arguments\n")
   (exit-process (raw 1)))
 
-;; Calls: the caller allocates the callee's frame and stores the arguments in it; a call whose
-;; arity differs from the callee's gets a placeholder frame instead, never entered, holding
-;; its arguments for apply-frame (lib/calls.ss)
+;; Calls: the caller allocates the callee's frame in the frame region and stores the arguments
+;; in it; a call whose arity differs from the callee's gets a placeholder frame on the heap
+;; instead, never entered, holding its arguments for apply-frame (lib/calls.ss)
 
 (define (procedure? x)
   (declare unsafe inline public)
@@ -174,19 +174,15 @@
   (declare unsafe inline)
   (alloc-frame (frame-size code) proc))
 
-;; Its own frame when proc takes n arguments, else a placeholder of n arguments
-(define (call-frame-size proc (raw n))
-  (declare unsafe inline (result raw))
-  (if (raw= (procedure-arity proc) n)
-      (frame-size (load (as-raw proc) (raw 2)))
-      (raw+ n (raw 6))))
-
-;; The frame of a call to the procedure value proc with n arguments
+;; The frame of a call to the procedure value proc with n arguments: its own when proc takes n
+;; arguments, else a placeholder of n arguments
 (define (make-call-frame proc (raw n))
   (declare unsafe inline)
   (unless (procedure? proc)
     (non-procedure-error proc))
-  (alloc-frame (call-frame-size proc n) proc))
+  (if (raw= (procedure-arity proc) n)
+      (alloc-frame (frame-size (load (as-raw proc) (raw 2))) proc)
+      (alloc-placeholder (raw+ n (raw 6)) proc)))
 
 ;; Whether proc is a procedure running the code at code
 (define (same-code? proc (raw code))

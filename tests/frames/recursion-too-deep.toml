@@ -1,0 +1,6 @@
+stage = "executable"
+exit = 1
+stdout = ""
+stderr = "Recursion too deep\n"
+chez = "skip"
+gc_stress = "skip"

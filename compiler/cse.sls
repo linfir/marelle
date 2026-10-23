@@ -283,7 +283,7 @@
            `(throw ,(cadr t) ,@(map atom (cddr t))))
           ((call)
            (use! (cadr t) (next) (next))
-           `(call ,(cadr t) ,(caddr t) ,(atom (cadddr t))))
+           `(call ,(cadr t) ,(caddr t) ,(atom (cadddr t)) ,(list-ref t 4)))
           ((app)
            (use! (cadddr t) (next) (next))
            `(app ,(cadr t) ,(atom (caddr t)) ,(cadddr t) ,@(map atom (cddddr t))))

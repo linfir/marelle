@@ -71,7 +71,7 @@
 
     (for-each (lambda (block)
                 (for-each (lambda (instr)
-                            (when (or (memq (car instr) '(call tailcall selfcall alloc allocframe))
+                            (when (or (memq (car instr) '(call tailcall selfcall alloc allocframe allocplaceholder))
                                       (self? instr))
                               (compile-error 'check-noalloc "safepoint or self in a noalloc def" name instr)))
                           (cddr block)))

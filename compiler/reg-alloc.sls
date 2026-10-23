@@ -290,7 +290,7 @@
                                        (fold-left (lambda (acc i) (if (memv i acc) acc (cons i acc)))
                                                   live (live-registers (vector-ref ins (cadr instr))))
                                        live)))
-                        (when (memq (car instr) '(call stackcall alloc allocframe))
+                        (when (memq (car instr) '(call stackcall alloc allocplaceholder))
                           (hashtable-set!
                            saves position
                            (fold-right

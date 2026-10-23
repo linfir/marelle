@@ -8,9 +8,10 @@
 ;;         | (letcont-rec ((k (param ...) term)) term)      a loop
 ;;         | (if (test atom ...) k1 k2)       test: a low test, eq (two vals), true (not #f)
 ;;         | (throw k atom ...)               to a continuation, a return when k is the fun's
-;;         | (call k target f)                a call of the filled frame f: target a code symbol,
+;;         | (call k target f n)              a call of the filled frame f: target a code symbol,
 ;;                                            or frame (its self's code); k a continuation, the
-;;                                            fun's (a tail call), or never
+;;                                            fun's (a tail call), or never; n its number of
+;;                                            argument slots, or #f when not known
 ;;         | (selfcall proc atom ...)          a self tail call reusing the frame
 ;;         | (unreachable)
 ;;         | (app tag callee k atom ...)       a call of callee, a def or an atom, with the
@@ -213,7 +214,7 @@
            `(,(car t) ((,k ,params ,body)) ,(walk (caddr t)))))
         ((if) `(if (,(caadr t) ,@(map atom (cdadr t))) ,(name (caddr t)) ,(name (cadddr t))))
         ((throw) `(throw ,(name (cadr t)) ,@(map atom (cddr t))))
-        ((call) `(call ,(name (cadr t)) ,(caddr t) ,(atom (cadddr t))))
+        ((call) `(call ,(name (cadr t)) ,(caddr t) ,(atom (cadddr t)) ,(list-ref t 4)))
         ((app)
          `(app ,(and (cadr t) (name (cadr t))) ,(atom (caddr t)) ,(name (cadddr t))
                ,@(map atom (cddddr t))))

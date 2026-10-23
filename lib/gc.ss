@@ -21,6 +21,13 @@
 (define-data gc-free 1)
 ;; Nonzero when SCHEME_GC_STATS is set and nonempty
 (define-data gc-stats 1)
+;; The frame region, where Scheme frames live, freed in LIFO order: mapped once at start, never
+;; grown; frames are allocated at frame-top (alloc_frame in asm.sls) up to frame-limit
+(define-data frame-base 1)
+(define-data frame-top 1)
+(define-data frame-limit 1)
+;; 512 MiB
+(define-constant frame-region-words (raw 67108864))
 
 ;; Each stretch between collections allocates from the words copied up to the used words
 (define (print-gc-stats)
@@ -49,8 +56,7 @@
 
 ;; Copying collector (Cheney) with two semispaces:
 ;; scheme-mem is the current one, scheme-len its used words out of scheme-cap, the size of both
-;; outside a collection; each space is zero past its used part, so frame slots not yet written
-;; hold 0. The spaces start small (in cache) and double, up to max-heap-words: a collection leaving
+;; outside a collection; each space is zero past its used part, so allocated objects start zeroed. The spaces start small (in cache) and double, up to max-heap-words: a collection leaving
 ;; more than a quarter of a space live sets gc-target to twice its size, and the next collection
 ;; copies into a to-space of that size, the old spaces unmapped.
 
@@ -143,6 +149,29 @@
                    (raw- (if frame? (raw- n (load p (raw 2))) n) start))
     n))
 
+;; Forwards the values of the frames in the frame region, from frame-base to frame-top: self, the
+;; arguments and the tmps, not the raws; a pending frame, being filled (nraw -1), holds only its
+;; arguments, as many as its self takes
+(define (forward-frames)
+  (declare unsafe noalloc (result void))
+  (let next ((p (load frame-base (raw 0))))
+    (if (raw<u p (load frame-top (raw 0)))
+        (let ((n (load p (raw 1)))
+              (nraw (load p (raw 2))))
+          (forward-words (raw+ p (raw 40)) (raw 1))
+          (forward-words (raw+ p (raw 48))
+                         (if (raw= nraw (raw -1))
+                             (let ((arity (load (load p (raw 5)) (raw 1))))
+                               (if (raw< arity (raw 0)) (raw- (raw 0) arity) arity))
+                             (raw- n (raw+ nraw (raw 6)))))
+          (next (raw+ p (raw<< n (raw 3)))))
+        undef)))
+
+;; Called by alloc_frame when the frame region is full
+(define (recursion-too-deep)
+  (declare unsafe noalloc (result never))
+  (fatal "Recursion too deep\n"))
+
 ;; Moves the live objects and updates the roots, which must hold every heap pointer in use;
 ;; the rest is reached through them
 (define (collect (raw roots) (raw nroots))
@@ -153,6 +182,7 @@
          (to (if grow? (map-words target) (load spare-mem (raw 0)))))
     (store gc-free (raw 0) to)
     (forward-words roots nroots)
+    (forward-frames)
     ;; scheme_program: main, the globals and their count, the embedded files, the display flag,
     ;; the static symbols and datums; literals are static
     (forward-words (load (address "scheme_program") (raw 1)) (load (address "scheme_program") (raw 2)))

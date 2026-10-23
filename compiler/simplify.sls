@@ -208,7 +208,7 @@
                    `(letcont-rec ((,(car b) ,params ,(walk (caddr b)))) ,main)))))
           ((if) (walk-if (cons (caadr t) (map atom (cdadr t))) (cont (caddr t)) (cont (cadddr t))))
           ((throw) (walk-throw (cont (cadr t)) (map atom (cddr t))))
-          ((call) `(call ,(cont (cadr t)) ,(caddr t) ,(atom (cadddr t))))
+          ((call) `(call ,(cont (cadr t)) ,(caddr t) ,(atom (cadddr t)) ,(list-ref t 4)))
           ((app) `(app ,(cadr t) ,(atom (caddr t)) ,(cont (cadddr t)) ,@(map atom (cddddr t))))
           ((selfcall) `(selfcall ,@(map atom (cdr t))))
           ((args) `(args ,(cadr t) ,(walk (caddr t))))

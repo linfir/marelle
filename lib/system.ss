@@ -158,7 +158,13 @@
                (not (raw= (load8 stats (raw 0)) (raw 0))))
       (store gc-stats (raw 0) (raw 1))))
   (store scheme-mem (raw 0) (map-words (load scheme-cap (raw 0))))
-  (store spare-mem (raw 0) (map-words (load scheme-cap (raw 0)))))
+  (store spare-mem (raw 0) (map-words (load scheme-cap (raw 0))))
+  (let ((base (os-reserve (raw<< frame-region-words (raw 3)))))
+    (when (raw= base (raw 0))
+      (fatal "Memory allocation failed\n"))
+    (store frame-base (raw 0) base)
+    (store frame-top (raw 0) base)
+    (store frame-limit (raw 0) (raw+ base (raw<< frame-region-words (raw 3))))))
 
 ;; The address of argument k, a fixnum
 (define (argument-address k)

@@ -112,7 +112,7 @@
   (define reserved-symbols
     '("scheme_program" "scheme_main" "scheme_globals" "scheme_embedded"
       "scheme_embedded_data" "scheme_static_symbols" "scheme_library_static_symbols"
-      "_start" "alloc_frame" "alloc_object"))
+      "_start" "alloc_frame" "alloc_placeholder" "alloc_object"))
 
 
   ;; Mangling is not injective, so two names giving the same symbol are an error;
