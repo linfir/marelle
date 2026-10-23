@@ -452,6 +452,90 @@
                       (store q (raw- j (raw 1)) (raw- y (raw 1)))))
                 (limb-next (raw- j (raw 1)))))))))))
 
+;; Recursive division (Burnikel and Ziegler), in place: the n + k limbs at a, below b * B^k,
+;; get the remainder by the n normalized limbs at b in their low n, the k quotient limbs
+;; above it; n >= 2 and 1 <= k <= n
+
+;; Below this many limbs in the divisor or the quotient, schoolbook division
+(define (recursive-division-limbs)
+  (declare unsafe inline)
+  48)
+
+;; Each quotient limb is stored over the dividend's top limb, zero once it is known
+(define (divide-limbs-schoolbook! (raw a) (raw b) (raw n) (raw k))
+  (declare unsafe noalloc (result void))
+  (let ((v1 (load b (raw- n (raw 1))))
+        (v2 (load b (raw- n (raw 2)))))
+    (let limb-next ((i k))
+      (if (raw= i (raw 0))
+          undef
+          (let* ((ai (word-address a (raw- i (raw 1))))
+                 (y (estimate-limb ai n v1 v2)))
+            (store ai n (if (raw= (multiply-subtract! ai b n y) (raw 0))
+                            y
+                            (begin
+                              (add-back! ai b n)
+                              (raw- y (raw 1)))))
+            (limb-next (raw- i (raw 1))))))))
+
+;; Whether the n limbs at a are below those at b
+(define (limbs-below? (raw a) (raw b) (raw n))
+  (declare unsafe noalloc)
+  (cond
+   ((raw= n (raw 0)) #f)
+   ((raw= (load a (raw- n (raw 1))) (load b (raw- n (raw 1))))
+    (limbs-below? a b (raw- n (raw 1))))
+   (else (raw<u (load a (raw- n (raw 1))) (load b (raw- n (raw 1)))))))
+
+;; The limbs at p -= 1, p nonzero
+(define (decrement-limbs! (raw p))
+  (declare unsafe noalloc (result void))
+  (let ((x (load p (raw 0))))
+    (store p (raw 0) (raw- x (raw 1)))
+    (when (raw= x (raw 0))
+      (decrement-limbs! (word-address p (raw 1))))))
+
+;; With t the scratch, 6n + 1024 words: k = n is done as two halves; a smaller k
+;; divides the top 2k limbs of a by the top k of b, giving an estimate at most 2 too large
+;; (at most B^k - 1), and subtracts the estimate times the rest of b
+(define (divide-limbs! (raw a) (raw b) (raw n) (raw k) (raw t))
+  (declare unsafe noalloc (result void))
+  (cond
+   ((or (raw<u n (fixnum-value (recursive-division-limbs)))
+        (raw<u k (fixnum-value (recursive-division-limbs))))
+    (divide-limbs-schoolbook! a b n k))
+   ((raw= k n)
+    (let ((lo (raw>>u n (raw 1))))
+      (divide-limbs! (word-address a lo) b n (raw- n lo) t)
+      (divide-limbs! a b n lo t)))
+   (else
+    (let* ((j (raw- n k))
+           (b1 (word-address b j))
+           (a1 (word-address a n))
+           (nk (raw+ n k))
+           (d (word-address t k)))
+      (if (limbs-below? a1 b1 k)
+          (begin
+            (divide-limbs! (word-address a j) b1 k k t)
+            (copy-words t a1 k)
+            (fill-words a1 k (raw 0)))
+          (begin
+            ;; a's top k limbs are b1's: a1 a2 - (B^k - 1) b1 = a2 + b1
+            (fill-words t k (raw -1))
+            (fill-words a1 k (raw 0))
+            (add-limbs! (word-address a j) (raw<< k (raw 1)) b1 k)))
+      (fill-words d n (raw 0))
+      (karatsuba! d t k b j (word-address d n))
+      ;; Over n + k limbs, a negative remainder is above -2b, so has its top bit set
+      (subtract-limbs! a nk d n)
+      (let fix-next ()
+        (if (raw< (load a (raw- nk (raw 1))) (raw 0))
+            (begin
+              (decrement-limbs! t)
+              (add-limbs! a nk b n)
+              (fix-next))
+            (copy-words a1 t k)))))))
+
 ;; The limbs divide! needs: the result, then room for the quotient and divide-magnitudes!'s u
 (define (division-limbs a b quotient?)
   (declare unsafe inline)

@@ -311,34 +311,99 @@
                   (digit-next (raw- i (raw 1)) (raw/ m (raw 10)))))))
         (count (raw/ m (raw 10)) (raw+ d (raw 1))))))
 
-;; Prints the bignum at x in decimal: its limbs, copied to spare-mem (unused outside a
-;; collection), are divided by 10^18 until zero, the remainders stored after them, then
-;; their digits after those, most significant first, 18 each but the first, in one write;
-;; spare-mem is zeroed again after
+;; Up to this many chunks of 18 digits, the digits come from repeated division by 10^18
+(define (print-leaf-chunks)
+  (declare unsafe inline)
+  16)
+
+;; Stores the digits of the na limbs at a, below 10^(18c), at p: 18c of them, zero-padded;
+;; levels holds 4 words per power 10^(18 * 2^k): its limbs, their count, the normalized
+;; limbs and their shift; t is the scratch
+(define (store-limbs-digits! (raw p) (raw a) (raw na) (raw c) (raw levels) (raw t))
+  (declare unsafe noalloc (result void))
+  (let ((na (significant-limbs a na)))
+    (if (raw<=u c (fixnum-value (print-leaf-chunks)))
+        (begin
+          (copy-words t a na)
+          (let chunk-next ((i c)
+                           (m na))
+            (if (raw= i (raw 0))
+                undef
+                (begin
+                  (store-digits! p (raw* (raw- i (raw 1)) (raw 18))
+                                 (divide-limbs-by! t t m (raw 1000000000000000000)) (raw 18))
+                  (chunk-next (raw- i (raw 1)) (significant-limbs t m))))))
+        ;; Split at the largest power 10^(18h) below 10^(18c)
+        (let level-next ((h (raw 1))
+                         (e levels))
+          (if (raw<u (raw<< h (raw 1)) c)
+              (level-next (raw<< h (raw 1)) (word-address e (raw 4)))
+              (let ((m (load e (raw 1)))
+                    (low (raw+ p (raw* (raw- c h) (raw 18)))))
+                (if (raw<u na m)
+                    (begin
+                      (store-limbs-digits! p a (raw 0) (raw- c h) levels t)
+                      (store-limbs-digits! low a na h levels t))
+                    ;; a < 10^(36h), so a shifted fits in 2m limbs; t gets na + 1 of them
+                    (let ((s (load e (raw 3)))
+                          (k (if (raw<u (raw- na m) m) (raw+ (raw- na m) (raw 1)) m))
+                          (rest (word-address t (raw+ na (raw 1)))))
+                      (store t na (shift-limbs-left! t a na s))
+                      (divide-limbs! t (load e (raw 2)) m k rest)
+                      (shift-limbs-right! t m s)
+                      (store-limbs-digits! p (word-address t m) k (raw- c h) levels rest)
+                      (store-limbs-digits! low t m h levels rest)))))))))
+
+;; Fills levels from the power 10^(18h), the np limbs at f, squaring it until 10^(36h) is at
+;; least 10^(18c); returns the end of the last normalized one
+(define (store-powers! (raw levels) (raw f) (raw np) (raw h) (raw c))
+  (declare unsafe noalloc (result raw))
+  (let ((s (leading-zeros (load f (raw- np (raw 1)))))
+        (v (word-address f np))
+        (sq (word-address f (raw<< np (raw 1)))))
+    (shift-limbs-left! v f np s)
+    (store levels (raw 0) f)
+    (store levels (raw 1) np)
+    (store levels (raw 2) v)
+    (store levels (raw 3) s)
+    (if (raw<u (raw<< h (raw 1)) c)
+        (begin
+          (fill-words sq (raw<< np (raw 1)) (raw 0))
+          (karatsuba! sq f np f np (word-address sq (raw<< np (raw 1))))
+          (store-powers! (word-address levels (raw 4)) sq (significant-limbs sq (raw<< np (raw 1)))
+                         (raw<< h (raw 1)) c))
+        sq)))
+
+;; Prints the bignum at x in decimal, its digits stored, then written at once; a big one is
+;; split by powers 10^(18 * 2^k) recursively, in subquadratic time; the room comes from
+;; spare-mem (unused outside a collection), zeroed again after, else from a fresh mapping
 (define (display-bignum (raw out) (raw x))
   (declare unsafe noalloc (result void))
   (let* ((n (load x (raw 1)))
-         (q (load spare-mem (raw 0)))
-         (chunks (raw+ q (raw<< n (raw 3)))))
-    ;; A chunk per 59.7 bits, at most 1.08 n + 1 of them, then 18 bytes each: 4.5 n + 5 words
-    (when (raw>u (raw+ (raw* n (raw 5)) (raw 8)) (load scheme-cap (raw 0)))
-      (fatal "Out of memory\n"))
-    (copy-words q (raw+ x (raw 24)) n)
-    (let chunk-next ((k (raw 0))
-                     (m n))
-      (if (raw>u m (raw 0))
-          (begin
-            (store chunks k (divide-limbs-by! q q m (raw 1000000000000000000)))
-            (chunk-next (raw+ k (raw 1)) (significant-limbs q m)))
-          (let* ((text (raw+ chunks (raw<< k (raw 3))))
-                 (sign (if (raw= (load x (raw 2)) (raw 1))
-                           (begin (store8 text (raw 0) (raw 45)) (raw 1)) ; -
-                           (raw 0))))
-            (let print-next ((i (raw- k (raw 1)))
-                             (j (store-digits! text sign (load chunks (raw- k (raw 1))) (raw 1))))
-              (if (raw= i (raw 0))
-                  (begin
-                    (write-bytes out text j)
-                    (fill-words q (raw+ (raw+ n k) (raw+ (raw>>u j (raw 3)) (raw 1))) (raw 0)))
-                  (print-next (raw- i (raw 1))
-                              (store-digits! text j (load chunks (raw- i (raw 1))) (raw 18))))))))))
+         ;; At most 64n log10(2) / 18 + 1 chunks; text starts with a byte for the sign
+         (c (raw+ (raw>>u (raw* n (raw 70208)) (raw 16)) (raw 2)))
+         (nt (raw+ (raw>>u (raw+ (raw* c (raw 18)) (raw 1)) (raw 3)) (raw 1)))
+         (leaf? (raw<=u c (fixnum-value (print-leaf-chunks))))
+         ;; Then the powers, the recursion's limbs and the division's scratch, about 9n
+         (words (raw+ nt (if leaf? (raw+ n (raw 1)) (raw+ (raw* n (raw 20)) (raw 2304)))))
+         (mapped? (raw>u words (load scheme-cap (raw 0))))
+         (text (if mapped? (map-words words) (load spare-mem (raw 0))))
+         (levels (word-address text nt))
+         (p (raw+ text (raw 1)))
+         (nd (raw* c (raw 18))))
+    (if leaf?
+        (store-limbs-digits! p (raw+ x (raw 24)) n c levels levels)
+        (let ((powers (word-address levels (raw 256))))
+          (store powers (raw 0) (raw 1000000000000000000))
+          (store-limbs-digits! p (raw+ x (raw 24)) n c levels
+                               (store-powers! levels powers (raw 1) (raw 1) c))))
+    (let zero-next ((i (raw 0)))
+      (if (and (raw<u i (raw- nd (raw 1))) (raw= (load8 p i) (raw 48))) ; 0
+          (zero-next (raw+ i (raw 1)))
+          (let ((i (if (raw= (load x (raw 2)) (raw 1))
+                       (begin (store8 text i (raw 45)) i) ; -
+                       (raw+ i (raw 1)))))
+            (write-bytes out (raw+ text i) (raw- (raw+ nd (raw 1)) i))
+            (if mapped?
+                (unmap-words text words)
+                (fill-words text words (raw 0))))))))
