@@ -29,9 +29,9 @@
   (define extern-defs (make-parameter '()))
 
 
-  ;; defs, funs and counters in the same order; (reoptimize def fun) optimizes a changed fun
+  ;; defs and funs in the same order; (reoptimize def fun) optimizes a changed fun
   ;; again. Gives the funs.
-  (define (inline-unit defs funs counters reoptimize)
+  (define (inline-unit defs funs reoptimize)
     (let ((table (make-eq-hashtable))
           (state (make-eq-hashtable))
           (procs (known-procs (append defs (extern-defs)))))
@@ -47,7 +47,7 @@
                  (fun (vector-ref entry 0))
                  (new (if (def-noalloc? def)
                           fun
-                          (inline-calls def fun (vector-ref entry 1)
+                          (inline-calls def fun
                                     (lambda (callee)
                                       (cond
                                        ((eq? callee def) #f)
@@ -62,9 +62,9 @@
               (vector-set! entry 0 (if (eq? new fun) fun (reoptimize def new))))
             (hashtable-set! state def 'done))))
 
-      (for-each (lambda (def fun counter)
-                  (hashtable-set! table def (vector fun counter)))
-                defs funs counters)
+      (for-each (lambda (def fun)
+                  (hashtable-set! table def (vector fun)))
+                defs funs)
       (for-each visit! defs)
       (map fun-of defs)))
 
@@ -169,11 +169,11 @@
 
   ;; fun with each call of a def for which (body-of def) gives a fun replaced by its body;
   ;; fun itself when there is none
-  (define (inline-calls def fun counter body-of)
+  (define (inline-calls def fun body-of)
     (let ((inlined (make-eq-hashtable))
           (changed? #f))
       (define (fresh x)
-        (gensym (string-append (name-prefix x) (number->string (counter)))))
+        (gensym (symbol->string x)))
 
       ;; The inlined calls' tags, first, so that their marks go
       (define (find! t)
@@ -222,15 +222,16 @@
 
 
   ;; The datum of the fun of def for the interface, its defs as (def name), when it is
-  ;; inlinable and names only defs for which (item? def), else #f. A literal is the library's
-  ;; static object, so a program's copy refers to it, eq? to it.
+  ;; inlinable and names only defs for which (item? def), else #f; its variables numbered,
+  ;; read back distinct. A literal is the library's static object, so a program's copy refers
+  ;; to it, eq? to it.
   (define (export-fun def fun item?)
     (let ((ok? (inlinable? def fun max-inline-size)))
       (let ((x (map-defs fun (lambda (d)
                                (unless (item? d)
                                  (set! ok? #f))
                                `(def ,(def-name d))))))
-        (and ok? x))))
+        (and ok? (numbered x)))))
 
 
   ;; The fun of an interface datum, each (def name) the def (lookup name), each symbol string

@@ -15,11 +15,10 @@
           (cps))
 
 
-  ;; defs, funs and counters in the same order; (reoptimize def fun) optimizes a changed fun
+  ;; defs and funs in the same order; (reoptimize def fun) optimizes a changed fun
   ;; again. Gives the funs, #f for a def that went.
-  (define (contify-unit defs funs counters reoptimize)
+  (define (contify-unit defs funs reoptimize)
     (let ((funs (list->vector funs))
-          (counters (list->vector counters))
           (index (make-eq-hashtable)))
       (for-each (lambda (def i) (hashtable-set! index def i)) defs (iota (length defs)))
       ;; Rounds until none contifies anything: the candidates found at its start, but a def
@@ -37,8 +36,7 @@
                             (hashtable-set! callers g #t)
                             (hashtable-set! changed g #t)
                             (vector-set! funs g (contify (list-ref defs f) (vector-ref funs f)
-                                                         (vector-ref funs g) (caddr c)
-                                                         (vector-ref counters g)))
+                                                         (vector-ref funs g) (caddr c)))
                             (vector-set! funs f #f))))
                       (find-candidates defs funs index))
             (unless (zero? (hashtable-size callers))
@@ -135,8 +133,8 @@
 
   ;; The fun of g, gfun, with the body of f, ffun, as a letcont-rec in the scope of k, and the
   ;; calls of f throws to it
-  (define (contify f ffun gfun k counter)
-    (let* ((fresh (lambda (x) (gensym (string-append (name-prefix x) (number->string (counter))))))
+  (define (contify f ffun gfun k)
+    (let* ((fresh (lambda (x) (gensym (symbol->string x))))
            (j (fresh (def-name f)))
            (subst (make-eq-hashtable))
            (params (map (lambda (p)

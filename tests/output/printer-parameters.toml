@@ -1,2 +1,2 @@
-stdout = '(#f #f (#f "(g)"))'
+stdout = '(#f #f (#t "(#{g 0})"))'
 chez = "skip"

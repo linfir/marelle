@@ -25,9 +25,9 @@
             (mutable into) (mutable escapes?)))
 
 
-  ;; defs, funs and counters in the same order; (reoptimize def fun) optimizes a changed fun
+  ;; defs and funs in the same order; (reoptimize def fun) optimizes a changed fun
   ;; again. Gives the funs.
-  (define (lift-unit defs funs counters reoptimize)
+  (define (lift-unit defs funs reoptimize)
     (let ((procs (make-hashtable string-hash string=?))
           (index (make-eq-hashtable))
           (creations (make-eq-hashtable))
@@ -59,7 +59,7 @@
                   (new-params (make-eq-hashtable))
                   (changed (make-eqv-hashtable)))
               (for-each (lambda (group)
-                          (lift-group! group index funs counters by-object subst dropped callees
+                          (lift-group! group index funs by-object subst dropped callees
                                        new-params)
                           (for-each (lambda (c)
                                       (hashtable-set! changed (hashtable-ref index (creation-def c) #f) #t)
@@ -320,7 +320,7 @@
   ;; Gives each def of the group the group's captures but its members' as parameters, in
   ;; new-params: subst maps each capture load to its parameter, dropped the letprims that go,
   ;; callees each value calling a member to (def atom ...)
-  (define (lift-group! group index funs counters by-object subst dropped callees new-params)
+  (define (lift-group! group index funs by-object subst dropped callees new-params)
     (let ((captured
            (fold-left (lambda (acc c)
                         (fold-left (lambda (acc w)
@@ -339,8 +339,7 @@
          (let* ((def (creation-def c))
                 (i (hashtable-ref index def #f))
                 (fun (vector-ref funs i))
-                (counter (list-ref counters i))
-                (params (map (lambda (a) (gensym (string-append "c" (number->string (counter)))))
+                (params (map (lambda (a) (gensym "c"))
                              captured)))
            (for-each
             (lambda (l)

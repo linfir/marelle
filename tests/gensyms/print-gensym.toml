@@ -1,0 +1,2 @@
+stdout = '("(a g1 c)" (#t "(#{a 0} #{g1 1} c)" "(a g1 c)") (pretty "(#:a #:g1 c)") #f)'
+chez = "skip"

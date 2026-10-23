@@ -11,11 +11,11 @@
           (cps))
 
 
-  (define (cells-to-params fun counter)
+  (define (cells-to-params fun)
     (let ((cells (find-cells fun)))
       (if (zero? (hashtable-size cells))
           fun
-          (cells-convert fun cells counter))))
+          (cells-convert fun cells))))
 
 
   ;; The cells of fun: to their number, in the order of their bindings
@@ -120,7 +120,7 @@
   ;; A continuation takes a cell as a parameter only when a use may pass it another atom than
   ;; the one the cell holds where the continuation is bound: assumed not, then walks again with
   ;; the cells some use contradicts as parameters, until none does
-  (define (cells-convert fun cells counter)
+  (define (cells-convert fun cells)
     (let ((live (live-cells (fun-term fun) cells))
           (kinds (cps-kinds fun))
           (passed (make-eq-hashtable))
@@ -129,7 +129,7 @@
           (params (make-eq-hashtable))
           (changed? #f))
       (define (fresh x)
-        (gensym (string-append (name-prefix x) (number->string (counter)))))
+        (gensym (symbol->string x)))
 
       (define (cell? x)
         (and (symbol? x) (hashtable-ref cells x #f)))

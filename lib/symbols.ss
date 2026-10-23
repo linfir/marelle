@@ -2,8 +2,8 @@
 ;; the name's code points; interned in symbol-table: open addressing over a vector of 2^k slots,
 ;; #f when empty, linear probing, keyed on the hash; doubled when half full. The table is strong:
 ;; symbols are never collected.
-;; Gensyms: [gensym-type, hash, name], uninterned, the hash their number, so unique; printed by
-;; their name, as Chez does when print-gensym is #f
+;; Gensyms: [gensym-type, hash, name], uninterned, the hash their number, so unique; the name #f
+;; for (gensym), g and the number made on demand (gensym-name)
 
 ;; The table, a vector, or 0 before the first symbol; collect forwards it
 (define-data symbol-table 1)
@@ -41,7 +41,14 @@
   (declare unsafe inline public)
   (unless (symbol? sym)
     (argument-error symbol->string 'symbol sym))
-  (symbol-name sym))
+  (if (symbol-name sym) (symbol-name sym) (gensym-name sym)))
+
+;; The name of the gensym sym of no name, g and its number, kept as its name
+(define (gensym-name sym)
+  (declare unsafe)
+  (let ((s (immutable-string (numbered-name (make-fixnum (symbol-hash-word sym))))))
+    (store (as-raw sym) (raw 2) s)
+    s))
 
 (define (make-symbol s)
   (declare unsafe inline)
@@ -68,11 +75,11 @@
 (define (numbered-name n)
   (string-append "g" (number->string n)))
 
-;; With no argument, named g and its number
+;; With no argument, no name
 (define (variadic-gensym . name)
   (declare unsafe)
   (cond
-   ((null? name) (make-gensym (numbered-name (make-fixnum (load gensym-count (raw 0))))))
+   ((null? name) (make-gensym #f))
    ((null? (cdr name)) (gensym (car name)))
    (else (argument-count-error gensym (length name)))))
 

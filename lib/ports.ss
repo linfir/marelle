@@ -263,10 +263,21 @@
    ((null? (cdr value)) (void))
    (else (argument-count-error who (length value)))))
 
-;; Gensyms always print by their name
+;; How write prints gensyms: 0 by their name (#f), 1 #{name number} (#t), 2 #:name (pretty)
+(define-data print-gensym-mode 1)
+
+;; #f by default, unlike Chez
 (define (print-gensym . value)
-  (declare public)
-  (ignored-parameter value print-gensym))
+  (declare unsafe public)
+  (cond
+   ((null? value)
+    (let ((mode (load print-gensym-mode (raw 0))))
+      (cond ((raw= mode (raw 0)) #f) ((raw= mode (raw 1)) #t) (else 'pretty))))
+   ((null? (cdr value))
+    (store print-gensym-mode (raw 0)
+           (cond ((not (car value)) (raw 0)) ((eq? (car value) 'pretty) (raw 2)) (else (raw 1))))
+    (void))
+   (else (argument-count-error print-gensym (length value)))))
 
 ;; Lists always print in parentheses
 (define (print-brackets . value)

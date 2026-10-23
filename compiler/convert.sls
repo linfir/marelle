@@ -30,17 +30,16 @@
           (static))
 
 
-  ;; Per function: its def, for self tail calls, the kinds of its variables, its return
-  ;; continuation, and the counter numbering its names
+  ;; Per function: its def, for self tail calls, the kinds of its variables and its return
+  ;; continuation
   (define current-function (make-parameter #f))
   (define kinds (make-parameter #f))
   (define return-k (make-parameter #f))
-  (define name-counter (make-parameter #f))
 
 
-  ;; A name numbered in its function, for the dumps
+  ;; The dumps number the names (dumped)
   (define (new-name prefix)
-    (gensym (string-append prefix (number->string ((name-counter))))))
+    (gensym prefix))
 
 
   ;; Compiles the procedure def (a lambda, a procedure define or main) in env, the enclosing
@@ -71,7 +70,7 @@
 
 
   ;; During compile-unit, the functions of the compilation converted but not lowered yet: the
-  ;; element 0 of a vector, each (def fun counter), the last converted first
+  ;; element 0 of a vector, each (def . fun), the last converted first
   (define current-unit (make-parameter #f))
 
 
@@ -83,9 +82,9 @@
       (parameterize ((current-unit unit))
         (thunk))
       (let* ((funs (reverse (vector-ref unit 0)))
-             (optimized (map (lambda (f) (optimize (car f) (cadr f) (caddr f))) funs))
-             (final (optimize-unit (map car funs) optimized (map caddr funs))))
-        (for-each (lambda (f fun) (when fun (finish-function (car f) fun (caddr f))))
+             (optimized (map (lambda (f) (optimize (car f) (cdr f))) funs))
+             (final (optimize-unit (map car funs) optimized)))
+        (for-each (lambda (f fun) (when fun (finish-function (car f) fun)))
                   funs final)
         (filter cdr (map (lambda (f fun) (cons (car f) fun)) funs final)))))
 
@@ -94,33 +93,30 @@
   ;; (make-term vars) of the parameters' variables, converted and checked; then optimized when
   ;; optimize?, and lowered, at once or with the rest of the unit
   (define (convert-function def params optimize? make-term)
-    (let ((counter (make-counter 1)))
-      (let ((fun (parameterize ((unsafe-code? (def-unsafe? def))
-                                (current-function def)
-                                (kinds (make-eq-hashtable))
-                                (name-counter counter)
-                                (return-k (gensym "return")))
-                   (let* ((vars (map-in-order (lambda (p) (fresh-named (car p) (cdr p))) params))
-                          (fun `(fun ,(def-code def) (,(return-k) ,@(map param vars)) ,(make-term vars))))
-                     (dumped 'cps (list-head fun 3) (cdddr fun))
-                     (check-cps fun)
-                     fun))))
-        (cond
-         ((not optimize?) (finish-function def fun counter))
-         ((current-unit)
-          (vector-set! (current-unit) 0 (cons (list def fun counter) (vector-ref (current-unit) 0))))
-         (else (finish-function def (optimize def fun counter) counter))))))
+    (let ((fun (parameterize ((unsafe-code? (def-unsafe? def))
+                              (current-function def)
+                              (kinds (make-eq-hashtable))
+                              (return-k (gensym "return")))
+                 (let* ((vars (map-in-order (lambda (p) (fresh-named (car p) (cdr p))) params))
+                        (fun `(fun ,(def-code def) (,(return-k) ,@(map param vars)) ,(make-term vars))))
+                   (dumped 'cps (list-head fun 3) (cdddr fun))
+                   (check-cps fun)
+                   fun))))
+      (cond
+       ((not optimize?) (finish-function def fun))
+       ((current-unit)
+        (vector-set! (current-unit) 0 (cons (cons def fun) (vector-ref (current-unit) 0))))
+       (else (finish-function def (optimize def fun))))))
 
 
   ;; The frames of fun, then its lowering
-  (define (finish-function def fun counter)
+  (define (finish-function def fun)
     (emit-function!
      def
      (lambda ()
        (parameterize ((unsafe-code? (def-unsafe? def))
                       (current-function def)
                       (kinds (cps-kinds fun))
-                      (name-counter counter)
                       (return-k (car (caddr fun))))
          (let ((fun `(,@(list-head fun 3) ,(expand-frames (cadddr fun)))))
            (dumped 'frames (list-head fun 3) (cdddr fun))

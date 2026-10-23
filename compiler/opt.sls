@@ -17,20 +17,19 @@
           (lift))
 
 
-  ;; (name . pass), (pass def fun) a fun, counter numbering the names a pass adds; each name is
-  ;; also in dump-passes
-  (define (passes counter)
-    (list (cons 'cells (lambda (def fun) (cells-to-params fun counter)))
+  ;; (name . pass), (pass def fun) a fun; each name is also in dump-passes
+  (define passes
+    (list (cons 'cells (lambda (def fun) (cells-to-params fun)))
           (cons 'simplify simplify)
           (cons 'cse cse)
           ;; The branches cse decided, and what they used
           (cons 'resimplify simplify)))
 
 
-  (define pass-names (map car (passes #f)))
+  (define pass-names (map car passes))
 
 
-  ;; The passes on a whole unit, (name . pass), (pass defs funs counters reoptimize) the funs, #f
+  ;; The passes on a whole unit, (name . pass), (pass defs funs reoptimize) the funs, #f
   ;; for a def's that went
   (define unit-passes
     (list (cons 'lift lift-unit)
@@ -76,7 +75,7 @@
 
 
   ;; A disabled pass leaves the fun as it is, also in its dump
-  (define (optimize def fun counter)
+  (define (optimize def fun)
     (let ((disabled (disabled-passes)))
       (fold-left (lambda (fun pass)
                    (let ((fun (if (memq (car pass) disabled) fun ((cdr pass) def fun))))
@@ -84,31 +83,26 @@
                      (check-cps fun)
                      fun))
                  fun
-                 (passes counter))))
+                 passes)))
 
 
-  ;; The unit passes on defs, their optimized funs and the counters numbering their names, in
-  ;; the same order, a fun they change optimized again (not dumped), each pass on the defs left;
+  ;; The unit passes on defs and their optimized funs, in the same order, a fun they change optimized again (not dumped), each pass on the defs left;
   ;; each fun dumped once, after them all, under the name unit. Gives the funs, #f for a def
   ;; that went.
-  (define (optimize-unit defs funs counters)
+  (define (optimize-unit defs funs)
     (let* ((disabled (disabled-passes))
-           (counter-of (make-eq-hashtable))
            (reoptimize (lambda (def fun)
                          (parameterize ((dump-pass #f))
-                           (optimize def fun (hashtable-ref counter-of def #f)))))
+                           (optimize def fun))))
            (table (make-eq-hashtable)))
       (for-each (lambda (def fun) (hashtable-set! table def fun)) defs funs)
-      (for-each (lambda (def counter) (hashtable-set! counter-of def counter)) defs counters)
       (for-each (lambda (pass)
                   (unless (memq (car pass) disabled)
-                    (let* ((live (filter (lambda (def) (hashtable-ref table def #f)) defs))
-                           (live-counters (map cdr (filter (lambda (p) (hashtable-ref table (car p) #f))
-                                                           (map cons defs counters)))))
+                    (let ((live (filter (lambda (def) (hashtable-ref table def #f)) defs)))
                       (for-each (lambda (def fun) (hashtable-set! table def fun))
                                 live
                                 ((cdr pass) live (map (lambda (def) (hashtable-ref table def #f)) live)
-                                 live-counters reoptimize)))))
+                                 reoptimize)))))
                 unit-passes)
       (map (lambda (def)
              (let ((fun (hashtable-ref table def #f)))

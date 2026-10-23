@@ -138,7 +138,7 @@
     (display-symbol out (as-val (load (as-raw x) (raw 1))))
     (put-string out ">"))
    ((string-header? (load (as-raw x) (raw 0))) (display-string out write? x))
-   ((symbol-header? (load (as-raw x) (raw 0))) (display-symbol out x))
+   ((symbol-header? (load (as-raw x) (raw 0))) (put-symbol out write? x))
    ((raw= (load (as-raw x) (raw 0)) flexvector-type) (put-string out "#<flexvector>"))
    ((raw= (load (as-raw x) (raw 0)) hashtable-type) (display-hashtable out x))
    ((raw= (load (as-raw x) (raw 0)) values-type) (display-values out write? x))
@@ -190,10 +190,31 @@
           (char-next (string-next s i)))))
   (put-string out "\""))
 
-;; Its name, bare
+;; Its name, bare; a gensym of no name g and its number
 (define (display-symbol (raw out) sym)
   (declare unsafe noalloc (result void))
-  (display-string out (raw 0) (symbol-name sym)))
+  (if (symbol-name sym)
+      (display-string out (raw 0) (symbol-name sym))
+      (begin
+        (put-string out "g")
+        (put-digits out (symbol-hash-word sym) (raw 10) (raw 1)))))
+
+;; A gensym written as #{name number} when print-gensym is #t, #:name when it is pretty
+(define (put-symbol (raw out) (raw write?) sym)
+  (declare unsafe noalloc (result void))
+  (let ((mode (load print-gensym-mode (raw 0))))
+    (cond
+     ((or (raw= write? (raw 0)) (raw= mode (raw 0)) (not (gensym? sym)))
+      (display-symbol out sym))
+     ((raw= mode (raw 1))
+      (put-string out "#{")
+      (display-symbol out sym)
+      (put-string out " ")
+      (put-digits out (symbol-hash-word sym) (raw 10) (raw 1))
+      (put-string out "}"))
+     (else
+      (put-string out "#:")
+      (display-symbol out sym)))))
 
 ;; The escape of the character n in a string, or 0
 (define (string-escape (raw n))

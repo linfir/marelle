@@ -1,7 +1,7 @@
 (library (utils)
   (export make-counter acons map-in-order for-each-idx adjoin non-empty-list?
           split-last span span-reverse append-reverse read-all mangle
-          dump-passes dump-pass dumped add-printer! printable
+          dump-passes dump-pass dumped numbered add-printer! printable
           compile-error compile-errorf with-entry)
   (import (chezscheme))
 
@@ -133,13 +133,33 @@
     (apply errorf who fmt (map printable args)))
 
 
+  ;; x with each gensym renamed name.n, n its rank among those of its name in order of
+  ;; appearance
+  (define (numbered x)
+    (let ((names (make-eq-hashtable))
+          (counts (make-hashtable string-hash string=?)))
+      (let walk ((x x))
+        (cond ((pair? x) (let ((a (walk (car x)))) (cons a (walk (cdr x)))))
+              ((vector? x) (list->vector (map-in-order walk (vector->list x))))
+              ((gensym? x)
+               (or (hashtable-ref names x #f)
+                   (let* ((s (symbol->string x))
+                          (n (+ (hashtable-ref counts s 0) 1))
+                          (y (string->symbol (string-append s "." (number->string n)))))
+                     (hashtable-set! counts s n)
+                     (hashtable-set! names x y)
+                     y)))
+              (else x)))))
+
+
   ;; xs, printed after head to the console when pass is the dumped one, one per line; a
   ;; function's blocks one instruction per line
   (define (dumped pass head xs)
     (when (eq? pass (dump-pass))
-      (let ((port (console-output-port))
-            (head (printable head))
-            (xs (printable xs)))
+      (let* ((port (console-output-port))
+             (shown (numbered (printable (cons head xs))))
+             (head (car shown))
+             (xs (cdr shown)))
         (fprintf port "(~s" (car head))
         (for-each (lambda (x) (fprintf port " ~s" x)) (cdr head))
         (for-each (lambda (x)
