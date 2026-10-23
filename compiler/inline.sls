@@ -48,16 +48,16 @@
                  (new (if (def-noalloc? def)
                           fun
                           (inline-calls def fun
-                                    (lambda (callee)
-                                      (cond
-                                       ((eq? callee def) #f)
-                                       ((hashtable-ref table callee #f)
-                                        (and (eq? (hashtable-ref state callee #f) 'done)
-                                             (inlinable? callee (fun-of callee) max-inline-size)
-                                             (fun-of callee)))
-                                       (else
-                                        (and (extern-funs)
-                                             (hashtable-ref (extern-funs) callee #f)))))))))
+                                        (lambda (callee)
+                                          (cond
+                                           ((eq? callee def) #f)
+                                           ((hashtable-ref table callee #f)
+                                            (and (eq? (hashtable-ref state callee #f) 'done)
+                                                 (inlinable? callee (fun-of callee) max-inline-size)
+                                                 (fun-of callee)))
+                                           (else
+                                            (and (extern-funs)
+                                                 (hashtable-ref (extern-funs) callee #f)))))))))
             (let ((new (direct-calls new procs)))
               (vector-set! entry 0 (if (eq? new fun) fun (reoptimize def new))))
             (hashtable-set! state def 'done))))

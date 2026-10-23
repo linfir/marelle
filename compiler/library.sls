@@ -256,7 +256,7 @@
                                ,@(if (def-inline? x) (def-body x) '())))))
                      items)
               ,@(static-symbol-entries)
-             ,@(cps-entries funs items))))))))
+              ,@(cps-entries funs items))))))))
 
 
   ;; (cps name fun) for the funs a program may inline, those of items naming only items
