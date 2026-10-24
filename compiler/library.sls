@@ -434,8 +434,8 @@
   ;; The IR entries of the program, its top-level forms with begins spliced: a define with a declare
   ;; define-data and define-constant are static, like the library's; the others are the letrec* body of main
   ;; (main-body), whose variables, but the procedures, are global cells; the last form gives the
-  ;; result, which the executable prints when display?; embedded, ((name path bytes) ...), the files
-  ;; embedded-file returns; datums, ((name . forms) ...), those embedded-datum returns
+  ;; result, which the executable prints when display?, as a line when it is line;
+  ;; embedded, ((name path bytes) ...), the files embedded-file returns; datums, ((name . forms) ...), those embedded-datum returns
   (define (compile-scheme-program interface program embedded datums display?)
     (when (null? (splice-begins program))
       (compile-error 'compile-scheme-program "empty program"))
@@ -496,7 +496,8 @@
                (let ((files (embedded-entries embedded)))
                  `((export "scheme_program")
                    (words "scheme_program" "scheme_main" "scheme_globals" ,(hashtable-size (top-globals))
-                          "scheme_embedded" ,(if display? 1 0) "scheme_static_symbols"
+                          "scheme_embedded" ,(case display? ((#f) 0) ((line) 2) (else 1))
+                          "scheme_static_symbols"
                           "scheme_embedded_data")
                    ,@files
                    ,statics

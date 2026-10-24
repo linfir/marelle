@@ -7,6 +7,8 @@
 ;; Top-level (include FILE ...) forms are spliced first, FILE relative to the including file
 ;; --run: then replaces the process with the executable, which is written only with -o
 ;; --display: the executable prints the value of the program's last form
+;; schemec -e EXPR: the program EXPR, compiled, run and its last form's value printed, as with
+;; --run --display; with -S or --pass, its asm or IR instead
 ;; -S: the program's asm instead, for as and ld with build/lib.o; --pass PASS: its IR after PASS
 ;; (see dump-passes); both to the standard output, or to FILE with -o
 ;; schemec --lib DIR FILE...: the library, lib/*.ss in file name order, into DIR/lib.s, the
@@ -196,7 +198,8 @@
              (errorf compiler-name "~a expects an argument" name)))))
 
 
-(define valued-options '("--lib" "--pass" "--obj" "-o" "--map" "--embed" "--embed-datum" "--libdir"))
+(define valued-options
+  '("--lib" "--pass" "--obj" "-o" "--map" "--embed" "--embed-datum" "--libdir" "-e"))
 
 (define flag-options '("-S" "--display" "--run"))
 
@@ -285,7 +288,8 @@
        (out (option "-o" args))
        (map-file (option "--map" args))
        (asm? (member "-S" args))
-       (run? (member "--run" args))
+       (expr (option "-e" args))
+       (run? (or (member "--run" args) (and expr (not asm?) (not (option "--pass" args)))))
        (pass (let ((name (option "--pass" args)))
                (and name (string->symbol name)))))
   (when (and pass (not (memq pass dump-passes)))
@@ -306,30 +310,38 @@
                               (display text)))))
             (write-object obj unit)))
         (begin
-          (unless (= (length files) 1)
-            (errorf compiler-name "expected one source file, - for the standard input"))
+          (if expr
+              (unless (null? files)
+                (errorf compiler-name "-e does not go with a source file"))
+              (unless (= (length files) 1)
+                (errorf compiler-name "expected one source file, - for the standard input")))
           (when (and run? (or asm? pass))
             (errorf compiler-name "--run does not go with -S or --pass"))
-          (let*-values (((source) (car files))
+          (let*-values (((source) (and (not expr) (car files)))
                         ;; The executable's name, #f for none
                         ((name) (cond
                                  ((or asm? pass) #f)
                                  (out out)
-                                 (run? source)
+                                 (run? (or source (symbol->string compiler-name)))
                                  (obj #f)
                                  (else (default-output source))))
-                        ((program) (if (string=? source "-")
-                                       (expand-includes (read-all) "." '())
-                                       (expand-includes (with-input-from-file source read-all)
-                                                        (path-directory source)
-                                                        (list source))))
+                        ((program) (cond
+                                    (expr (expand-includes (with-input-from-string expr read-all)
+                                                           "." '()))
+                                    ((string=? source "-") (expand-includes (read-all) "." '()))
+                                    (else (expand-includes (with-input-from-file source read-all)
+                                                           (path-directory source)
+                                                           (list source)))))
                         ((image interface) (read-library (option "--libdir" args))))
             (let ((compile
                    (lambda ()
                      (program-asm
                       (compile-scheme-program interface program (embedded-files args)
                                               (embedded-datums args)
-                                              (and (member "--display" args) #t))))))
+                                              (cond
+                                               (expr 'line)
+                                               ((member "--display" args) #t)
+                                               (else #f)))))))
               (cond
                ((or asm? pass)
                 (with-output out

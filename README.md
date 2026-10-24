@@ -30,6 +30,7 @@ marelle prog.scm          # a program to the executable prog, from any directory
 marelle -o out prog.scm   # to out
 marelle --run prog.scm    # compile and run, writing no file
 marelle --display prog.scm  # the executable prints the value of the last form
+marelle -e '(/ 6 4)'      # compile and run the expression, printing 3/2
 marelle -S prog.scm       # the asm; --pass PASS, the IR after a pass
 ./run.py -e '(/ 6 4)'     # prints 3/2
 ./run.py program.scm      # compile, link and run a file

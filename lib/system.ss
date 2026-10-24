@@ -231,11 +231,15 @@
      (else (next (+ i 1))))))
 
 ;; Called from _start with the value of scheme_main, which it prints when the program was
-;; compiled with --display (scheme_program's word 4)
+;; compiled with --display (scheme_program's word 4 is 1), or with -e (2: a line, none for undef)
 (define (finish-program v)
   (declare unsafe noalloc (result never))
-  (unless (raw= (load (address "scheme_program") (raw 4)) (raw 0))
-    (put-datum stdout (raw 1) v))
+  (let ((mode (load (address "scheme_program") (raw 4))))
+    (when (raw= mode (raw 1))
+      (put-datum stdout (raw 1) v))
+    (when (and (raw= mode (raw 2)) (not (eq? v undef)))
+      (put-datum stdout (raw 1) v)
+      (put-string stdout "\n")))
   (exit-process (raw 0)))
 
 ;; A letrec variable used or assigned before its init
