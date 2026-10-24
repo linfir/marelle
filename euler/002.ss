@@ -3,7 +3,7 @@
 (define (sum-of-even-fibo-upto N)
   (let loop ((i 0)
              (j 1)
-             (s 1))
+             (s 0))
     (if (>= j N)
         s
         (loop j

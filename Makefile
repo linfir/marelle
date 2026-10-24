@@ -87,7 +87,7 @@ test-asm: all build/stage1 build/lib.o build/flat.ss
 
 fmt:
 	black -q --line-length 120 *.py
-	emacs -Q --batch --eval '(let ((inhibit-message t)) (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' $(wildcard *.ss) lib/*.ss compiler/*.sls schemec flatten $$(find tests -name '*.scm')
+	emacs -Q --batch --eval '(let ((inhibit-message t)) (setq make-backup-files nil) (setq-default indent-tabs-mode nil) (dolist (f command-line-args-left) (with-current-buffer (find-file f) (scheme-mode) (indent-region (point-min) (point-max)) (save-buffer))) (setq command-line-args-left nil))' $(wildcard *.ss) lib/*.ss compiler/*.sls euler/*.ss schemec flatten $$(find tests -name '*.scm')
 
 clean:
 	rm -rf build

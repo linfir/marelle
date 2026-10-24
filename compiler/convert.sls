@@ -961,8 +961,8 @@
          => (lambda (callee)
               (if (and (eq? (def-result def) 'val) (eq? (def-result callee) 'val))
                   (cps-rest-args env callee x
-                                    (lambda (as)
-                                      (cps-inline callee as x (lambda (env callee y) (cps-tail env callee y)))))
+                                 (lambda (as)
+                                   (cps-inline callee as x (lambda (env callee y) (cps-tail env callee y)))))
                   (cps-return env def x))))
 
         ((called-def env x)
