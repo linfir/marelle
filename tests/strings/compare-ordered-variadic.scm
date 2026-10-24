@@ -1,0 +1,6 @@
+(let ((l (list "c" "b" "a")))
+  (list (string<=? "x") (string>? "x") (string>=? "x")
+        (string<=? "a" "a" "b") (string<=? "a" "b" "a")
+        (string>? "c" "b" "a") (string>? "c" "b" "b")
+        (string>=? "c" "c" "a") (string>=? "c" "a" "b")
+        (apply string>? l) (apply string>=? "c" l) (apply string<=? "a" l)))

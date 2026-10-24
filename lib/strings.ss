@@ -476,6 +476,35 @@
     (string-less? (string-body a string<?) (string-body b string<?)))
    ((a b . rest) (declare inline) (and (string<? a b) (apply string<? b rest)))))
 
+(define string<=?
+  (case-lambda
+   (declare public)
+   ((a) (declare unsafe) (string-body a string<=?) #t)
+   ((a b)
+    (declare unsafe)
+    (let ((a (string-body a string<=?)))
+      (not (string-less? (string-body b string<=?) a))))
+   ((a b . rest) (declare inline) (and (string<=? a b) (apply string<=? b rest)))))
+
+(define string>?
+  (case-lambda
+   (declare public)
+   ((a) (declare unsafe) (string-body a string>?) #t)
+   ((a b)
+    (declare unsafe)
+    (let ((a (string-body a string>?)))
+      (string-less? (string-body b string>?) a)))
+   ((a b . rest) (declare inline) (and (string>? a b) (apply string>? b rest)))))
+
+(define string>=?
+  (case-lambda
+   (declare public)
+   ((a) (declare unsafe) (string-body a string>=?) #t)
+   ((a b)
+    (declare unsafe)
+    (not (string-less? (string-body a string>=?) (string-body b string>=?))))
+   ((a b . rest) (declare inline) (and (string>=? a b) (apply string>=? b rest)))))
+
 ;; Copying and filling, with R7RS's optional ranges (not Chez's R6RS arguments)
 
 ;; (string-copy s [start [end]])

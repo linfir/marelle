@@ -1,0 +1,2 @@
+stage = "executable"
+stderr_contains = "Exception in string<=?: 5 is not a string\n"
