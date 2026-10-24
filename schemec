@@ -4,6 +4,7 @@
 ;; schemec [--run] [-S | --pass PASS] [--display] [-o FILE] SOURCE: the program SOURCE, - for
 ;; stdin, linked with the library into the executable FILE (elf.sls), by default SOURCE without
 ;; its .scm or .ss extension; --map MAP also writes the address of every symbol to MAP
+;; Top-level (include FILE ...) forms are spliced first, FILE relative to the including file
 ;; --run: then replaces the process with the executable, which is written only with -o
 ;; --display: the executable prints the value of the program's last form
 ;; -S: the program's asm instead, for as and ld with build/lib.o; --pass PASS: its IR after PASS
@@ -226,6 +227,52 @@
         (errorf compiler-name "cannot name the executable after ~a, expected -o FILE" source))))
 
 
+;; The directory of the file path, . for none
+(define (path-directory path)
+  (let loop ((i (- (string-length path) 1)))
+    (cond
+     ((< i 0) ".")
+     ((char=? (string-ref path i) #\/) (if (= i 0) "/" (substring path 0 i)))
+     (else (loop (- i 1))))))
+
+
+(define (path-join dir path)
+  (if (or (string=? dir ".")
+          (and (> (string-length path) 0) (char=? (string-ref path 0) #\/)))
+      path
+      (string-append dir "/" path)))
+
+
+(define max-include-depth 64)
+
+
+;; The top-level forms, also inside begins, with each (include file ...) a begin of the files'
+;; forms, a file relative to dir, the directory of the file including it;
+;; stack, the files being included
+(define (expand-includes forms dir stack)
+  (map (lambda (x)
+         (cond
+          ((and (pair? x) (eq? (car x) 'begin) (list? x))
+           `(begin ,@(expand-includes (cdr x) dir stack)))
+          ((and (pair? x) (eq? (car x) 'include))
+           (unless (and (list? x) (pair? (cdr x)) (for-all string? (cdr x)))
+             (errorf compiler-name "invalid include ~s" x))
+           `(begin
+              ,@(apply append
+                       (map (lambda (file)
+                              (let ((path (path-join dir file)))
+                                (unless (file-exists? path)
+                                  (errorf compiler-name "cannot include ~a: no such file" path))
+                                (when (or (member path stack) (>= (length stack) max-include-depth))
+                                  (errorf compiler-name "~a includes itself" path))
+                                (expand-includes (with-input-from-file path read-all)
+                                                 (path-directory path)
+                                                 (cons path stack))))
+                            (cdr x)))))
+          (else x)))
+       forms))
+
+
 ;; Calls thunk with the current output port writing to the file path, or as it is without path
 (define (with-output path thunk)
   (if path (write-file path thunk) (thunk)))
@@ -272,8 +319,10 @@
                                  (obj #f)
                                  (else (default-output source))))
                         ((program) (if (string=? source "-")
-                                       (read-all)
-                                       (with-input-from-file source read-all)))
+                                       (expand-includes (read-all) "." '())
+                                       (expand-includes (with-input-from-file source read-all)
+                                                        (path-directory source)
+                                                        (list source))))
                         ((image interface) (read-library (option "--libdir" args))))
             (let ((compile
                    (lambda ()

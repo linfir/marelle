@@ -1,0 +1,3 @@
+stage = "compiler"
+stderr_contains = "cannot include tests/include/files/none.ss: no such file"
+chez = "skip"

@@ -131,6 +131,9 @@
           ((define define-values define-record-type)
            (compile-error 'front-expr "invalid context for definition" x))
 
+          ((include)
+           (compile-error 'front-expr "include only at the top level" x))
+
           (else
            `(,(marker keyword) ,@(front-exprs env (cdr x)))))))))
 

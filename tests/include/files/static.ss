@@ -1,0 +1,5 @@
+(define (twice x)
+  (declare public)
+  (+ x x))
+(define-record-type point (fields x y))
+(define-values (q r) (floor/ 17 5))

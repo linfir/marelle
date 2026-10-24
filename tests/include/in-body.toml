@@ -1,0 +1,3 @@
+stage = "compiler"
+stderr_contains = "include only at the top level"
+chez = "skip"
