@@ -92,26 +92,43 @@
 
 ;; Inline fast paths on tagged fixnums: (a << 3) | 1 plus (b << 3) | 1, minus 1,
 ;; is ((a + b) << 3) | 1
-(define (+ x y)
-  (declare unsafe inline public)
-  (let ((s (raw- (raw+ (as-raw x) (as-raw y)) (raw 1))))
-    (if (and (fixnum? x) (fixnum? y) (not (sum-overflow? (as-raw x) (as-raw y) s)))
-        (as-val s)
-        (add-numbers x y))))
+(define +
+  (case-lambda
+   (declare public)
+   (() (declare inline) 0)
+   ((x) (declare inline) (check-number x +) x)
+   ((x y)
+    (declare unsafe inline)
+    (let ((s (raw- (raw+ (as-raw x) (as-raw y)) (raw 1))))
+      (if (and (fixnum? x) (fixnum? y) (not (sum-overflow? (as-raw x) (as-raw y) s)))
+          (as-val s)
+          (add-numbers x y))))
+   ((x y . rest) (declare inline) (apply + (+ x y) rest))))
 
-(define (- x y)
-  (declare unsafe inline public)
-  (let ((d (raw- (as-raw x) (as-raw y))))
-    (if (and (fixnum? x) (fixnum? y) (not (difference-overflow? (as-raw x) (as-raw y) d)))
-        (as-val (raw+ d (raw 1)))
-        (subtract-numbers x y))))
+(define -
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (- 0 x))
+   ((x y)
+    (declare unsafe inline)
+    (let ((d (raw- (as-raw x) (as-raw y))))
+      (if (and (fixnum? x) (fixnum? y) (not (difference-overflow? (as-raw x) (as-raw y) d)))
+          (as-val (raw+ d (raw 1)))
+          (subtract-numbers x y))))
+   ((x y . rest) (declare inline) (apply - (- x y) rest))))
 
 ;; (n << 3) | 1 times m is (n * m) << 3 plus m, so subtract the tag first
-(define (* x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y) (small-fixnum? x) (small-fixnum? y))
-      (as-val (raw+ (raw* (raw- (as-raw x) (raw 1)) (fixnum-value y)) (raw 1)))
-      (multiply-numbers x y)))
+(define *
+  (case-lambda
+   (declare public)
+   (() (declare inline) 1)
+   ((x) (declare inline) (check-number x *) x)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y) (small-fixnum? x) (small-fixnum? y))
+        (as-val (raw+ (raw* (raw- (as-raw x) (raw 1)) (fixnum-value y)) (raw 1)))
+        (multiply-numbers x y)))
+   ((x y . rest) (declare inline) (apply * (* x y) rest))))
 
 ;; Fixnums, the divisor neither 0 nor -1 (-2^60 / -1 is a bignum)
 (define (quotient x y)
@@ -132,35 +149,60 @@
       (modulo-integers x y)))
 
 ;; Comparing tagged fixnums compares their values
-(define (= x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y))
-      (raw= (as-raw x) (as-raw y))
-      (raw= (compare-numbers x y =) (raw 0))))
+(define =
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-number x =) #t)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y))
+        (raw= (as-raw x) (as-raw y))
+        (raw= (compare-numbers x y =) (raw 0))))
+   ((x y . rest) (declare inline) (and (= x y) (apply = y rest)))))
 
-(define (< x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y))
-      (raw< (as-raw x) (as-raw y))
-      (raw< (compare-numbers x y <) (raw 0))))
+(define <
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-real x <) #t)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y))
+        (raw< (as-raw x) (as-raw y))
+        (raw< (compare-numbers x y <) (raw 0))))
+   ((x y . rest) (declare inline) (and (< x y) (apply < y rest)))))
 
-(define (<= x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y))
-      (raw<= (as-raw x) (as-raw y))
-      (raw<= (compare-numbers x y <=) (raw 0))))
+(define <=
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-real x <=) #t)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y))
+        (raw<= (as-raw x) (as-raw y))
+        (raw<= (compare-numbers x y <=) (raw 0))))
+   ((x y . rest) (declare inline) (and (<= x y) (apply <= y rest)))))
 
-(define (> x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y))
-      (raw> (as-raw x) (as-raw y))
-      (raw> (compare-numbers x y >) (raw 0))))
+(define >
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-real x >) #t)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y))
+        (raw> (as-raw x) (as-raw y))
+        (raw> (compare-numbers x y >) (raw 0))))
+   ((x y . rest) (declare inline) (and (> x y) (apply > y rest)))))
 
-(define (>= x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y))
-      (raw>= (as-raw x) (as-raw y))
-      (raw>= (compare-numbers x y >=) (raw 0))))
+(define >=
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-real x >=) #t)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y))
+        (raw>= (as-raw x) (as-raw y))
+        (raw>= (compare-numbers x y >=) (raw 0))))
+   ((x y . rest) (declare inline) (and (>= x y) (apply >= y rest)))))
 
 (define (zero? n)
   (declare public)
@@ -280,45 +322,6 @@
   (declare public)
   (* x x))
 
-;; Any number of operands: the calls the inline defs do not take, unless folded by the
-;; compiler, and the procedure values of +, *, - and the comparisons
-(define (variadic-+ . xs)
-  (fold-left (lambda (a b) (+ a b)) 0 xs))
-
-(define (variadic-* . xs)
-  (fold-left (lambda (a b) (* a b)) 1 xs))
-
-(define (variadic-- x . xs)
-  (if (null? xs)
-      (- 0 x)
-      (fold-left (lambda (a b) (- a b)) x xs)))
-
-;; Every pair is compared, so every operand is checked; a lone x is compared with itself
-(define (compare-all ok? x xs)
-  (if (null? xs)
-      (begin (ok? x x) #t)
-      (let next ((x x)
-                 (xs xs)
-                 (result #t))
-        (if (null? xs)
-            result
-            (next (car xs) (cdr xs) (and (ok? x (car xs)) result))))))
-
-(define (variadic-= x . xs)
-  (compare-all (lambda (a b) (= a b)) x xs))
-
-(define (variadic-< x . xs)
-  (compare-all (lambda (a b) (< a b)) x xs))
-
-(define (variadic-> x . xs)
-  (compare-all (lambda (a b) (> a b)) x xs))
-
-(define (variadic-<= x . xs)
-  (compare-all (lambda (a b) (<= a b)) x xs))
-
-(define (variadic->= x . xs)
-  (compare-all (lambda (a b) (>= a b)) x xs))
-
 ;; R6RS: q such that x = qy + m, 0 <= m < |y|; the truncated quotient, moved by one
 ;; when the remainder is negative
 (define (div x y)
@@ -363,20 +366,17 @@
       (cons #\- (integer-digits (- 0 n) radix acc))
       (integer-digits n radix acc)))
 
-(define (number->string x)
-  (declare public)
-  (variadic-number->string x 10))
-
 ;; Radixes 2 to 36, like Chez, uppercase
-(define (variadic-number->string x . radix)
-  (declare unsafe)
-  (check-number x number->string)
-  (unless (or (null? radix) (null? (cdr radix)))
-    (argument-count-error number->string (+ 1 (length radix))))
-  (let ((radix (if (null? radix) 10 (car radix))))
+(define number->string
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (number->string x 10))
+   ((x radix)
+    (declare unsafe)
+    (check-number x number->string)
     (unless (and (fixnum? radix) (>= radix 2) (<= radix 36))
       (argument-error number->string 'radix radix))
     (list->string (signed-digits (number-numerator x) radix
                                  (if (ratnum? x)
                                      (cons #\/ (integer-digits (number-denominator x) radix '()))
-                                     '())))))
+                                     '()))))))

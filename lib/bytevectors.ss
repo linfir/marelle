@@ -95,21 +95,19 @@
             (store8 p i b)
             (byte-next (raw+ i (raw 1))))))))
 
-(define (make-bytevector k fill)
-  (declare unsafe public)
-  (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
-    (argument-error make-bytevector 'bytevector-length k))
-  (unless (byte? fill)
-    (argument-error make-bytevector 'fill-value fill))
-  (let ((bv (alloc-bytevector k)))
-    (fill-bytes! (byte-address bv (raw 0)) (fixnum-value k) (fixnum-value fill))
-    bv))
-
-(define (variadic-make-bytevector k . fill)
-  (cond
-   ((null? fill) (make-bytevector k 0))
-   ((null? (cdr fill)) (make-bytevector k (car fill)))
-   (else (argument-count-error make-bytevector (+ 1 (length fill))))))
+(define make-bytevector
+  (case-lambda
+   (declare public)
+   ((k) (make-bytevector k 0))
+   ((k fill)
+    (declare unsafe)
+    (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
+      (argument-error make-bytevector 'bytevector-length k))
+    (unless (byte? fill)
+      (argument-error make-bytevector 'fill-value fill))
+    (let ((bv (alloc-bytevector k)))
+      (fill-bytes! (byte-address bv (raw 0)) (fixnum-value k) (fixnum-value fill))
+      bv))))
 
 ;; A bytevector of the bytes of the list l, for who
 (define (list->bytevector l who)
@@ -168,10 +166,18 @@
     (copy-bytes! (byte-address c (raw 0)) (byte-address bv (fixnum-value start)) (fixnum-value n))
     c))
 
-(define (bytevector-copy bv)
-  (declare unsafe public)
-  (check-bytevector bv bytevector-copy)
-  (sub-bytevector bv 0 (bytevector-length bv)))
+;; (bytevector-copy bv [start [end]])
+(define bytevector-copy
+  (case-lambda
+   (declare public)
+   ((bv)
+    (declare unsafe)
+    (check-bytevector bv bytevector-copy)
+    (sub-bytevector bv 0 (bytevector-length bv)))
+   ((bv . rest)
+    (check-bytevector bv bytevector-copy)
+    (optional-range bv (bytevector-length bv) rest bytevector-copy
+                    (lambda (start end) (sub-bytevector bv start end))))))
 
 ;; The optional start and end of rest, the range [0, n) by default, checked for x, then f of them
 (define (optional-range x n rest who f)
@@ -186,20 +192,10 @@
     (f (car rest) (cadr rest)))
    (else (argument-count-error who (+ 1 (length rest))))))
 
-;; (bytevector-copy bv [start [end]])
-(define (variadic-bytevector-copy bv . rest)
-  (check-bytevector bv bytevector-copy)
-  (optional-range bv (bytevector-length bv) rest bytevector-copy
-                  (lambda (start end) (sub-bytevector bv start end))))
-
 ;; R7RS's argument order, not R6RS's (Chez)
-(define (bytevector-copy! to at from)
-  (declare public)
-  (variadic-bytevector-copy! to at from))
-
 ;; (bytevector-copy! to at from [start [end]])
-(define (variadic-bytevector-copy! to at from . rest)
-  (declare unsafe)
+(define (bytevector-copy! to at from . rest)
+  (declare unsafe public)
   (check-mutable-bytevector to bytevector-copy!)
   (check-bytevector from bytevector-copy!)
   (optional-range from (bytevector-length from) rest bytevector-copy!
@@ -315,16 +311,17 @@
           (copy-bytes! (string-units (as-raw s)) (byte-address bv (fixnum-value start)) (fixnum-value nbytes))
           s))))
 
-(define (utf8->string bv)
-  (declare public)
-  (check-bytevector bv utf8->string)
-  (utf8-range->string bv 0 (bytevector-length bv)))
-
 ;; (utf8->string bv [start [end]])
-(define (variadic-utf8->string bv . rest)
-  (check-bytevector bv utf8->string)
-  (optional-range bv (bytevector-length bv) rest utf8->string
-                  (lambda (start end) (utf8-range->string bv start end))))
+(define utf8->string
+  (case-lambda
+   (declare public)
+   ((bv)
+    (check-bytevector bv utf8->string)
+    (utf8-range->string bv 0 (bytevector-length bv)))
+   ((bv . rest)
+    (check-bytevector bv utf8->string)
+    (optional-range bv (bytevector-length bv) rest utf8->string
+                    (lambda (start end) (utf8-range->string bv start end))))))
 
 ;; The UTF-8 bytevector of the chars [start, end) of s, fixnums
 (define (string-range->utf8 s start end)
@@ -334,13 +331,14 @@
     (put-utf8-range! (byte-address bv (raw 0)) s (fixnum-value start) (fixnum-value end))
     bv))
 
-(define (string->utf8 s)
-  (declare public)
-  (check-string s string->utf8)
-  (string-range->utf8 s 0 (string-length s)))
-
 ;; (string->utf8 s [start [end]])
-(define (variadic-string->utf8 s . rest)
-  (check-string s string->utf8)
-  (optional-range s (string-length s) rest string->utf8
-                  (lambda (start end) (string-range->utf8 s start end))))
+(define string->utf8
+  (case-lambda
+   (declare public)
+   ((s)
+    (check-string s string->utf8)
+    (string-range->utf8 s 0 (string-length s)))
+   ((s . rest)
+    (check-string s string->utf8)
+    (optional-range s (string-length s) rest string->utf8
+                    (lambda (start end) (string-range->utf8 s start end))))))

@@ -1,0 +1,2 @@
+stdout = "(499999500000 #t #f 1000000)"
+gc_stress = "skip"

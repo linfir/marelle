@@ -1,0 +1,3 @@
+stage = "executable"
+stderr = "Exception: incorrect number of arguments 0 to #<procedure <>\n"
+chez = "skip"

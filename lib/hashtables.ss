@@ -316,27 +316,23 @@
   (declare unsafe inline)
   (and (fixnum? k) (raw>= (fixnum-value k) (raw 0))))
 
-(define (make-eq-hashtable)
-  (declare public)
-  (make-table 0 8 #f #f))
+(define make-eq-hashtable
+  (case-lambda
+   (declare public)
+   (() (make-table 0 8 #f #f))
+   ((k)
+    (unless (table-size? k)
+      (argument-error make-eq-hashtable 'size-argument k))
+    (make-table 0 (table-slots k) #f #f))))
 
-(define (variadic-make-eq-hashtable . k)
-  (cond
-   ((null? k) (make-eq-hashtable))
-   ((and (null? (cdr k)) (table-size? (car k))) (make-table 0 (table-slots (car k)) #f #f))
-   ((null? (cdr k)) (argument-error make-eq-hashtable 'size-argument (car k)))
-   (else (argument-count-error make-eq-hashtable (length k)))))
-
-(define (make-eqv-hashtable)
-  (declare public)
-  (make-table 1 8 #f #f))
-
-(define (variadic-make-eqv-hashtable . k)
-  (cond
-   ((null? k) (make-eqv-hashtable))
-   ((and (null? (cdr k)) (table-size? (car k))) (make-table 1 (table-slots (car k)) #f #f))
-   ((null? (cdr k)) (argument-error make-eqv-hashtable 'size-argument (car k)))
-   (else (argument-count-error make-eqv-hashtable (length k)))))
+(define make-eqv-hashtable
+  (case-lambda
+   (declare public)
+   (() (make-table 1 8 #f #f))
+   ((k)
+    (unless (table-size? k)
+      (argument-error make-eqv-hashtable 'size-argument k))
+    (make-table 1 (table-slots k) #f #f))))
 
 (define (check-hash-procedures hash equiv)
   (declare inline (result void))
@@ -345,18 +341,18 @@
   (unless (procedure? equiv)
     (argument-error make-hashtable 'procedure equiv)))
 
-(define (make-hashtable hash equiv)
-  (declare unsafe public)
-  (check-hash-procedures hash equiv)
-  (make-table 2 8 hash equiv))
-
-(define (variadic-make-hashtable hash equiv . k)
-  (check-hash-procedures hash equiv)
-  (cond
-   ((null? k) (make-table 2 8 hash equiv))
-   ((and (null? (cdr k)) (table-size? (car k))) (make-table 2 (table-slots (car k)) hash equiv))
-   ((null? (cdr k)) (argument-error make-hashtable 'size-argument (car k)))
-   (else (argument-count-error make-hashtable (+ 2 (length k))))))
+(define make-hashtable
+  (case-lambda
+   (declare public)
+   ((hash equiv)
+    (declare unsafe)
+    (check-hash-procedures hash equiv)
+    (make-table 2 8 hash equiv))
+   ((hash equiv k)
+    (check-hash-procedures hash equiv)
+    (unless (table-size? k)
+      (argument-error make-hashtable 'size-argument k))
+    (make-table 2 (table-slots k) hash equiv))))
 
 (define (hashtable-size t)
   (declare unsafe public)

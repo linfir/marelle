@@ -27,6 +27,11 @@
     (argument-error integer->char 'scalar-value x))
   (as-val (bit-or (raw<< (as-raw x) (raw 5)) (raw 2))))
 
+(define (check-char x who)
+  (declare inline (result void))
+  (unless (char? x)
+    (argument-error who 'char x)))
+
 (define (check-chars x y who)
   (declare inline (result void))
   (unless (char? x)
@@ -35,45 +40,55 @@
     (argument-error who 'char y)))
 
 ;; Comparing characters compares their codes
-(define (char=? x y)
-  (declare unsafe inline public)
-  (check-chars x y char=?)
-  (raw= (as-raw x) (as-raw y)))
+(define char=?
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-char x char=?) #t)
+   ((x y)
+    (declare unsafe inline)
+    (check-chars x y char=?)
+    (raw= (as-raw x) (as-raw y)))
+   ((x y . rest) (declare inline) (and (char=? x y) (apply char=? y rest)))))
 
-(define (char<? x y)
-  (declare unsafe inline public)
-  (check-chars x y char<?)
-  (raw< (as-raw x) (as-raw y)))
+(define char<?
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-char x char<?) #t)
+   ((x y)
+    (declare unsafe inline)
+    (check-chars x y char<?)
+    (raw< (as-raw x) (as-raw y)))
+   ((x y . rest) (declare inline) (and (char<? x y) (apply char<? y rest)))))
 
-(define (char<=? x y)
-  (declare unsafe inline public)
-  (check-chars x y char<=?)
-  (raw<= (as-raw x) (as-raw y)))
+(define char<=?
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-char x char<=?) #t)
+   ((x y)
+    (declare unsafe inline)
+    (check-chars x y char<=?)
+    (raw<= (as-raw x) (as-raw y)))
+   ((x y . rest) (declare inline) (and (char<=? x y) (apply char<=? y rest)))))
 
-(define (char>? x y)
-  (declare unsafe inline public)
-  (check-chars x y char>?)
-  (raw> (as-raw x) (as-raw y)))
+(define char>?
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-char x char>?) #t)
+   ((x y)
+    (declare unsafe inline)
+    (check-chars x y char>?)
+    (raw> (as-raw x) (as-raw y)))
+   ((x y . rest) (declare inline) (and (char>? x y) (apply char>? y rest)))))
 
-(define (char>=? x y)
-  (declare unsafe inline public)
-  (check-chars x y char>=?)
-  (raw>= (as-raw x) (as-raw y)))
-
-(define (variadic-char=? x . xs)
-  (compare-all (lambda (a b) (char=? a b)) x xs))
-
-(define (variadic-char<? x . xs)
-  (compare-all (lambda (a b) (char<? a b)) x xs))
-
-(define (variadic-char<=? x . xs)
-  (compare-all (lambda (a b) (char<=? a b)) x xs))
-
-(define (variadic-char>? x . xs)
-  (compare-all (lambda (a b) (char>? a b)) x xs))
-
-(define (variadic-char>=? x . xs)
-  (compare-all (lambda (a b) (char>=? a b)) x xs))
+(define char>=?
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (check-char x char>=?) #t)
+   ((x y)
+    (declare unsafe inline)
+    (check-chars x y char>=?)
+    (raw>= (as-raw x) (as-raw y)))
+   ((x y . rest) (declare inline) (and (char>=? x y) (apply char>=? y rest)))))
 
 ;; Characters: ASCII only
 (define (char-upper-case? c)

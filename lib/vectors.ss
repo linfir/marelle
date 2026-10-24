@@ -52,15 +52,19 @@
   (store (as-raw v) (raw+ (fixnum-value i) (raw 2)) x)
   undef)
 
-(define (make-vector k fill)
-  (declare unsafe inline public)
-  (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
-    (argument-error make-vector 'vector-length k))
-  (let ((p (alloc (raw+ (fixnum-value k) (raw 2)))))
-    (store p (raw 0) vector-type)
-    (store p (raw 1) (fixnum-value k))
-    (fill-words (raw+ p (raw 16)) (fixnum-value k) (as-raw fill))
-    (as-val p)))
+(define make-vector
+  (case-lambda
+   (declare public)
+   ((k) (declare inline) (make-vector k 0))
+   ((k fill)
+    (declare unsafe inline)
+    (unless (and (fixnum? k) (raw>= (fixnum-value k) (raw 0)))
+      (argument-error make-vector 'vector-length k))
+    (let ((p (alloc (raw+ (fixnum-value k) (raw 2)))))
+      (store p (raw 0) vector-type)
+      (store p (raw 1) (fixnum-value k))
+      (fill-words (raw+ p (raw 16)) (fixnum-value k) (as-raw fill))
+      (as-val p)))))
 
 (define (vector-fill! v x)
   (declare unsafe public)
@@ -91,12 +95,6 @@
   (declare public)
   (list->vector xs))
 
-(define (variadic-make-vector k . fill)
-  (cond
-   ((null? fill) (make-vector k 0))
-   ((null? (cdr fill)) (make-vector k (car fill)))
-   (else (argument-count-error make-vector (+ 1 (length fill))))))
-
 (define (vector-copy v)
   (declare unsafe public)
   (check-vector v vector-copy)
@@ -104,18 +102,19 @@
     (copy-words (raw+ (as-raw c) (raw 16)) (raw+ (as-raw v) (raw 16)) (load (as-raw v) (raw 1)))
     c))
 
-(define (vector-for-each f v)
-  (declare public)
-  (let loop ((i 0))
-    (when (< i (vector-length v))
-      (f (vector-ref v i))
-      (loop (+ i 1)))))
-
 ;; Up to the shortest vector
-(define (variadic-vector-for-each f v . vs)
-  (let ((vs (cons v vs)))
-    (let ((n (apply min (map vector-length vs))))
-      (let loop ((i 0))
-        (when (< i n)
-          (apply f (map (lambda (v) (vector-ref v i)) vs))
-          (loop (+ i 1)))))))
+(define vector-for-each
+  (case-lambda
+   (declare public)
+   ((f v)
+    (let loop ((i 0))
+      (when (< i (vector-length v))
+        (f (vector-ref v i))
+        (loop (+ i 1)))))
+   ((f v . vs)
+    (let ((vs (cons v vs)))
+      (let ((n (apply min (map vector-length vs))))
+        (let loop ((i 0))
+          (when (< i n)
+            (apply f (map (lambda (v) (vector-ref v i)) vs))
+            (loop (+ i 1)))))))))

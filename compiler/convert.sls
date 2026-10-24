@@ -237,9 +237,8 @@
     (and (eq? (special-keyword expr) 'low) (low-test (cadr expr)) (cadr expr)))
 
 
-  ;; The def a call expr calls with the right number of arguments, or #f; another number goes
-  ;; to the def's general def, if any; else it is an error, except for a procedure, which
-  ;; checks it when called
+  ;; The def a call expr calls with the right number of arguments, or #f; another number is an
+  ;; error, except for a procedure, which checks it when called
   (define (called-def env expr)
     (let ((b (head-binding env expr))
           (n (length (cdr expr))))
@@ -247,15 +246,213 @@
            (let ((def (def-binding-def b)))
              (cond
               ((takes? def n) def)
-              ((general-def def) => (lambda (general) (and (takes? general n) general)))
               ((def-procedure? def) #f)
               (else (compile-error 'compile-call "wrong number of arguments" expr)))))))
 
 
-  (define (takes? def n)
-    (if (def-rest? def)
-        (>= n (def-required def))
-        (= n (length (def-params def)))))
+  ;; case-lambda groups (defs.sls).
+  ;; A call of a group goes to its first clause taking its number of operands, a rest clause
+  ;; getting the extra ones as a fresh list. An inline rest clause is expanded instead: when its
+  ;; rest parameter is only the last operand of applies, bound to (spliced atom ...), which such
+  ;; an apply spreads as its operands, else to the fresh list.
+  ;; An apply of a group walks the list to the clause taking the arguments.
+
+  ;; The call x in simpler terms, as (env . x): an apply of a spliced list or of a group, or a
+  ;; group call that is not inline; else #f
+  (define (case-rewrite env x)
+    (let ((b (head-binding env x)))
+      (and (def-binding? b)
+           (let ((def (def-binding-def b)))
+             (cond
+              ((and (eq? def (core-def 'apply)) (>= (length x) 3))
+               (let ((f (cadr x))
+                     (es (list-head (cddr x) (- (length x) 3)))
+                     (l (car (last-pair x))))
+                 (cond
+                  ((spliced-operand env l)
+                   => (lambda (as)
+                        (let ((ts (map-in-order (lambda (a) (gensym "spliced")) as)))
+                          (cons (append (map (lambda (t a) (cons t (make-local-binding a))) ts as) env)
+                                `(,f ,@es ,@ts)))))
+                  ((group-operand env f)
+                   => (lambda (g) (cons env (apply-tree g es l))))
+                  (else #f))))
+              ((def-clauses def)
+               => (lambda (clauses)
+                    (let ((c (first-clause clauses (length (cdr x)))))
+                      (cond
+                       ((not c) #f)
+                       ((not (clause-rest? c)) (cons env (cons (clause-def c) (cdr x))))
+                       ((inline-clause? c) #f)
+                       (else
+                        (let ((r (clause-required c)))
+                          (cons env `(,(clause-def c) ,@(list-head (cdr x) r)
+                                      ,(cons-chain (list-tail (cdr x) r) ''())))))))))
+              (else #f))))))
+
+
+  ;; The inline rest clause a group call x is expanded into, or #f
+  (define (inline-rest-clause env x)
+    (let ((b (head-binding env x)))
+      (and (def-binding? b)
+           (let ((clauses (def-clauses (def-binding-def b))))
+             (and clauses
+                  (let ((c (first-clause clauses (length (cdr x)))))
+                    (and c (clause-rest? c) (inline-clause? c) (clause-def c))))))))
+
+
+  ;; An inline rest clause is expanded with its list spliced, or else fresh, but not inside
+  ;; itself
+  (define (inline-clause? c)
+    (and (clause-inline? c)
+         (or (spliceable? c) (not (assq (clause-def c) (inlining))))))
+
+
+  ;; The atoms of x's operands, those past def's required parameters as one spliced atom, or
+  ;; as a fresh list
+  (define (cps-rest-args env def x c)
+    (let* ((r (- (length (def-params def)) 1))
+           (required (list-head (cdr x) r)))
+      (if (spliceable? (def-clause def))
+          (cps-exprs env (cdr x) (map (lambda (y) 'val) (cdr x)) x
+                     (lambda (as) (c (append (list-head as r) (list (cons 'spliced (list-tail as r)))))))
+          (cps-exprs env required (map (lambda (y) 'val) required) x
+                     (lambda (as)
+                       (cps-rest-list env (list-tail (cdr x) r) x
+                                      (lambda (l) (c (append as (list l))))))))))
+
+
+  (define (spliced? a)
+    (and (pair? a) (eq? (car a) 'spliced)))
+
+
+  (define (spliced-call? as)
+    (and (pair? as) (spliced? (car (last-pair as)))))
+
+
+  ;; The atoms of the spliced rest list x names, or #f
+  (define (spliced-operand env x)
+    (and (symbol? x)
+         (let ((entry (assq x env)))
+           (and entry
+                (local-binding? (cdr entry))
+                (spliced? (local-binding-operand (cdr entry)))
+                (cdr (local-binding-operand (cdr entry)))))))
+
+
+  ;; The group x names, or #f
+  (define (group-operand env x)
+    (let ((b (cond
+              ((def? x) (make-def-binding x))
+              ((symbol? x) (let ((entry (assq x env))) (and entry (cdr entry))))
+              (else #f))))
+      (and (def-binding? b)
+           (def-clauses (def-binding-def b))
+           (def-binding-def b))))
+
+
+  ;; Whether the rest clause c is spliced: inline, its rest parameter only the last operand of
+  ;; applies (so not captured either)
+  (define (spliceable? c)
+    (and (clause-inline? c)
+         (let ((r (car (last-pair (def-core-names (clause-def c)))))
+               (apply-def (core-def 'apply)))
+           (let walk ((x (def-core-body (clause-def c))))
+             (cond
+              ((eq? x r) #f)
+              ((not (pair? x)) #t)
+              ((and (eq? (car x) apply-def) (eq? (car (last-pair x)) r))
+               (walk (list-head x (- (length x) 1))))
+              (else (and (walk (car x)) (walk (cdr x)))))))))
+
+
+  ;; (cons x (cons ... tail))
+  (define (cons-chain xs tail)
+    (fold-right (lambda (x acc) (list (core-def 'cons) x acc)) tail xs))
+
+
+  ;; (apply g e ... l) as a walk of l's spine to the clause of g taking the arguments: past the
+  ;; counts a fixed clause takes, the rest clause gets the tail, shared when l is the current
+  ;; function's own rest list, used only there, else a checked copy. The elements an own list
+  ;; is known to have are taken without tests.
+  (define (apply-tree g es l)
+    (let* ((clauses (def-clauses g))
+           (top (apply max (map clause-required clauses)))
+           (gs (map-in-order (lambda (e) (gensym "a")) es))
+           (lg (gensym "l"))
+           (known (own-list l)))
+      (define (leaf c atoms tail)
+        (let ((r (clause-required c)))
+          (if (clause-rest? c)
+              `(,(clause-def c) ,@(list-head atoms r) ,(cons-chain (list-tail atoms r) tail))
+              `(,(clause-def c) ,@atoms))))
+
+      (define fail
+        `(,(core-def 'apply-error) ,g ,(length gs) ,lg))
+
+      ;; The clause every count past p reaches, if a rest clause of at most p required ones;
+      ;; none when no clause takes any; else #f
+      (define (beyond p)
+        (let ((cs (map (lambda (i) (first-clause clauses (+ p 1 i)))
+                       (iota (- (max (+ top 1) (+ p 1)) p)))))
+          (cond
+           ((for-all not cs) 'none)
+           ((and (car cs)
+                 (for-all (lambda (c) (eq? c (car cs))) cs)
+                 (clause-rest? (car cs))
+                 (<= (clause-required (car cs)) p))
+            (car cs))
+           (else #f))))
+
+      ;; p atoms, then the list t of at least k elements
+      (define (node p atoms t k)
+        (define (past)
+          (let ((c (beyond p)))
+            (cond
+             ((eq? c 'none) fail)
+             (c (leaf c atoms (if known t `(,(core-def 'apply-list-copy) ,t ,lg))))
+             (else
+              (let* ((a (gensym "a"))
+                     (u (gensym "l"))
+                     (next `(,(marker 'let) ((,a (,(core-def 'pair-car) ,t))
+                                             (,u (,(core-def 'pair-cdr) ,t)))
+                             ,(node (+ p 1) (append atoms (list a)) u (max (- k 1) 0)))))
+                (if (> k 0)
+                    next
+                    `(,(marker 'if) (,(core-def 'pair?) ,t) ,next ,fail)))))))
+        (if (> k 0)
+            (past)
+            `(,(marker 'if) (,(core-def 'null?) ,t)
+              ,(let ((c (first-clause clauses p)))
+                 (if c (leaf c atoms t) fail))
+              ,(past))))
+
+      `(,(marker 'let) (,@(map list gs es) (,lg ,l))
+        ,(node (length gs) gs lg (or known 0)))))
+
+
+  ;; When x is the current function's rest list, used only once, so a callee may share it, the
+  ;; number of elements it has at least, else #f: a dispatcher's list may be empty, a rest
+  ;; clause's has those past its required parameters of the fewest arguments it is called with
+  (define (own-list x)
+    (let* ((f (current-function))
+           (c (def-clause f)))
+      (and (symbol? x)
+           (or (def-clauses f) (and c (clause-rest? c)))
+           (eq? x (car (last-pair (def-core-names f))))
+           (= (let count ((y (def-core-body f)))
+                (cond
+                 ((eq? y x) 1)
+                 ((pair? y) (+ (count (car y)) (count (cdr y))))
+                 (else 0)))
+              1)
+           (if c
+               (let ((clauses (def-clauses (clause-group f))))
+                 (let loop ((n (clause-required c)))
+                   (if (eq? (first-clause clauses n) c)
+                       (- n (clause-required c))
+                       (loop (+ n 1)))))
+               0))))
 
 
   (define (immediate-operand x)
@@ -310,9 +507,10 @@
       (cond
        ((local-binding? b)
         (let ((a (local-binding-operand b)))
-          (if (deferred-literal? a)
-              (literal-atom (cadr a) c)
-              (c a))))
+          (cond
+           ((deferred-literal? a) (literal-atom (cadr a) c))
+           ((spliced? a) (compile-error 'compile-value "spliced rest list used as a value" x))
+           (else (c a)))))
        ;; A static procedure of a fix
        ((def-binding? b)
         (c (def-value (def-binding-def b) x)))
@@ -326,14 +524,13 @@
         (compile-error 'compile-value "named let used as a value or called not in exit position" x)))
 
 
-  ;; The procedure object of def, or of its general def, which takes any number of arguments
+  ;; The procedure object of def
   (define (def-value def x)
-    (let ((def (or (general-def def) def)))
-      (unless (def-emitted? def)
-        (compile-error 'compile-value "inline def without a procedure object" x))
-      (when (def-noalloc? def)
-        (compile-error 'compile-value "noalloc def without a procedure object" x))
-      `(as-val ,(def-proc def))))
+    (unless (def-emitted? def)
+      (compile-error 'compile-value "inline def without a procedure object" x))
+    (when (def-noalloc? def)
+      (compile-error 'compile-value "noalloc def without a procedure object" x))
+    `(as-val ,(def-proc def)))
 
 
   ;; and and or as values, as if, let and begin, or #f
@@ -446,6 +643,10 @@
       (cond
        ((loop-binding? b)
         (loop-error b x))
+       ((case-rewrite env x)
+        => (lambda (r) (cps (car r) (cdr r) c)))
+       ((inline-rest-clause env x)
+        => (lambda (def) (cps-rest-args env def x (lambda (as) (inline-call def as x c)))))
        ((called-def env x)
         => (lambda (def)
              (if (def-called? def)
@@ -459,8 +660,7 @@
   (define (call-def def as form c)
     (cond
      ((def-inline? def)
-      (let ((c (outside c)))
-        (cps-inline def as form (lambda (env def x) (cps-result env def x c)))))
+      (inline-call def as form c))
      ;; A call on the machine stack, so not a safepoint
      ((def-noalloc? def)
       (letprim `(stackcall ,(def-result def) ,def ,@as) (def-result def) c))
@@ -468,6 +668,11 @@
       (compile-error 'call-def "def with a rest parameter called with its parameters" (def-name def)))
      (else
       (app-to #f def as (def-result def) c))))
+
+
+  (define (inline-call def as form c)
+    (let ((c (outside c)))
+      (cps-inline def as form (lambda (env def x) (cps-result env def x c)))))
 
 
   ;; (app tag callee k atom ...), its value, of kind result, given to c through k
@@ -749,6 +954,17 @@
              (immediate? x))
          (cps-return env def x))
 
+        ((case-rewrite env x)
+         => (lambda (r) (cps-tail (car r) def (cdr r))))
+
+        ((inline-rest-clause env x)
+         => (lambda (callee)
+              (if (and (eq? (def-result def) 'val) (eq? (def-result callee) 'val))
+                  (cps-rest-args env callee x
+                                    (lambda (as)
+                                      (cps-inline callee as x (lambda (env callee y) (cps-tail env callee y)))))
+                  (cps-return env def x))))
+
         ((called-def env x)
          => (lambda (callee)
               (cond
@@ -831,13 +1047,16 @@
 
 
   ;; The body of def with its parameters bound to the atoms as, in its own env;
-  ;; (last env def x) converts the last expression
+  ;; (last env def x) converts the last expression.
+  ;; A def is expanded inside itself only through a spliced rest list, with fewer arguments.
   (define (cps-inline def as form last)
-    (when (memq def (inlining))
-      (compile-error 'compile-inline "recursive inline def" (def-name def)))
-    (let ((callee-env (map (lambda (name a) (cons name (make-local-binding a)))
+    (let ((n (and (spliced-call? as) (+ (length as) -1 (length (cdr (car (last-pair as)))))))
+          (callee-env (map (lambda (name a) (cons name (make-local-binding a)))
                            (def-core-names def) as)))
-      (parameterize ((inlining (cons def (inlining)))
+      (when (exists (lambda (e) (and (eq? (car e) def) (not (and n (cdr e) (< n (cdr e))))))
+                    (inlining))
+        (compile-error 'compile-inline "recursive inline def" (def-name def)))
+      (parameterize ((inlining (cons (cons def n) (inlining)))
                      (unsafe-code? (def-unsafe? def)))
         (cps-seq callee-env (def-core-body def)
                  (lambda (env x) (last env def x))))))
@@ -1011,8 +1230,11 @@
 
   (define (test-true kt kf form)
     (lambda (a)
-      (check-atom a 'val form)
-      `(if (true ,a) ,kt ,kf)))
+      (if (eq? (atom-kind a) 'never)
+          '(unreachable)
+          (begin
+            (check-atom a 'val form)
+            `(if (true ,a) ,kt ,kf)))))
 
 
   ;; Branches to kt when test is true, else to kf
@@ -1059,6 +1281,19 @@
 
        ((eq? keyword 'begin)
         (cps-seq env (parse-begin test) (lambda (env x) (cps-test env x kt kf))))
+
+       ((and (not keyword)
+             (non-empty-list? test)
+             (case-rewrite env test))
+        => (lambda (r) (cps-test (car r) (cdr r) kt kf)))
+
+       ((and (not keyword)
+             (non-empty-list? test)
+             (inline-rest-clause env test))
+        => (lambda (def)
+             (if (eq? (def-result def) 'val)
+                 (cps-rest-args env def test (lambda (as) (cps-inline def as test (test-last kt kf))))
+                 (cps env test (test-true kt kf test)))))
 
        ((and (not keyword)
              (non-empty-list? test)

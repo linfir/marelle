@@ -11,6 +11,8 @@
           library-def? library-def-name library-def-args library-def-kinds
           library-def-result library-def-attrs library-def-body library-def-procedure?
           library-def-unsafe? declared-define? parse-library-define parse-define-data
+          library-case? library-case-name library-case-clauses library-case-dispatcher
+          library-clause-def library-clause-required library-clause-rest? library-clause-inline?
           library-data? library-data-name library-data-nwords
           make-library-constant library-constant? library-constant-name library-constant-kind
           library-constant-value define-constant-form?)
@@ -438,6 +440,12 @@
 
 
   (define (parse-library-define form)
+    (if (library-case-form? form)
+        (parse-library-case form)
+        (parse-library-function form)))
+
+
+  (define (parse-library-function form)
     (unless (and (define-form? form)
                  (>= (length form) 3)
                  (pair? (cadr form))
@@ -462,6 +470,83 @@
             (compile-error 'parse-library-define "rest parameter in a non-procedure define" form))
           (make-library-def (caadr form) (map car params) (map cdr params) result attrs
                             (if declare? (cdr body) body) procedure? unsafe?)))))
+
+
+  (define (library-case-form? form)
+    (and (define-form? form)
+         (= (length form) 3)
+         (symbol? (cadr form))
+         (non-empty-list? (caddr form))
+         (eq? (car (caddr form)) 'case-lambda)))
+
+
+  ;; (define name (case-lambda [(declare public)] (formals [(declare ...)] body ...) ...)):
+  ;; a def per clause, clause/name/k for k required parameters, clause/name/k+ with a rest one,
+  ;; which is a val holding the list;
+  ;; then the dispatcher, a procedure named name applying itself to its arguments, an apply
+  ;; the compiler expands over their list
+  (define (parse-library-case form)
+    (let* ((name (cadr form))
+           (items (cdaddr form))
+           (declare? (and (pair? items) (non-empty-list? (car items)) (eq? (caar items) 'declare)))
+           (public? (and declare?
+                         (begin
+                           (unless (equal? (car items) '(declare public))
+                             (compile-error 'parse-library-case "invalid declaration" (car items)))
+                           #t)))
+           (clauses (map-in-order (lambda (c) (parse-library-clause name c))
+                                  (if declare? (cdr items) items))))
+      (let loop ((cs clauses) (names '()))
+        (when (pair? cs)
+          (let ((n (library-def-name (library-clause-def (car cs)))))
+            (when (memq n names)
+              (compile-error 'parse-library-case "clause shadowed by an earlier one" form))
+            (loop (cdr cs) (cons n names)))))
+      (make-library-case name clauses
+                         (make-library-def name '(args) '(rest) 'val (if public? '(:public) '())
+                                           `((apply ,name args)) #t #f))))
+
+
+  (define (parse-library-clause name c)
+    (unless (and (list? c) (>= (length c) 2))
+      (compile-error 'parse-library-case "invalid case-lambda clause" c))
+    (let* ((required (let loop ((f (car c)))
+                       (if (pair? f) (cons (car f) (loop (cdr f))) '())))
+           (rest (let loop ((f (car c)))
+                   (if (pair? f) (loop (cdr f)) f)))
+           (k (length required))
+           (cname (string->symbol (format "clause/~a/~a~a" name k (if (null? rest) "" "+"))))
+           (x (parse-library-function
+               `(define (,cname ,@required ,@(if (null? rest) '() (list rest))) ,@(cdr c))))
+           (attrs (library-def-attrs x))
+           (inline? (and (symbol? rest) (memq ':inline attrs) #t)))
+      (unless (or (null? rest) (symbol? rest))
+        (compile-error 'parse-library-case "invalid case-lambda clause" c))
+      (when (exists (lambda (a) (memq a '(:public :noalloc :pure))) attrs)
+        (compile-error 'parse-library-case "public, noalloc or pure clause" c))
+      (unless (and (for-all (lambda (k) (eq? k 'val)) (library-def-kinds x))
+                   (memq (library-def-result x) '(val never)))
+        (compile-error 'parse-library-case "raw parameter or result in a clause" c))
+      ;; A rest clause is inlined only at calls with a known number of operands
+      (make-library-clause
+       (if inline?
+           (make-library-def cname (library-def-args x) (library-def-kinds x) (library-def-result x)
+                             (remq ':inline attrs) (library-def-body x)
+                             (and (eq? (library-def-result x) 'val) (null? (remq ':inline attrs)))
+                             (library-def-unsafe? x))
+           x)
+       k (symbol? rest) inline?)))
+
+
+  ;; name, its clauses and its dispatcher, a library-def
+  (define-record-type library-case
+    (fields name clauses dispatcher))
+
+
+  ;; A clause's def, its number of required parameters, whether it has a rest one, and whether
+  ;; it is a rest clause declared inline, inlined at calls with a known number of operands
+  (define-record-type library-clause
+    (fields def required rest? inline?))
 
 
   (define (parse-define-data form)
@@ -530,6 +615,7 @@
                      (else (parse-library-define form))))
                  (name (cond
                         ((library-def? x) (library-def-name x))
+                        ((library-case? x) (library-case-name x))
                         ((library-data? x) (library-data-name x))
                         (else (library-constant-name x)))))
             (when (memq name names)

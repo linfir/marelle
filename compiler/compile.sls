@@ -78,12 +78,9 @@
               body))
 
 
-  ;; A general def is named after its specialization
+  ;; A case-lambda clause is named after its group
   (define (procedure-name def)
-    (let ((s (symbol->string (def-name def))))
-      (if (and (> (string-length s) 9) (string=? (substring s 0 9) "variadic-"))
-          (substring s 9 (string-length s))
-          s)))
+    (symbol->string (def-name (or (clause-group def) def))))
 
 
   ;; The def's name, procedure object and function; a closure def's object is the template

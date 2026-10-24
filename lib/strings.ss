@@ -378,9 +378,14 @@
       (words=? (raw+ (as-raw a) (raw 16)) (raw+ (as-raw b) (raw 16))
                (raw- (string-words (as-raw a)) (raw 2)))))))
 
-(define (string=? a b)
-  (declare unsafe public)
-  (same-string? (string-body a string=?) (string-body b string=?)))
+(define string=?
+  (case-lambda
+   (declare public)
+   ((a) (declare unsafe) (string-body a string=?) #t)
+   ((a b)
+    (declare unsafe)
+    (same-string? (string-body a string=?) (string-body b string=?)))
+   ((a b . rest) (declare inline) (and (string=? a b) (apply string=? b rest)))))
 
 (define (string-append . strings)
   (declare unsafe public)
@@ -462,20 +467,26 @@
      ((raw> (string-code-at a i) (string-code-at b j)) #f)
      (else (char-next (string-next a i) (string-next b j))))))
 
-(define (string<? a b)
-  (declare unsafe public)
-  (string-less? (string-body a string<?) (string-body b string<?)))
+(define string<?
+  (case-lambda
+   (declare public)
+   ((a) (declare unsafe) (string-body a string<?) #t)
+   ((a b)
+    (declare unsafe)
+    (string-less? (string-body a string<?) (string-body b string<?)))
+   ((a b . rest) (declare inline) (and (string<? a b) (apply string<? b rest)))))
 
 ;; Copying and filling, with R7RS's optional ranges (not Chez's R6RS arguments)
 
-(define (string-copy s)
-  (declare public)
-  (substring s 0 (string-length s)))
-
 ;; (string-copy s [start [end]])
-(define (variadic-string-copy s . rest)
-  (optional-range s (string-length s) rest string-copy
-                  (lambda (start end) (substring s start end))))
+(define string-copy
+  (case-lambda
+   (declare public)
+   ((s)
+    (substring s 0 (string-length s)))
+   ((s . rest)
+    (optional-range s (string-length s) rest string-copy
+                    (lambda (start end) (substring s start end))))))
 
 ;; Whether the chars [start, end) of the string s are all ASCII
 (define (ascii-range? s (raw start) (raw end))
@@ -495,13 +506,9 @@
         b
         (widen! b (make-fixnum (string-nchars b))))))
 
-(define (string-fill! s c)
-  (declare public)
-  (variadic-string-fill! s c))
-
 ;; (string-fill! s c [start [end]])
-(define (variadic-string-fill! s c . rest)
-  (declare unsafe)
+(define (string-fill! s c . rest)
+  (declare unsafe public)
   (let ((n (string-length (mutable-string-body s string-fill!))))
     (unless (char? c)
       (argument-error string-fill! 'char c))
@@ -543,14 +550,10 @@
                      (string-code from i))
             (char-next (raw+ i (raw 1)))))))))
 
-(define (string-copy! to at from)
-  (declare public)
-  (variadic-string-copy! to at from))
-
 ;; (string-copy! to at from [start [end]]); to is relocated to UTF-32 first unless both are
 ;; ASCII for the range
-(define (variadic-string-copy! to at from . rest)
-  (declare unsafe)
+(define (string-copy! to at from . rest)
+  (declare unsafe public)
   (mutable-string-body to string-copy!)
   (optional-range from (string-length from) rest string-copy!
                   (lambda (start end)

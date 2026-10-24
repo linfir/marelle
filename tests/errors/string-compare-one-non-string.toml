@@ -1,0 +1,2 @@
+stage = "executable"
+stderr = "Exception in string<?: a is not a string\n"

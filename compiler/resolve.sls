@@ -5,8 +5,6 @@
 ;; - a top-level variable of main to calls of global-ref and global-set!, a let binding it
 ;;   getting a fresh local stored in its cell;
 ;; - (check-defined x [value]) to (check-defined x read [value]).
-;; The calls of the library's variadic defs with a number of operands their inline def does not
-;; take are expanded in terms of it.
 ;; Locals, gensyms since the front pass, stay symbols.
 
 (library (resolve)
@@ -117,53 +115,4 @@
     (let ((b (and (symbol? (car x)) (not (gensym? (car x))) (binding env (car x)))))
       (if (low-op-binding? b)
           `(,(marker 'low) ,(low-op-binding-name b) ,@(resolve-body env (cdr x)))
-          (let ((head (resolve env (car x))))
-            (cond
-             ((and (def? head) (expand-variadic head (cdr x)))
-              => (lambda (expanded) (resolve env expanded)))
-             (else
-              (cons head (resolve-body env (cdr x)))))))))
-
-
-  ;; The calls of the library's +, *, -, comparisons (char ones too), bitwise operations,
-  ;; make-vector and list whose number of operands the inline def does not take, in terms of
-  ;; it, or #f; the others go to their general def
-  (define (expand-variadic op args)
-    (let ((def op))
-      (and (general-def def)
-           (let ()
-             (define (fold-operands)
-               (fold-left (lambda (acc x) (list op acc x)) (car args) (cdr args)))
-             (case (def-name def)
-               ((+ * bitwise-and bitwise-ior bitwise-xor logand logior logor logxor)
-                (let ((unit (case (def-name def)
-                              ((*) 1)
-                              ((bitwise-and logand) -1)
-                              (else 0))))
-                  (case (length args)
-                    ((0) unit)
-                    ((1) (list op unit (car args)))
-                    ((2) #f)
-                    (else (fold-operands)))))
-               ((-)
-                (case (length args)
-                  ((1) (list op 0 (car args)))
-                  ((0 2) #f)
-                  (else (fold-operands))))
-               ;; Each operand once, compared with the next
-               ((= < > <= >= char=? char<? char<=? char>? char>=?)
-                (and (> (length args) 2)
-                     (let ((tmps (map-in-order (lambda (x) (gensym "operand")) args)))
-                       `(,(marker 'let) ,(map list tmps args)
-                         ,(expand-and (map (lambda (x y) (list op x y))
-                                           (list-head tmps (- (length tmps) 1))
-                                           (cdr tmps)))))))
-               ((make-vector)
-                (and (= (length args) 1) (list op (car args) 0)))
-               ;; Nested conses, so no frame and no rest list
-               ((list)
-                (case (length args)
-                  ((0) ''())
-                  ((1) #f)
-                  (else (list (core-def 'cons) (car args) (cons op (cdr args))))))
-               (else #f)))))))
+          (cons (resolve env (car x)) (resolve-body env (cdr x)))))))

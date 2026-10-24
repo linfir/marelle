@@ -10,7 +10,9 @@
           procedure-type symbol-type immutable-bytevector-type immutable-vector-type immutable-ascii-string-type
           immutable-utf8-string-type unsafe-bindings
           names symbols current-strings current-numbers startup-defs current-entries
-          core-defs inlining unsafe-code? general-def
+          core-defs inlining unsafe-code?
+          case-groups new-case-groups add-case-group! def-clauses clause-group def-clause clause-def
+          clause-required clause-rest? clause-inline? takes? clause-takes? first-clause
           fresh-name add-symbol! add-def-symbols! intern-string! intern-number! add-entries! core-def)
   (import (chezscheme)
           (utils)
@@ -91,7 +93,7 @@
   ;; ((string . name), newest first), the static numbers ((n name . entry), newest first), the
   ;; defs main calls first, the entries of the compiled functions
   ;; (newest first), the library defs the compiler calls (name => def), and the inline defs being
-  ;; expanded
+  ;; expanded, (def . n) with n the number of arguments of a spliced rest list, else #f
   (define names (make-parameter #f))
   (define symbols (make-parameter #f))
   (define current-strings (make-parameter '()))
@@ -102,6 +104,51 @@
   (define inlining (make-parameter '()))
   ;; True while compiling an unsafe define, which may use C strings and low operations
   (define unsafe-code? (make-parameter #f))
+
+
+  ;; A case-lambda group: its dispatcher, a procedure taking any number of arguments, maps to
+  ;; its clauses in order; each clause's def maps to the dispatcher. inline? is a rest clause's
+  ;; inline declaration, which its def does not carry.
+  (define-record-type clause
+    (fields def required rest? inline?))
+
+  ;; Per compilation: (dispatcher table . clause table)
+  (define case-groups (make-parameter #f))
+
+  (define (new-case-groups)
+    (cons (make-eq-hashtable) (make-eq-hashtable)))
+
+  ;; clauses: (def required rest? inline?) lists
+  (define (add-case-group! dispatcher clauses)
+    (let ((cs (map (lambda (c) (apply make-clause c)) clauses)))
+      (hashtable-set! (car (case-groups)) dispatcher cs)
+      (for-each (lambda (c) (hashtable-set! (cdr (case-groups)) (clause-def c) (cons dispatcher c))) cs)))
+
+  ;; The clauses of a dispatcher, or #f
+  (define (def-clauses def)
+    (hashtable-ref (car (case-groups)) def #f))
+
+  ;; The dispatcher of a clause's def, or #f
+  (define (clause-group def)
+    (let ((e (hashtable-ref (cdr (case-groups)) def #f)))
+      (and e (car e))))
+
+  ;; The clause of a clause's def, or #f
+  (define (def-clause def)
+    (let ((e (hashtable-ref (cdr (case-groups)) def #f)))
+      (and e (cdr e))))
+
+  (define (clause-takes? c n)
+    (if (clause-rest? c) (>= n (clause-required c)) (= n (clause-required c))))
+
+  ;; The first of the clauses taking n arguments, or #f
+  (define (first-clause clauses n)
+    (find (lambda (c) (clause-takes? c n)) clauses))
+
+  (define (takes? def n)
+    (if (def-rest? def)
+        (>= n (def-required def))
+        (= n (length (def-params def)))))
 
 
   (define (fresh-name x)
@@ -177,16 +224,6 @@
     (cond
      ((assq name (core-defs)) => cdr)
      (else (compile-error 'core-def "missing library def" name))))
-
-
-  ;; The general def variadic-D of the library def D, a procedure taking any number of
-  ;; arguments, of which D is a fixed-arity specialization
-  (define (general-def def)
-    (let ((name (def-name def)))
-      (and (eq? (cond ((assq name (core-defs)) => cdr) (else #f)) def)
-           (cond
-            ((assq (string->symbol (format "variadic-~a" name)) (core-defs)) => cdr)
-            (else #f)))))
 
 
   ;; Printed by name, in dumps

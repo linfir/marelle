@@ -1,9 +1,13 @@
 ;; The reader: read and string->number, in Chez's syntax and wording, exact numbers only
 
-(define (read port)
-  (declare unsafe public)
-  (check-port port input-flag read)
-  (read-datum port))
+(define read
+  (case-lambda
+   (declare public)
+   (() (declare inline) (read (current-input-port)))
+   ((port)
+    (declare unsafe)
+    (check-port port input-flag read)
+    (read-datum port))))
 
 ;; The EOF object at the end
 (define (read-datum port)
@@ -11,10 +15,6 @@
     (if (eq? x (end-marker))
         (eof-object)
         (required x "datum"))))
-
-(define (variadic-read . port)
-  (declare unsafe)
-  (read (optional-port port (raw 0) read 0)))
 
 (define (read-error fmt args)
   (declare (result never))
@@ -383,19 +383,16 @@
       (next-char port)))
 
 ;; Numbers: string->number with an optional radix, 2 to 36 like Chez
-(define (string->number s)
-  (declare public)
-  (variadic-string->number s 10))
-
-(define (variadic-string->number s . radix)
-  (check-string s string->number)
-  (unless (or (null? radix) (null? (cdr radix)))
-    (argument-count-error string->number (+ 1 (length radix))))
-  (let ((radix (if (null? radix) 10 (car radix))))
+(define string->number
+  (case-lambda
+   (declare public)
+   ((s) (declare inline) (string->number s 10))
+   ((s radix)
+    (check-string s string->number)
     (unless (and (fixnum? radix) (<= 2 radix 36))
       (argument-error string->number 'radix radix))
     (let ((n (parse-number (string->list s) radix)))
-      (and (number? n) n))))
+      (and (number? n) n)))))
 
 ;; The digit c in radix, else #f
 (define (digit-value c radix)

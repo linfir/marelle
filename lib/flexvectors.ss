@@ -87,23 +87,21 @@
     (relocate! b (as-val p))
     (as-val p)))
 
-(define (flexvector-add-back! fv x)
-  (declare unsafe inline public)
-  (let* ((b (flexvector-body fv flexvector-add-back!))
-         (b (if (raw= (flex-length b) (flex-capacity b)) (flexvector-grow! b) b))
-         (n (flex-length b)))
-    (store (flex-slot b n) (raw 0) x)
-    (store (as-raw b) (raw 1) (raw+ n (raw 1)))
-    fv))
-
-(define (variadic-flexvector-add-back! fv . xs)
-  (check-flexvector fv flexvector-add-back!)
-  (let loop ((xs xs))
-    (if (null? xs)
-        fv
-        (begin
-          (flexvector-add-back! fv (car xs))
-          (loop (cdr xs))))))
+(define flexvector-add-back!
+  (case-lambda
+   (declare public)
+   ((fv) (check-flexvector fv flexvector-add-back!) fv)
+   ((fv x)
+    (declare unsafe inline)
+    (let* ((b (flexvector-body fv flexvector-add-back!))
+           (b (if (raw= (flex-length b) (flex-capacity b)) (flexvector-grow! b) b))
+           (n (flex-length b)))
+      (store (flex-slot b n) (raw 0) x)
+      (store (as-raw b) (raw 1) (raw+ n (raw 1)))
+      fv))
+   ((fv x y . rest)
+    (flexvector-add-back! fv x)
+    (apply flexvector-add-back! fv y rest))))
 
 ;; The last element, its slot cleared so that it keeps nothing alive
 (define (flexvector-remove-back! fv)

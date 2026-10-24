@@ -52,39 +52,57 @@
                  (filter unsafe-item? items))))
 
 
-  ;; The def, data or constant of a library define, define-data or define-constant; a procedure
-  ;; gets a fresh symbol, since programs may have their own of the same name
-  (define (scanned-item x)
+  ;; The defs, data or constant of a library define, define-data or define-constant; a
+  ;; procedure gets a fresh symbol, since programs may have their own of the same name
+  (define (scanned-items x)
     (cond
-     ((library-constant? x) x)
+     ((library-constant? x) (list x))
      ((library-data? x)
       (let ((d (make-data (library-data-name x) (mangle (library-data-name x))
                           (library-data-nwords x) #f)))
         (add-symbol! (data-symbol d) (data-name d))
-        d))
-     (else
-      (let* ((name (library-def-name x))
-             (attrs (library-def-attrs x))
-             (def (make-def name
-                            (mangle (if (library-def-procedure? x) (fresh-name name) name))
-                            (map cons (library-def-args x) (library-def-kinds x))
-                            (library-def-result x)
-                            (and (memq ':inline attrs) #t) (and (memq ':public attrs) #t)
-                            (and (memq ':noalloc attrs) #t) (and (memq ':pure attrs) #t)
-                            (library-def-procedure? x)
-                            (library-def-unsafe? x) 0 #f #f (library-def-body x) #f #f)))
-        (when (and (def-noalloc? def) (or (def-inline? def) (def-public? def)))
-          (compile-error 'scanned-item ":noalloc with another attribute" name))
-        (when (and (def-pure? def) (not (def-noalloc? def)))
-          (compile-error 'scanned-item ":pure without :noalloc" name))
-        ;; An emitted def is called with the Scheme convention
-        (unless (or (not (def-emitted? def))
-                    (def-noalloc? def)
-                    (and (for-all (lambda (k) (memq k '(val rest))) (def-params-kinds def))
-                         (memq (def-result def) '(val never))))
-          (compile-error 'scanned-item "raw parameter or result in a non-inline def" name))
-        (add-def-symbols! def)
-        def))))
+        (list d)))
+     ((library-case? x)
+      (let* ((clauses (map-in-order (lambda (c) (scanned-def (library-clause-def c)))
+                                    (library-case-clauses x)))
+             (dispatcher (scanned-def (library-case-dispatcher x))))
+        (add-case-group! dispatcher
+                         (map (lambda (def c)
+                                (list def (library-clause-required c) (library-clause-rest? c)
+                                      (library-clause-inline? c)))
+                              clauses (library-case-clauses x)))
+        (append clauses (list dispatcher))))
+     (else (list (scanned-def x)))))
+
+
+  (define (scanned-def x)
+    (let* ((name (library-def-name x))
+           (attrs (library-def-attrs x))
+           (def (make-def name
+                          (mangle (if (library-def-procedure? x) (fresh-name name) name))
+                          (map cons (library-def-args x) (library-def-kinds x))
+                          (library-def-result x)
+                          (and (memq ':inline attrs) #t) (and (memq ':public attrs) #t)
+                          (and (memq ':noalloc attrs) #t) (and (memq ':pure attrs) #t)
+                          (library-def-procedure? x)
+                          (library-def-unsafe? x) 0 #f #f (library-def-body x) #f #f)))
+      (when (and (def-noalloc? def) (or (def-inline? def) (def-public? def)))
+        (compile-error 'scanned-item ":noalloc with another attribute" name))
+      (when (and (def-pure? def) (not (def-noalloc? def)))
+        (compile-error 'scanned-item ":pure without :noalloc" name))
+      ;; An emitted def is called with the Scheme convention
+      (unless (or (not (def-emitted? def))
+                  (def-noalloc? def)
+                  (and (for-all (lambda (k) (memq k '(val rest))) (def-params-kinds def))
+                       (memq (def-result def) '(val never))))
+        (compile-error 'scanned-item "raw parameter or result in a non-inline def" name))
+      (add-def-symbols! def)
+      def))
+
+
+  ;; The items of the library forms
+  (define (scanned forms)
+    (apply append (map-in-order scanned-items (scan-library forms))))
 
 
   ;; The library defs a letrec init may call and stay simple
@@ -209,6 +227,7 @@
                    (current-entries '())
                    (inlining '())
                    (core-defs '())
+                   (case-groups (new-case-groups))
                    (var-facts (make-eq-hashtable))
                    (lambda-frees (make-eq-hashtable))
                    (top-globals (make-eq-hashtable))
@@ -223,7 +242,7 @@
     (new-compilation
      0
      (lambda ()
-       (let ((items (map-in-order scanned-item (scan-library forms))))
+       (let ((items (scanned forms)))
          (set-pure-defs! items)
          (core-defs (map (lambda (x) (cons (item-name x) x)) (filter def? items)))
          (let-values (((safe unsafe) (item-bindings items)))
@@ -253,10 +272,43 @@
                                 ,@(if (def-noalloc? x) '(noalloc) '())
                                 ,@(if (def-pure? x) '(pure) '()))
                                ,(def-unsafe? x) ,(def-procedure? x)
-                               ,@(if (def-inline? x) (def-body x) '())))))
+                               ,@(if (or (def-inline? x) (inline-rest-clause? x)) (def-body x) '())))))
                      items)
+              ,@(case-entries items)
               ,@(static-symbol-entries)
               ,@(cps-entries funs items))))))))
+
+
+  ;; A rest clause a program may expand
+  (define (inline-rest-clause? def)
+    (let ((c (def-clause def)))
+      (and c (clause-inline? c))))
+
+
+  ;; (case name (clause required rest? inline?) ...) for each case-lambda group
+  (define (case-entries items)
+    (filter (lambda (x) x)
+            (map (lambda (x)
+                   (let ((clauses (and (def? x) (def-clauses x))))
+                     (and clauses
+                          `(case ,(def-name x)
+                             ,@(map (lambda (c)
+                                      (list (def-name (clause-def c)) (clause-required c)
+                                            (clause-rest? c) (clause-inline? c)))
+                                    clauses)))))
+                 items)))
+
+
+  ;; The groups of the interface's case entries
+  (define (add-case-groups! interface library)
+    (let ((defs (make-eq-hashtable)))
+      (for-each (lambda (x) (when (def? x) (hashtable-set! defs (def-name x) x))) library)
+      (for-each (lambda (x)
+                  (when (eq? (car x) 'case)
+                    (add-case-group! (hashtable-ref defs (cadr x) #f)
+                                     (map (lambda (c) (cons (hashtable-ref defs (car c) #f) (cdr c)))
+                                          (cddr x)))))
+                interface)))
 
 
   ;; (cps name fun) for the funs a program may inline, those of items naming only items
@@ -393,6 +445,7 @@
        (let ((library (map interface-item
                            (filter (lambda (x) (memq (car x) '(def data constant))) interface))))
          (add-symbol! "main_proc" 'main)
+         (add-case-groups! interface library)
          (for-each (lambda (x)
                      (when (eq? (car x) 'static-symbol)
                        (add-library-symbol! (cadr x) (caddr x))))
@@ -410,7 +463,7 @@
          (let*-values (((all) (splice-begins program))
                        ((static) (filter static-form? all))
                        ((forms) (filter (lambda (x) (not (memq x static))) all))
-                       ((items) (map-in-order scanned-item (scan-library static)))
+                       ((items) (scanned static))
                        ((safe unsafe) (item-bindings items)))
            (for-each (lambda (x)
                        (let-values (((name args body) (parse-define x)))

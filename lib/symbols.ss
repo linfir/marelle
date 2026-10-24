@@ -68,20 +68,17 @@
     (store p (raw 2) s)
     (as-val p)))
 
-(define (gensym name)
-  (declare unsafe public)
-  (make-gensym (immutable-string (string-body name gensym))))
+;; With no argument, no name
+(define gensym
+  (case-lambda
+   (declare public)
+   (() (declare unsafe) (make-gensym #f))
+   ((name)
+    (declare unsafe)
+    (make-gensym (immutable-string (string-body name gensym))))))
 
 (define (numbered-name n)
   (string-append "g" (number->string n)))
-
-;; With no argument, no name
-(define (variadic-gensym . name)
-  (declare unsafe)
-  (cond
-   ((null? name) (make-gensym #f))
-   ((null? (cdr name)) (gensym (car name)))
-   (else (argument-count-error gensym (length name)))))
 
 ;; The hash of the code points of the string s
 (define (string-hash-word s)

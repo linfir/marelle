@@ -156,42 +156,28 @@
                     (car args)))
    (else (argument-count-error who (length args)))))
 
-(define (current-input-port)
-  (declare unsafe inline public)
-  (as-val (load current-ports (raw 0))))
+(define current-input-port
+  (case-lambda
+   (declare public)
+   (() (declare unsafe inline) (as-val (load current-ports (raw 0))))
+   (port (declare unsafe) (current-port port (raw 0) input-flag current-input-port))))
 
-(define (variadic-current-input-port . port)
-  (declare unsafe)
-  (current-port port (raw 0) input-flag current-input-port))
+(define current-output-port
+  (case-lambda
+   (declare public)
+   (() (declare unsafe inline) (as-val (load current-ports (raw 1))))
+   (port (declare unsafe) (current-port port (raw 1) output-flag current-output-port))))
 
-(define (current-output-port)
-  (declare unsafe inline public)
-  (as-val (load current-ports (raw 1))))
-
-(define (variadic-current-output-port . port)
-  (declare unsafe)
-  (current-port port (raw 1) output-flag current-output-port))
-
-(define (current-error-port)
-  (declare unsafe inline public)
-  (as-val (load current-ports (raw 2))))
+(define current-error-port
+  (case-lambda
+   (declare public)
+   (() (declare unsafe inline) (as-val (load current-ports (raw 2))))
+   (port (declare unsafe) (current-port port (raw 2) output-flag current-error-port))))
 
 ;; Chez's: the console's output, whatever the current output port
 (define (console-output-port)
   (declare unsafe public)
   (as-val stdout))
-
-(define (variadic-current-error-port . port)
-  (declare unsafe)
-  (current-port port (raw 2) output-flag current-error-port))
-
-;; The port of the optional arguments rest, after n others, else current port i
-(define (optional-port rest (raw i) who n)
-  (declare unsafe inline)
-  (cond
-   ((null? rest) (as-val (load current-ports i)))
-   ((null? (cdr rest)) (car rest))
-   (else (argument-count-error who (+ n (length rest))))))
 
 ;; Writes x to the open output port, like write when write? is 1, else like display
 (define (port-put! port x (raw write?))
@@ -224,37 +210,37 @@
     (store (as-raw port) (raw 5) (room-body b (+ (make-fixnum (string-nchars b)) n)))
     undef))
 
-(define (display x port)
-  (declare unsafe public)
-  (check-port port output-flag display)
-  (port-put! port x (raw 0))
-  undef)
+(define display
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (display x (current-output-port)))
+   ((x port)
+    (declare unsafe)
+    (check-port port output-flag display)
+    (port-put! port x (raw 0))
+    undef)))
 
-(define (variadic-display x . port)
-  (declare unsafe)
-  (display x (optional-port port (raw 1) display 1)))
-
-(define (write x port)
-  (declare unsafe public)
-  (check-port port output-flag write)
-  (port-put! port x (raw 1))
-  undef)
-
-(define (variadic-write x . port)
-  (declare unsafe)
-  (write x (optional-port port (raw 1) write 1)))
+(define write
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (write x (current-output-port)))
+   ((x port)
+    (declare unsafe)
+    (check-port port output-flag write)
+    (port-put! port x (raw 1))
+    undef)))
 
 ;; Chez's pretty-print, without line breaks yet: write, then a newline
-(define (pretty-print x port)
-  (declare unsafe public)
-  (check-port port output-flag pretty-print)
-  (port-put! port x (raw 1))
-  (port-put! port #\newline (raw 0))
-  undef)
-
-(define (variadic-pretty-print x . port)
-  (declare unsafe)
-  (pretty-print x (optional-port port (raw 1) pretty-print 1)))
+(define pretty-print
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) (pretty-print x (current-output-port)))
+   ((x port)
+    (declare unsafe)
+    (check-port port output-flag pretty-print)
+    (port-put! port x (raw 1))
+    (port-put! port #\newline (raw 0))
+    undef)))
 
 ;; A parameter of Chez's printer, value #f, setting it ignored
 (define (ignored-parameter value who)
@@ -284,57 +270,58 @@
   (declare public)
   (ignored-parameter value print-brackets))
 
-(define (newline port)
-  (declare unsafe public)
-  (check-port port output-flag newline)
-  (port-put! port #\newline (raw 0))
-  undef)
+(define newline
+  (case-lambda
+   (declare public)
+   (() (declare inline) (newline (current-output-port)))
+   ((port)
+    (declare unsafe)
+    (check-port port output-flag newline)
+    (port-put! port #\newline (raw 0))
+    undef)))
 
-(define (variadic-newline . port)
-  (declare unsafe)
-  (newline (optional-port port (raw 1) newline 0)))
-
-(define (write-char c port)
-  (declare unsafe public)
-  (unless (char? c)
-    (argument-error write-char 'char c))
-  (check-port port output-flag write-char)
-  (port-put! port c (raw 0))
-  undef)
-
-(define (variadic-write-char c . port)
-  (declare unsafe)
-  (write-char c (optional-port port (raw 1) write-char 1)))
-
-(define (write-string s port)
-  (declare unsafe public)
-  (check-string s write-string)
-  (check-port port output-flag write-string)
-  (port-put! port s (raw 0))
-  undef)
+(define write-char
+  (case-lambda
+   (declare public)
+   ((c) (declare inline) (write-char c (current-output-port)))
+   ((c port)
+    (declare unsafe)
+    (unless (char? c)
+      (argument-error write-char 'char c))
+    (check-port port output-flag write-char)
+    (port-put! port c (raw 0))
+    undef)))
 
 ;; (write-string s [port [start [end]]])
-(define (variadic-write-string s . rest)
-  (check-string s write-string)
-  (cond
-   ((null? rest) (write-string s (current-output-port)))
-   ((null? (cdr rest)) (write-string s (car rest)))
-   ((null? (cddr rest)) (write-string (substring s (cadr rest) (string-length s)) (car rest)))
-   ((null? (cdddr rest)) (write-string (substring s (cadr rest) (caddr rest)) (car rest)))
-   (else (argument-count-error write-string (+ 1 (length rest))))))
+(define write-string
+  (case-lambda
+   (declare public)
+   ((s) (declare inline) (write-string s (current-output-port)))
+   ((s port)
+    (declare unsafe)
+    (check-string s write-string)
+    (check-port port output-flag write-string)
+    (port-put! port s (raw 0))
+    undef)
+   ((s port start)
+    (check-string s write-string)
+    (write-string (substring s start (string-length s)) port))
+   ((s port start end)
+    (check-string s write-string)
+    (write-string (substring s start end) port))))
 
-(define (flush-output-port port)
-  (declare unsafe public)
-  (if (binary-port? port)
-      (check-port port binary-output-flags flush-output-port)
-      (check-port port output-flag flush-output-port))
-  (unless (port-flag? port string-flag)
-    (flush-port (as-raw port)))
-  undef)
-
-(define (variadic-flush-output-port . port)
-  (declare unsafe)
-  (flush-output-port (optional-port port (raw 1) flush-output-port 0)))
+(define flush-output-port
+  (case-lambda
+   (declare public)
+   (() (declare inline) (flush-output-port (current-output-port)))
+   ((port)
+    (declare unsafe)
+    (if (binary-port? port)
+        (check-port port binary-output-flags flush-output-port)
+        (check-port port output-flag flush-output-port))
+    (unless (port-flag? port string-flag)
+      (flush-port (as-raw port)))
+    undef)))
 
 ;; Moves the unread bytes of the descriptor input port to the front of its buffer and reads more
 ;; after them, the console flushed first so that a prompt shows; the bytes read, 0 at the end
@@ -426,59 +413,59 @@
       (read-string-char (as-raw port) peek?)
       (read-fd-char (as-raw port) peek?)))
 
-(define (read-char port)
-  (declare unsafe public)
-  (check-port port input-flag read-char)
-  (port-read-char port (raw 0)))
+(define read-char
+  (case-lambda
+   (declare public)
+   (() (declare inline) (read-char (current-input-port)))
+   ((port)
+    (declare unsafe)
+    (check-port port input-flag read-char)
+    (port-read-char port (raw 0)))))
 
-(define (variadic-read-char . port)
-  (declare unsafe)
-  (read-char (optional-port port (raw 0) read-char 0)))
-
-(define (peek-char port)
-  (declare unsafe public)
-  (check-port port input-flag peek-char)
-  (port-read-char port (raw 1)))
-
-(define (variadic-peek-char . port)
-  (declare unsafe)
-  (peek-char (optional-port port (raw 0) peek-char 0)))
+(define peek-char
+  (case-lambda
+   (declare public)
+   (() (declare inline) (peek-char (current-input-port)))
+   ((port)
+    (declare unsafe)
+    (check-port port input-flag peek-char)
+    (port-read-char port (raw 1)))))
 
 ;; The chars up to the next newline, which is consumed, or to the end; the EOF object at the end
-(define (read-line port)
-  (declare unsafe public)
-  (check-port port input-flag read-line)
-  (let ((c (port-read-char port (raw 0))))
-    (if (eof-object? c)
-        c
-        (let char-next ((c c)
-                        (chars '()))
-          (if (or (eof-object? c) (eq? c #\newline))
-              (list->string (reverse chars))
-              (char-next (port-read-char port (raw 0)) (cons c chars)))))))
-
-(define (variadic-read-line . port)
-  (declare unsafe)
-  (read-line (optional-port port (raw 0) read-line 0)))
+(define read-line
+  (case-lambda
+   (declare public)
+   (() (declare inline) (read-line (current-input-port)))
+   ((port)
+    (declare unsafe)
+    (check-port port input-flag read-line)
+    (let ((c (port-read-char port (raw 0))))
+      (if (eof-object? c)
+          c
+          (let char-next ((c c)
+                          (chars '()))
+            (if (or (eof-object? c) (eq? c #\newline))
+                (list->string (reverse chars))
+                (char-next (port-read-char port (raw 0)) (cons c chars)))))))))
 
 ;; The next k chars, fewer at the end; the EOF object at the end
-(define (read-string k port)
-  (declare unsafe public)
-  (check-count k read-string 'nonnegative-fixnum)
-  (check-port port input-flag read-string)
-  (let char-next ((k k)
-                  (chars '()))
-    (if (eq? k 0)
-        (list->string (reverse chars))
-        (let ((c (port-read-char port (raw 0))))
-          (cond
-           ((not (eof-object? c)) (char-next (- k 1) (cons c chars)))
-           ((null? chars) c)
-           (else (list->string (reverse chars))))))))
-
-(define (variadic-read-string k . port)
-  (declare unsafe)
-  (read-string k (optional-port port (raw 0) read-string 1)))
+(define read-string
+  (case-lambda
+   (declare public)
+   ((k) (declare inline) (read-string k (current-input-port)))
+   ((k port)
+    (declare unsafe)
+    (check-count k read-string 'nonnegative-fixnum)
+    (check-port port input-flag read-string)
+    (let char-next ((k k)
+                    (chars '()))
+      (if (eq? k 0)
+          (list->string (reverse chars))
+          (let ((c (port-read-char port (raw 0))))
+            (cond
+             ((not (eof-object? c)) (char-next (- k 1) (cons c chars)))
+             ((null? chars) c)
+             (else (list->string (reverse chars))))))))))
 
 ;; Whether a char may be read without blocking: a string port, buffered bytes, or the OS says
 ;; so (also at the end of the file)
@@ -489,14 +476,14 @@
         (raw<u (port-position p) (port-end p))
         (os-input-ready? (port-fd p)))))
 
-(define (char-ready? port)
-  (declare unsafe public)
-  (check-port port input-flag char-ready?)
-  (port-ready? port))
-
-(define (variadic-char-ready? . port)
-  (declare unsafe)
-  (char-ready? (optional-port port (raw 0) char-ready? 0)))
+(define char-ready?
+  (case-lambda
+   (declare public)
+   (() (declare inline) (char-ready? (current-input-port)))
+   ((port)
+    (declare unsafe)
+    (check-port port input-flag char-ready?)
+    (port-ready? port))))
 
 ;; Files
 
@@ -746,31 +733,31 @@
     (library-errorf put-bytevector "index ~s + count ~s is beyond the end of ~s"
                     (list start count bv)))))
 
-;; The count bytes of bv from start
-(define (put-bytevector port bv start count)
-  (declare unsafe public)
-  (check-port port binary-output-flags put-bytevector)
-  (check-bytevector bv put-bytevector)
-  (unless (and (fixnum? start) (fixnum? count) (>= start 0) (>= count 0)
-               (<= (+ start count) (bytevector-length bv)))
-    (put-bytevector-error bv start count))
-  (write-bytes (as-raw port) (byte-address bv (fixnum-value start)) (fixnum-value count))
-  undef)
-
-;; (put-bytevector port bv [start [count]])
-(define (variadic-put-bytevector port bv . rest)
-  (declare unsafe)
-  (check-port port binary-output-flags put-bytevector)
-  (check-bytevector bv put-bytevector)
-  (cond
-   ((null? rest) (put-bytevector port bv 0 (bytevector-length bv)))
-   ((null? (cdr rest))
-    (let ((start (car rest)))
-      (unless (and (fixnum? start) (>= start 0) (<= start (bytevector-length bv)))
-        (put-bytevector-start-error start))
-      (put-bytevector port bv start (- (bytevector-length bv) start))))
-   ((null? (cddr rest)) (put-bytevector port bv (car rest) (cadr rest)))
-   (else (argument-count-error put-bytevector (+ 2 (length rest))))))
+;; (put-bytevector port bv [start [count]]): the count bytes of bv from start
+(define put-bytevector
+  (case-lambda
+   (declare public)
+   ((port bv)
+    (declare unsafe)
+    (check-port port binary-output-flags put-bytevector)
+    (check-bytevector bv put-bytevector)
+    (put-bytevector port bv 0 (bytevector-length bv)))
+   ((port bv start)
+    (declare unsafe)
+    (check-port port binary-output-flags put-bytevector)
+    (check-bytevector bv put-bytevector)
+    (unless (and (fixnum? start) (>= start 0) (<= start (bytevector-length bv)))
+      (put-bytevector-start-error start))
+    (put-bytevector port bv start (- (bytevector-length bv) start)))
+   ((port bv start count)
+    (declare unsafe)
+    (check-port port binary-output-flags put-bytevector)
+    (check-bytevector bv put-bytevector)
+    (unless (and (fixnum? start) (fixnum? count) (>= start 0) (>= count 0)
+                 (<= (+ start count) (bytevector-length bv)))
+      (put-bytevector-error bv start count))
+    (write-bytes (as-raw port) (byte-address bv (fixnum-value start)) (fixnum-value count))
+    undef)))
 
 (define (get-u8 port)
   (declare unsafe public)

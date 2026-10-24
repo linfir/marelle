@@ -2,23 +2,41 @@
 ;; so their limbs are turned into two's complement on the fly
 
 ;; The and and the or of two tagged fixnums keep tag 1; their xor needs it again
-(define (bitwise-and x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y))
-      (as-val (bit-and (as-raw x) (as-raw y)))
-      (and-integers x y)))
+(define bitwise-and
+  (case-lambda
+   (declare public)
+   (() (declare inline) -1)
+   ((x) (declare inline) (check-exact-integer x bitwise-and) x)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y))
+        (as-val (bit-and (as-raw x) (as-raw y)))
+        (and-integers x y)))
+   ((x y . rest) (declare inline) (apply bitwise-and (bitwise-and x y) rest))))
 
-(define (bitwise-ior x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y))
-      (as-val (bit-or (as-raw x) (as-raw y)))
-      (ior-integers x y)))
+(define bitwise-ior
+  (case-lambda
+   (declare public)
+   (() (declare inline) 0)
+   ((x) (declare inline) (check-exact-integer x bitwise-ior) x)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y))
+        (as-val (bit-or (as-raw x) (as-raw y)))
+        (ior-integers x y)))
+   ((x y . rest) (declare inline) (apply bitwise-ior (bitwise-ior x y) rest))))
 
-(define (bitwise-xor x y)
-  (declare unsafe inline public)
-  (if (and (fixnum? x) (fixnum? y))
-      (as-val (bit-or (bit-xor (as-raw x) (as-raw y)) (raw 1)))
-      (xor-integers x y)))
+(define bitwise-xor
+  (case-lambda
+   (declare public)
+   (() (declare inline) 0)
+   ((x) (declare inline) (check-exact-integer x bitwise-xor) x)
+   ((x y)
+    (declare unsafe inline)
+    (if (and (fixnum? x) (fixnum? y))
+        (as-val (bit-or (bit-xor (as-raw x) (as-raw y)) (raw 1)))
+        (xor-integers x y)))
+   ((x y . rest) (declare inline) (apply bitwise-xor (bitwise-xor x y) rest))))
 
 ;; ~(n << 3) is (~n << 3) | 7, so flipping all bits but the tag's gives ~n
 (define (bitwise-not x)
@@ -108,15 +126,6 @@
 (define (not-integer x)
   (check-exact-integer x bitwise-not)
   (- -1 x))
-
-(define (variadic-bitwise-and . xs)
-  (fold-left (lambda (a b) (bitwise-and a b)) -1 xs))
-
-(define (variadic-bitwise-ior . xs)
-  (fold-left (lambda (a b) (bitwise-ior a b)) 0 xs))
-
-(define (variadic-bitwise-xor . xs)
-  (fold-left (lambda (a b) (bitwise-xor a b)) 0 xs))
 
 ;; The limbs of r from k / 64: |a| << k
 (define (shift-magnitude-left! r a k)
@@ -244,34 +253,26 @@
             (raw 1))
       (bignum-bit-set? n (fixnum-value k))))
 
-;; Chez's names, which the compiler uses: inline 2-operand defs like the bitwise ones
-(define (logand x y)
-  (declare inline public)
-  (bitwise-and x y))
+;; Chez's names, which the compiler uses: the bitwise ones
+(define logand
+  (case-lambda
+   (declare public)
+   (xs (declare inline) (apply bitwise-and xs))))
 
-(define (logior x y)
-  (declare inline public)
-  (bitwise-ior x y))
+(define logior
+  (case-lambda
+   (declare public)
+   (xs (declare inline) (apply bitwise-ior xs))))
 
-(define (logor x y)
-  (declare inline public)
-  (bitwise-ior x y))
+(define logor
+  (case-lambda
+   (declare public)
+   (xs (declare inline) (apply bitwise-ior xs))))
 
-(define (logxor x y)
-  (declare inline public)
-  (bitwise-xor x y))
-
-(define (variadic-logand . xs)
-  (fold-left (lambda (a b) (bitwise-and a b)) -1 xs))
-
-(define (variadic-logior . xs)
-  (fold-left (lambda (a b) (bitwise-ior a b)) 0 xs))
-
-(define (variadic-logor . xs)
-  (fold-left (lambda (a b) (bitwise-ior a b)) 0 xs))
-
-(define (variadic-logxor . xs)
-  (fold-left (lambda (a b) (bitwise-xor a b)) 0 xs))
+(define logxor
+  (case-lambda
+   (declare public)
+   (xs (declare inline) (apply bitwise-xor xs))))
 
 (define (lognot x)
   (declare public)

@@ -3,7 +3,7 @@
   (declare unsafe inline public)
   (raw= (bit-and (as-raw x) (raw 3)) (raw 3)))
 
-;; Unchecked, for noalloc defs, which cannot call error
+;; Unchecked, for noalloc defs, which cannot call error, and the compiler's apply trees
 (define (pair-car x)
   (declare unsafe inline)
   (as-val (load (untag x) (raw 0))))
@@ -179,17 +179,23 @@
         (loop (+ n 1) (cdr l)))))
 
 ;; Each new pair's cdr is b until the next one replaces it
-(define (append a b)
-  (declare public)
-  (if (null? a)
-      b
-      (let ((head (cons (car a) b)))
-        (let loop ((tail head) (a (cdr a)))
-          (if (null? a)
-              head
-              (let ((p (cons (car a) b)))
-                (set-tail! tail p)
-                (loop p (cdr a))))))))
+;; From the last list, which is shared, so each other is copied once
+(define append
+  (case-lambda
+   (declare public)
+   (() (declare inline) '())
+   ((a) (declare inline) a)
+   ((a b)
+    (if (null? a)
+        b
+        (let ((head (cons (car a) b)))
+          (let loop ((tail head) (a (cdr a)))
+            (if (null? a)
+                head
+                (let ((p (cons (car a) b)))
+                  (set-tail! tail p)
+                  (loop p (cdr a))))))))
+   ((a b . rest) (declare inline) (append a (apply append b rest)))))
 
 (define (append-reverse a b)
   (declare public)
@@ -207,31 +213,46 @@
       l
       (list-tail (cdr l) (- k 1))))
 
-(define (map f l)
-  (declare public)
-  (if (null? l)
-      '()
-      (let ((head (cons (f (car l)) '())))
-        (let loop ((tail head) (l (cdr l)))
-          (if (null? l)
-              head
-              (let ((p (cons (f (car l)) '())))
-                (set-tail! tail p)
-                (loop p (cdr l))))))))
+(define map
+  (case-lambda
+   (declare public)
+   ((f l)
+    (if (null? l)
+        '()
+        (let ((head (cons (f (car l)) '())))
+          (let loop ((tail head) (l (cdr l)))
+            (if (null? l)
+                head
+                (let ((p (cons (f (car l)) '())))
+                  (set-tail! tail p)
+                  (loop p (cdr l))))))))
+   ((f a b) (map2 f a b))
+   ((f l . ls) (map-lists f (cons l ls)))))
 
-(define (for-each f l)
-  (declare public)
-  (if (pair? l)
-      (begin
-        (f (car l))
-        (for-each f (cdr l)))))
+(define for-each
+  (case-lambda
+   (declare public)
+   ((f l)
+    (if (pair? l)
+        (begin
+          (f (car l))
+          (for-each f (cdr l)))))
+   ((f a b)
+    (let loop ((a a) (b b))
+      (when (and (pair? a) (pair? b))
+        (f (car a) (car b))
+        (loop (cdr a) (cdr b)))))
+   ((f l . ls)
+    (let loop ((ls (cons l ls)))
+      (let ((xs (cars ls)))
+        (when xs
+          (apply f xs)
+          (loop (cdrs ls))))))))
 
-(define (list x)
-  (declare inline public)
-  (cons x '()))
-
-(define (variadic-list . xs)
-  xs)
+(define list
+  (case-lambda
+   (declare public)
+   (xs (declare inline) xs)))
 
 (define (list-ref l k)
   (declare public)
@@ -314,12 +335,15 @@
    ((eq? x (caar l)) (car l))
    (else (assq x (cdr l)))))
 
-(define (member x l)
-  (declare public)
-  (cond
-   ((null? l) #f)
-   ((equal? x (car l)) l)
-   (else (member x (cdr l)))))
+(define member
+  (case-lambda
+   (declare public)
+   ((x l)
+    (cond
+     ((null? l) #f)
+     ((equal? x (car l)) l)
+     (else (member x (cdr l)))))
+   ((x l compare) (member-with x l compare))))
 
 (define (member-with x l compare)
   (cond
@@ -327,30 +351,21 @@
    ((compare x (car l)) l)
    (else (member-with x (cdr l) compare))))
 
-(define (variadic-member x l . compare)
-  (cond
-   ((null? compare) (member x l))
-   ((null? (cdr compare)) (member-with x l (car compare)))
-   (else (argument-count-error member (+ 2 (length compare))))))
-
-(define (assoc x l)
-  (declare public)
-  (cond
-   ((null? l) #f)
-   ((equal? x (caar l)) (car l))
-   (else (assoc x (cdr l)))))
+(define assoc
+  (case-lambda
+   (declare public)
+   ((x l)
+    (cond
+     ((null? l) #f)
+     ((equal? x (caar l)) (car l))
+     (else (assoc x (cdr l)))))
+   ((x l compare) (assoc-with x l compare))))
 
 (define (assoc-with x l compare)
   (cond
    ((null? l) #f)
    ((compare x (caar l)) (car l))
    (else (assoc-with x (cdr l) compare))))
-
-(define (variadic-assoc x l . compare)
-  (cond
-   ((null? compare) (assoc x l))
-   ((null? (cdr compare)) (assoc-with x l (car compare)))
-   (else (argument-count-error assoc (+ 2 (length compare))))))
 
 (define (equal? x y)
   (declare public)
@@ -394,21 +409,37 @@
   (filter (lambda (y) (not (eq? x y))) l))
 
 ;; The last call is a tail call, its value the result
-(define (for-all ok? l)
-  (declare public)
-  (or (null? l)
-      (let loop ((l l))
-        (if (null? (cdr l))
-            (ok? (car l))
-            (and (ok? (car l)) (loop (cdr l)))))))
+(define for-all
+  (case-lambda
+   (declare public)
+   ((ok? l)
+    (or (null? l)
+        (let loop ((l l))
+          (if (null? (cdr l))
+              (ok? (car l))
+              (and (ok? (car l)) (loop (cdr l)))))))
+   ((ok? l . ls)
+    (let loop ((ls (cons l ls)) (last #t))
+      (let ((xs (cars ls)))
+        (if xs
+            (let ((r (apply ok? xs)))
+              (and r (loop (cdrs ls) r)))
+            last))))))
 
-(define (exists ok? l)
-  (declare public)
-  (and (pair? l)
-       (let loop ((l l))
-         (if (null? (cdr l))
-             (ok? (car l))
-             (or (ok? (car l)) (loop (cdr l)))))))
+(define exists
+  (case-lambda
+   (declare public)
+   ((ok? l)
+    (and (pair? l)
+         (let loop ((l l))
+           (if (null? (cdr l))
+               (ok? (car l))
+               (or (ok? (car l)) (loop (cdr l)))))))
+   ((ok? l . ls)
+    (let loop ((ls (cons l ls)))
+      (let ((xs (cars ls)))
+        (and xs
+             (or (apply ok? xs) (loop (cdrs ls)))))))))
 
 ;; Several lists: the cars, or #f when one ends, so the shortest one stops
 (define (cars ls)
@@ -445,48 +476,6 @@
               (loop p (cdrs ls)))
             (cdr head))))))
 
-(define (variadic-map f l . ls)
-  (cond
-   ((null? ls) (map f l))
-   ((null? (cdr ls)) (map2 f l (car ls)))
-   (else (map-lists f (cons l ls)))))
-
-(define (variadic-for-each f l . ls)
-  (cond
-   ((null? ls) (for-each f l))
-   ((null? (cdr ls))
-    (let loop ((a l) (b (car ls)))
-      (when (and (pair? a) (pair? b))
-        (f (car a) (car b))
-        (loop (cdr a) (cdr b)))))
-   (else
-    (let loop ((ls (cons l ls)))
-      (let ((xs (cars ls)))
-        (when xs
-          (apply f xs)
-          (loop (cdrs ls))))))))
-
-(define (variadic-for-all ok? l . ls)
-  (let loop ((ls (cons l ls)) (last #t))
-    (let ((xs (cars ls)))
-      (if xs
-          (let ((r (apply ok? xs)))
-            (and r (loop (cdrs ls) r)))
-          last))))
-
-(define (variadic-exists ok? l . ls)
-  (let loop ((ls (cons l ls)))
-    (let ((xs (cars ls)))
-      (and xs
-           (or (apply ok? xs) (loop (cdrs ls)))))))
-
-;; From the last list, which is shared, so each other is copied once
-(define (variadic-append . ls)
-  (if (null? ls)
-      '()
-      (let ((rev (reverse ls)))
-        (fold-left (lambda (acc l) (append l acc)) (car rev) (cdr rev)))))
-
 (define (cons* x . rest)
   (declare unsafe public)
   (if (null? rest)
@@ -514,20 +503,16 @@
         acc
         (loop (- i 1) (cons (- i 1) acc)))))
 
-(define (make-list k fill)
-  (declare public)
-  (check-count k make-list 'size)
-  (let loop ((k k) (acc '()))
-    (if (eq? k 0)
-        acc
-        (loop (- k 1) (cons fill acc)))))
-
-(define (variadic-make-list k . fill)
-  (declare unsafe)
-  (cond
-   ((null? fill) (make-list k undef))
-   ((null? (cdr fill)) (make-list k (car fill)))
-   (else (argument-count-error make-list (+ 1 (length fill))))))
+(define make-list
+  (case-lambda
+   (declare public)
+   ((k) (declare unsafe) (make-list k undef))
+   ((k fill)
+    (check-count k make-list 'size)
+    (let loop ((k k) (acc '()))
+      (if (eq? k 0)
+          acc
+          (loop (- k 1) (cons fill acc)))))))
 
 (define (list-head l k)
   (declare public)

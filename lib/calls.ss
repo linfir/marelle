@@ -82,19 +82,31 @@
         (tail-call-frame g)
         (apply-frame g))))
 
-;; Multiple values are [values-type, list], except one value, which is itself
-(define (values x)
-  (declare inline public)
-  x)
+;; An apply of a case-lambda group (the compiler's apply-tree) to k arguments and those of the
+;; list l, which no clause takes or which is not a list
+(define (apply-error who k l)
+  (declare (result never))
+  (argument-count-error who (+ k (argument-count l))))
 
-(define (variadic-values . xs)
-  (declare unsafe)
-  (if (and (pair? xs) (null? (cdr xs)))
-      (car xs)
-      (let ((p (alloc (raw 2))))
-        (store p (raw 0) values-type)
-        (store p (raw 1) xs)
-        (as-val p))))
+;; A fresh copy of the tail of the list l, for a rest clause, checked
+(define (apply-list-copy tail l)
+  (let next ((x tail))
+    (cond
+     ((null? x) (list-copy tail))
+     ((pair? x) (next (cdr x)))
+     (else (argument-error apply 'list l)))))
+
+;; Multiple values are [values-type, list], except one value, which is itself
+(define values
+  (case-lambda
+   (declare public)
+   ((x) (declare inline) x)
+   (xs
+    (declare unsafe)
+    (let ((p (alloc (raw 2))))
+      (store p (raw 0) values-type)
+      (store p (raw 1) xs)
+      (as-val p)))))
 
 (define (multiple-values? x)
   (declare unsafe inline)
